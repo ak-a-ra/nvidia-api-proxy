@@ -1,6 +1,5 @@
 import http from "node:http";
-import { pipeline } from "node:stream";
-import { Readable } from "node:stream";
+import { pipeline, Readable } from "node:stream";
 import { timingSafeEqual } from "node:crypto";
 
 const PORT = Number(process.env.PORT || 10000);
@@ -40,17 +39,9 @@ function drain(req) {
 }
 
 function constantTimeBearerEqual(presented, expected) {
-  if (typeof presented !== "string" || typeof expected !== "string") return false;
-  const a = Buffer.from(presented);
-  const b = Buffer.from(expected);
-  // Length mismatch must not short-circuit into a timing signal: compare a
-  // against itself in that case so both paths do real work.
-  if (a.length !== b.length) {
-    timingSafeEqual(a, a);
-    return false;
-  }
   try {
-    return timingSafeEqual(a, b);
+    // timingSafeEqual throws on length mismatch, which covers both cases.
+    return timingSafeEqual(Buffer.from(presented), Buffer.from(expected));
   } catch {
     return false;
   }
@@ -69,16 +60,12 @@ function upstreamUrl(incoming) {
   return `${NVIDIA_BASE_URL.replace(/\/v1\/?$/, "")}${suffix}${incoming.search}`;
 }
 
-function proxyConfigured() {
-  return Boolean(NVIDIA_API_KEY && PROXY_AUTH_TOKEN);
-}
-
 const server = http.createServer(async (req, res) => {
   try {
     const incoming = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
     if (incoming.pathname === "/health") {
-      if (!proxyConfigured()) {
+      if (!NVIDIA_API_KEY || !PROXY_AUTH_TOKEN) {
         return sendJson(res, 503, { status: "unconfigured" });
       }
       return sendJson(res, 200, { status: "ok" });
@@ -94,7 +81,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 401, { error: "Unauthorized" });
     }
 
-    if (!proxyConfigured()) {
+    if (!NVIDIA_API_KEY || !PROXY_AUTH_TOKEN) {
       drain(req);
       return sendJson(res, 503, { error: "Proxy is not configured" });
     }
@@ -121,15 +108,12 @@ const server = http.createServer(async (req, res) => {
     // with ", " which corrupts set-cookie). getSetCookie handles the most
     // common multi-value header; raw entries cover the rest.
     const responseHeaders = {};
-    const raw = upstream.headers.entries ? [...upstream.headers] : [];
-    for (const [name, value] of raw) {
+    for (const [name, value] of upstream.headers) {
       if (STRIPPED_HEADERS.has(name.toLowerCase())) continue;
       if (name.toLowerCase() === "set-cookie") continue;
       responseHeaders[name] = value;
     }
-    const cookies = typeof upstream.headers.getSetCookie === "function"
-      ? upstream.headers.getSetCookie()
-      : [];
+    const cookies = upstream.headers.getSetCookie();
     if (cookies.length > 0) responseHeaders["set-cookie"] = cookies;
 
     res.writeHead(upstream.status, responseHeaders);

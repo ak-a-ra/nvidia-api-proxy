@@ -56,9 +56,11 @@ const SERVER_PATH = new URL("./server.js", import.meta.url).pathname;
 function startProxyServer(baseURL, key, proxyToken) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env };
-    if (baseURL !== undefined) env.NVIDIA_BASE_URL = baseURL;
-    if (key !== undefined) env.NVIDIA_API_KEY = key;
-    if (proxyToken !== undefined) env.PROXY_AUTH_TOKEN = proxyToken;
+    // Loose != null: passing undefined would collide with caller-side
+    // destructuring defaults, so null is the "leave unset" sentinel.
+    if (baseURL != null) env.NVIDIA_BASE_URL = baseURL;
+    if (key != null) env.NVIDIA_API_KEY = key;
+    if (proxyToken != null) env.PROXY_AUTH_TOKEN = proxyToken;
     env.PORT = String(0);
 
     const init = `
@@ -88,21 +90,33 @@ function startProxyServer(baseURL, key, proxyToken) {
   });
 }
 
+// Start a stub upstream and a proxy child pointing at it; both cleanups are
+// registered on the test context (LIFO: child killed before stub closed).
+async function withProxy(t, { base, key = "sk", token = "pt", ...stubOpts }) {
+  const stub = await startStubUpstream(
+    stubOpts.status ?? 200,
+    stubOpts.body,
+    stubOpts.headers,
+    stubOpts.mode
+  );
+  t.after(() => stub.close());
+  const proxy = await startProxyServer(base ?? stubBase(stub), key, token);
+  t.after(() => proxy.child.kill());
+  return { stub, proxy };
+}
+
 function proxiedFetch(port, path, opts = {}) {
   return fetch(`http://127.0.0.1:${port}${path}`, opts);
 }
 
 describe("proxy", () => {
   test("POST body forwarded byte-identical + query preserved + auth replaced upstream", async (t) => {
-    const stub = await startStubUpstream(200, JSON.stringify({ ok: true, echoed: "body" }), {
-      "content-type": "application/json",
+    const { proxy } = await withProxy(t, {
+      key: "sk-test",
+      token: "pt-secret",
+      body: JSON.stringify({ ok: true, echoed: "body" }),
+      headers: { "content-type": "application/json" },
     });
-    t.after(() => {
-      stub.close();
-      stub.closeAllConnections();
-    });
-    const proxy = await startProxyServer(stubBase(stub), "sk-test", "pt-secret");
-    t.after(() => proxy.child.kill());
     const payload = JSON.stringify({ model: "nemotron", messages: [{ role: "user", content: "hi" }] });
     const res = await proxiedFetch(proxy.port, "/v1/chat/completions?stream=true", {
       method: "POST",
@@ -120,38 +134,26 @@ describe("proxy", () => {
   });
 
   test("health 200 when configured", async (t) => {
-    const stub = await startStubUpstream(200);
-    t.after(() => stub.close());
-    const proxy = await startProxyServer(stubBase(stub), "sk", "pt");
-    t.after(() => proxy.child.kill());
+    const { proxy } = await withProxy(t, {});
     const res = await proxiedFetch(proxy.port, "/health");
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), { status: "ok" });
   });
 
   test("health 503 when unconfigured (missing proxy token)", async (t) => {
-    const stub = await startStubUpstream(200);
-    t.after(() => stub.close());
-    const proxy = await startProxyServer(stubBase(stub), "sk", undefined);
-    t.after(() => proxy.child.kill());
+    const { proxy } = await withProxy(t, { token: null });
     const res = await proxiedFetch(proxy.port, "/health");
     assert.equal(res.status, 503);
   });
 
   test("401 without proxy auth token", async (t) => {
-    const stub = await startStubUpstream(200);
-    t.after(() => stub.close());
-    const proxy = await startProxyServer(stubBase(stub), "sk", "pt-secret");
-    t.after(() => proxy.child.kill());
+    const { proxy } = await withProxy(t, { token: "pt-secret" });
     const res = await proxiedFetch(proxy.port, "/v1/models");
     assert.equal(res.status, 401);
   });
 
   test("404 for non-/v1 paths", async (t) => {
-    const stub = await startStubUpstream(200);
-    t.after(() => stub.close());
-    const proxy = await startProxyServer(stubBase(stub), "sk", "pt");
-    t.after(() => proxy.child.kill());
+    const { proxy } = await withProxy(t, {});
     const res = await proxiedFetch(proxy.port, "/foo", {
       headers: { authorization: "Bearer pt" },
     });
@@ -159,12 +161,10 @@ describe("proxy", () => {
   });
 
   test("bare /v1 and /v1/ accepted as proxy roots", async (t) => {
-    const stub = await startStubUpstream(200, JSON.stringify({ data: [] }), {
-      "content-type": "application/json",
+    const { proxy } = await withProxy(t, {
+      body: JSON.stringify({ data: [] }),
+      headers: { "content-type": "application/json" },
     });
-    t.after(() => stub.close());
-    const proxy = await startProxyServer(stubBase(stub), "sk", "pt");
-    t.after(() => proxy.child.kill());
     for (const path of ["/v1", "/v1/"]) {
       const res = await proxiedFetch(proxy.port, path, {
         headers: { authorization: "Bearer pt" },
@@ -174,13 +174,10 @@ describe("proxy", () => {
   });
 
   test("multi-value set-cookie preserved (not merged)", async (t) => {
-    const stub = await startStubUpstream(200, "x", {
-      "content-type": "text/plain",
-      "set-cookie": ["a=1; Path=/", "b=2; Path=/"],
+    const { proxy } = await withProxy(t, {
+      body: "x",
+      headers: { "content-type": "text/plain", "set-cookie": ["a=1; Path=/", "b=2; Path=/"] },
     });
-    t.after(() => stub.close());
-    const proxy = await startProxyServer(stubBase(stub), "sk", "pt");
-    t.after(() => proxy.child.kill());
     const res = await proxiedFetch(proxy.port, "/v1/models", {
       headers: { authorization: "Bearer pt" },
     });
@@ -189,12 +186,10 @@ describe("proxy", () => {
   });
 
   test("SSE streamed through unbuffered", async (t) => {
-    const stub = await startStubUpstream(200, undefined, {
-      "content-type": "text/event-stream",
-    }, "sse");
-    t.after(() => stub.close());
-    const proxy = await startProxyServer(stubBase(stub), "sk", "pt");
-    t.after(() => proxy.child.kill());
+    const { proxy } = await withProxy(t, {
+      headers: { "content-type": "text/event-stream" },
+      mode: "sse",
+    });
     const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
       method: "POST",
       headers: { authorization: "Bearer pt", "content-type": "application/json" },
@@ -206,12 +201,11 @@ describe("proxy", () => {
   });
 
   test("upstream status passed through unchanged", async (t) => {
-    const stub = await startStubUpstream(404, JSON.stringify({ error: "not found" }), {
-      "content-type": "application/json",
+    const { proxy } = await withProxy(t, {
+      status: 404,
+      body: JSON.stringify({ error: "not found" }),
+      headers: { "content-type": "application/json" },
     });
-    t.after(() => stub.close());
-    const proxy = await startProxyServer(stubBase(stub), "sk", "pt");
-    t.after(() => proxy.child.kill());
     const res = await proxiedFetch(proxy.port, "/v1/missing", {
       method: "POST",
       headers: { authorization: "Bearer pt", "content-type": "application/json" },
@@ -222,12 +216,10 @@ describe("proxy", () => {
   });
 
   test("mid-stream upstream failure does not crash the process", async (t) => {
-    const stub = await startStubUpstream(200, undefined, {
-      "content-type": "text/plain",
-    }, "midabort");
-    t.after(() => stub.close());
-    const proxy = await startProxyServer(stubBase(stub), "sk", "pt");
-    t.after(() => proxy.child.kill());
+    const { proxy } = await withProxy(t, {
+      headers: { "content-type": "text/plain" },
+      mode: "midabort",
+    });
     try {
       const res = await proxiedFetch(proxy.port, "/v1/models", {
         headers: { authorization: "Bearer pt" },
@@ -241,8 +233,7 @@ describe("proxy", () => {
   });
 
   test("unreachable upstream returns 502 without internal details", async (t) => {
-    const proxy = await startProxyServer("http://127.0.0.1:1", "sk", "pt");
-    t.after(() => proxy.child.kill());
+    const { proxy } = await withProxy(t, { base: "http://127.0.0.1:1" });
     const res = await proxiedFetch(proxy.port, "/v1/models", {
       headers: { authorization: "Bearer pt" },
     });
@@ -253,12 +244,11 @@ describe("proxy", () => {
   });
 
   test("wrong auth token rejected", async (t) => {
-    const stub = await startStubUpstream(200, JSON.stringify({ data: [] }), {
-      "content-type": "application/json",
+    const { proxy } = await withProxy(t, {
+      token: "pt-secret",
+      body: JSON.stringify({ data: [] }),
+      headers: { "content-type": "application/json" },
     });
-    t.after(() => stub.close());
-    const proxy = await startProxyServer(stubBase(stub), "sk", "pt-secret");
-    t.after(() => proxy.child.kill());
     const res = await proxiedFetch(proxy.port, "/v1/models", {
       headers: { authorization: "Bearer wrong-token" },
     });
