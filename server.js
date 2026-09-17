@@ -1,12 +1,18 @@
 import http from "node:http";
+import { pipeline } from "node:stream";
 import { Readable } from "node:stream";
+import { timingSafeEqual } from "node:crypto";
 
 const PORT = Number(process.env.PORT || 10000);
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
 const PROXY_AUTH_TOKEN = process.env.PROXY_AUTH_TOKEN;
-const NVIDIA_BASE_URL = (process.env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1").replace(/\/$/, "");
+const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL;
 
-const HOP_BY_HOP = new Set([
+// Headers stripped when copying in either direction. Not all of these are
+// hop-by-hop: host is re-derived per upstream call, content-length no longer
+// applies once a request body is re-streamed, and response content-length is
+// recomputed by Node when we stream the body through.
+const STRIPPED_HEADERS = new Set([
   "connection",
   "keep-alive",
   "proxy-authenticate",
@@ -28,15 +34,43 @@ function sendJson(res, status, body) {
   res.end(payload);
 }
 
-function authorized(req) {
-  if (!PROXY_AUTH_TOKEN) return false;
-  return req.headers.authorization === `Bearer ${PROXY_AUTH_TOKEN}`;
+// Drain the request so keep-alive connections survive early rejections.
+function drain(req) {
+  req.resume();
 }
 
-function upstreamUrl(req) {
-  const incoming = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-  const suffix = incoming.pathname.replace(/^\/v1/, "");
-  return `${NVIDIA_BASE_URL}${suffix}${incoming.search}`;
+function constantTimeBearerEqual(presented, expected) {
+  if (typeof presented !== "string" || typeof expected !== "string") return false;
+  const a = Buffer.from(presented);
+  const b = Buffer.from(expected);
+  // Length mismatch must not short-circuit into a timing signal: compare a
+  // against itself in that case so both paths do real work.
+  if (a.length !== b.length) {
+    timingSafeEqual(a, a);
+    return false;
+  }
+  try {
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+function authorized(req) {
+  if (!PROXY_AUTH_TOKEN) return false;
+  return constantTimeBearerEqual(req.headers.authorization, `Bearer ${PROXY_AUTH_TOKEN}`);
+}
+
+// The deploy config (NVIDIA_BASE_URL, e.g. https://integrate.api.nvidia.com/v1)
+// is the single source of truth. Incoming /v1/... paths are mapped onto the
+// base path with its trailing /v1 segment removed, so any correct base works.
+function upstreamUrl(incoming) {
+  const suffix = incoming.pathname.replace(/^\/v1\/?/, "/");
+  return `${NVIDIA_BASE_URL.replace(/\/v1\/?$/, "")}${suffix}${incoming.search}`;
+}
+
+function proxyConfigured() {
+  return Boolean(NVIDIA_API_KEY && PROXY_AUTH_TOKEN);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -44,24 +78,30 @@ const server = http.createServer(async (req, res) => {
     const incoming = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
     if (incoming.pathname === "/health") {
+      if (!proxyConfigured()) {
+        return sendJson(res, 503, { status: "unconfigured" });
+      }
       return sendJson(res, 200, { status: "ok" });
     }
 
-    if (!incoming.pathname.startsWith("/v1/")) {
+    if (!/^\/v1\/?$/.test(incoming.pathname) && !incoming.pathname.startsWith("/v1/")) {
+      drain(req);
       return sendJson(res, 404, { error: "Not found" });
     }
 
-    if (!NVIDIA_API_KEY || !PROXY_AUTH_TOKEN) {
-      return sendJson(res, 503, { error: "Proxy is not configured" });
+    if (!authorized(req)) {
+      drain(req);
+      return sendJson(res, 401, { error: "Unauthorized" });
     }
 
-    if (!authorized(req)) {
-      return sendJson(res, 401, { error: "Unauthorized" });
+    if (!proxyConfigured()) {
+      drain(req);
+      return sendJson(res, 503, { error: "Proxy is not configured" });
     }
 
     const headers = {};
     for (const [name, value] of Object.entries(req.headers)) {
-      if (!HOP_BY_HOP.has(name.toLowerCase()) && name.toLowerCase() !== "authorization") {
+      if (!STRIPPED_HEADERS.has(name.toLowerCase()) && name.toLowerCase() !== "authorization") {
         headers[name] = value;
       }
     }
@@ -70,32 +110,58 @@ const server = http.createServer(async (req, res) => {
     const method = req.method || "GET";
     const body = method === "GET" || method === "HEAD" ? undefined : req;
 
-    const upstream = await fetch(upstreamUrl(req), {
+    const upstream = await fetch(upstreamUrl(incoming), {
       method,
       headers,
       body,
       duplex: body ? "half" : undefined,
     });
 
+    // Copy raw multi-value headers (forEach over Headers merges duplicates
+    // with ", " which corrupts set-cookie). getSetCookie handles the most
+    // common multi-value header; raw entries cover the rest.
     const responseHeaders = {};
-    upstream.headers.forEach((value, name) => {
-      if (!HOP_BY_HOP.has(name.toLowerCase())) responseHeaders[name] = value;
-    });
+    const raw = upstream.headers.entries ? [...upstream.headers] : [];
+    for (const [name, value] of raw) {
+      if (STRIPPED_HEADERS.has(name.toLowerCase())) continue;
+      if (name.toLowerCase() === "set-cookie") continue;
+      responseHeaders[name] = value;
+    }
+    const cookies = typeof upstream.headers.getSetCookie === "function"
+      ? upstream.headers.getSetCookie()
+      : [];
+    if (cookies.length > 0) responseHeaders["set-cookie"] = cookies;
 
     res.writeHead(upstream.status, responseHeaders);
 
     if (!upstream.body) return res.end();
-    Readable.fromWeb(upstream.body).pipe(res);
+
+    // pipeline owns the streams and the error path: a mid-stream upstream
+    // failure destroys this response instead of crashing the process.
+    pipeline(Readable.fromWeb(upstream.body), res, (error) => {
+      if (error) {
+        console.error("stream error:", error.message);
+        res.destroy();
+      }
+    });
   } catch (error) {
     console.error(error);
     if (!res.headersSent) {
-      sendJson(res, 502, { error: "Bad gateway", message: error.message });
+      // Internal details (DNS names, URLs) must not leak to callers.
+      sendJson(res, 502, { error: "Bad gateway" });
     } else {
       res.destroy();
     }
   }
 });
 
+if (!NVIDIA_BASE_URL) {
+  console.error("NVIDIA_BASE_URL is required");
+  process.exit(1);
+}
+
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`NVIDIA API proxy listening on port ${PORT}`);
 });
+
+export default server;
