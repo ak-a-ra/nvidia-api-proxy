@@ -33,23 +33,18 @@ function sendJson(res, status, body) {
   res.end(payload);
 }
 
-// Drain the request so keep-alive connections survive early rejections.
-function drain(req) {
-  req.resume();
-}
-
-function constantTimeBearerEqual(presented, expected) {
+function authorized(req) {
+  if (!PROXY_AUTH_TOKEN) return false;
   try {
-    // timingSafeEqual throws on length mismatch, which covers both cases.
-    return timingSafeEqual(Buffer.from(presented), Buffer.from(expected));
+    // Constant-time compare; timingSafeEqual throws on length mismatch,
+    // which covers both cases.
+    return timingSafeEqual(
+      Buffer.from(req.headers.authorization),
+      Buffer.from(`Bearer ${PROXY_AUTH_TOKEN}`)
+    );
   } catch {
     return false;
   }
-}
-
-function authorized(req) {
-  if (!PROXY_AUTH_TOKEN) return false;
-  return constantTimeBearerEqual(req.headers.authorization, `Bearer ${PROXY_AUTH_TOKEN}`);
 }
 
 // The deploy config (NVIDIA_BASE_URL, e.g. https://integrate.api.nvidia.com/v1)
@@ -72,17 +67,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (!/^\/v1\/?$/.test(incoming.pathname) && !incoming.pathname.startsWith("/v1/")) {
-      drain(req);
+      req.resume(); // drain so keep-alive connections survive early rejections
       return sendJson(res, 404, { error: "Not found" });
     }
 
     if (!authorized(req)) {
-      drain(req);
+      req.resume();
       return sendJson(res, 401, { error: "Unauthorized" });
     }
 
     if (!NVIDIA_API_KEY || !PROXY_AUTH_TOKEN) {
-      drain(req);
+      req.resume();
       return sendJson(res, 503, { error: "Proxy is not configured" });
     }
 
@@ -94,7 +89,7 @@ const server = http.createServer(async (req, res) => {
     }
     headers.authorization = `Bearer ${NVIDIA_API_KEY}`;
 
-    const method = req.method || "GET";
+    const method = req.method;
     const body = method === "GET" || method === "HEAD" ? undefined : req;
 
     const upstream = await fetch(upstreamUrl(incoming), {

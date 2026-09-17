@@ -42,12 +42,6 @@ function startStubUpstream(status, body, headers, mode) {
   });
 }
 
-// address().address is only the host; the proxy needs host:port.
-function stubBase(stub) {
-  const a = stub.address();
-  return `http://${a.address}:${a.port}`;
-}
-
 // Spawn a fresh server.js in a child process so module-level env reads (which
 // run at import time) pick up per-test configuration. server.js calls
 // server.listen at import, so we just report the port back over IPC.
@@ -100,9 +94,13 @@ async function withProxy(t, { base, key = "sk", token = "pt", ...stubOpts }) {
     stubOpts.mode
   );
   t.after(() => stub.close());
-  const proxy = await startProxyServer(base ?? stubBase(stub), key, token);
+  if (base == null) {
+    const a = stub.address();
+    base = `http://${a.address}:${a.port}`;
+  }
+  const proxy = await startProxyServer(base, key, token);
   t.after(() => proxy.child.kill());
-  return { stub, proxy };
+  return proxy;
 }
 
 function proxiedFetch(port, path, opts = {}) {
@@ -111,7 +109,7 @@ function proxiedFetch(port, path, opts = {}) {
 
 describe("proxy", () => {
   test("POST body forwarded byte-identical + query preserved + auth replaced upstream", async (t) => {
-    const { proxy } = await withProxy(t, {
+    const proxy = await withProxy(t, {
       key: "sk-test",
       token: "pt-secret",
       body: JSON.stringify({ ok: true, echoed: "body" }),
@@ -134,26 +132,26 @@ describe("proxy", () => {
   });
 
   test("health 200 when configured", async (t) => {
-    const { proxy } = await withProxy(t, {});
+    const proxy = await withProxy(t, {});
     const res = await proxiedFetch(proxy.port, "/health");
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), { status: "ok" });
   });
 
   test("health 503 when unconfigured (missing proxy token)", async (t) => {
-    const { proxy } = await withProxy(t, { token: null });
+    const proxy = await withProxy(t, { token: null });
     const res = await proxiedFetch(proxy.port, "/health");
     assert.equal(res.status, 503);
   });
 
   test("401 without proxy auth token", async (t) => {
-    const { proxy } = await withProxy(t, { token: "pt-secret" });
+    const proxy = await withProxy(t, { token: "pt-secret" });
     const res = await proxiedFetch(proxy.port, "/v1/models");
     assert.equal(res.status, 401);
   });
 
   test("404 for non-/v1 paths", async (t) => {
-    const { proxy } = await withProxy(t, {});
+    const proxy = await withProxy(t, {});
     const res = await proxiedFetch(proxy.port, "/foo", {
       headers: { authorization: "Bearer pt" },
     });
@@ -161,7 +159,7 @@ describe("proxy", () => {
   });
 
   test("bare /v1 and /v1/ accepted as proxy roots", async (t) => {
-    const { proxy } = await withProxy(t, {
+    const proxy = await withProxy(t, {
       body: JSON.stringify({ data: [] }),
       headers: { "content-type": "application/json" },
     });
@@ -174,7 +172,7 @@ describe("proxy", () => {
   });
 
   test("multi-value set-cookie preserved (not merged)", async (t) => {
-    const { proxy } = await withProxy(t, {
+    const proxy = await withProxy(t, {
       body: "x",
       headers: { "content-type": "text/plain", "set-cookie": ["a=1; Path=/", "b=2; Path=/"] },
     });
@@ -186,7 +184,7 @@ describe("proxy", () => {
   });
 
   test("SSE streamed through unbuffered", async (t) => {
-    const { proxy } = await withProxy(t, {
+    const proxy = await withProxy(t, {
       headers: { "content-type": "text/event-stream" },
       mode: "sse",
     });
@@ -201,7 +199,7 @@ describe("proxy", () => {
   });
 
   test("upstream status passed through unchanged", async (t) => {
-    const { proxy } = await withProxy(t, {
+    const proxy = await withProxy(t, {
       status: 404,
       body: JSON.stringify({ error: "not found" }),
       headers: { "content-type": "application/json" },
@@ -216,7 +214,7 @@ describe("proxy", () => {
   });
 
   test("mid-stream upstream failure does not crash the process", async (t) => {
-    const { proxy } = await withProxy(t, {
+    const proxy = await withProxy(t, {
       headers: { "content-type": "text/plain" },
       mode: "midabort",
     });
@@ -233,7 +231,7 @@ describe("proxy", () => {
   });
 
   test("unreachable upstream returns 502 without internal details", async (t) => {
-    const { proxy } = await withProxy(t, { base: "http://127.0.0.1:1" });
+    const proxy = await withProxy(t, { base: "http://127.0.0.1:1" });
     const res = await proxiedFetch(proxy.port, "/v1/models", {
       headers: { authorization: "Bearer pt" },
     });
@@ -244,7 +242,7 @@ describe("proxy", () => {
   });
 
   test("wrong auth token rejected", async (t) => {
-    const { proxy } = await withProxy(t, {
+    const proxy = await withProxy(t, {
       token: "pt-secret",
       body: JSON.stringify({ data: [] }),
       headers: { "content-type": "application/json" },
