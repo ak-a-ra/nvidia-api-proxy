@@ -4,7 +4,11 @@
 
 *Put your NVIDIA API key behind a token you control*
 
-[Features](#features) • [Quick start](#quick-start) • [Configuration](#configuration) • [Deploy](#deploy-to-render)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.14-3c873a?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
+[![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](package.json)
+[![Tests](https://img.shields.io/badge/tests-14%20passing-blue?style=flat-square)](server.test.js)
+
+[Features](#features) • [Quick start](#quick-start) • [Configuration](#configuration) • [Endpoints](#endpoints) • [Deploy](#deploy-to-render)
 
 </div>
 
@@ -12,15 +16,21 @@ A zero-dependency Node.js reverse proxy for the [NVIDIA NIM API](https://docs.ap
 Client apps call the proxy exactly like `https://integrate.api.nvidia.com/v1` — same paths, same
 bodies — but authenticate with **your** token. The real key stays server-side, never shipped to clients.
 
+```mermaid
+flowchart LR
+    client["Client app<br/>Bearer my-secret-token"] -->|"/v1/chat/completions"| proxy["nvidia-api-proxy"]
+    proxy -->|"Bearer nvapi-…<br/>(key swapped in)"| nim["integrate.api.nvidia.com"]
+```
+
 ## Features
 
-- **Transparent drop-in** — point clients at the proxy, keep every path, query, and body byte-identical
-- **Key isolation** — clients send `PROXY_AUTH_TOKEN`, the proxy swaps in the real `NVIDIA_API_KEY` upstream
-- **Streaming first** — SSE responses pass through unbuffered, chunk by chunk
-- **Header fidelity** — multi-value `set-cookie` preserved, hop-by-hop headers stripped both ways
-- **Constant-time auth** — token comparison via `timingSafeEqual`, no timing side channels
-- **Deploy ready** — Render config included, graceful SIGTERM shutdown for zero-downtime deploys
-- **Zero dependencies** — Node.js built-ins only (Node >= 18.14)
+- 🎯 **Transparent drop-in** — point clients at the proxy, keep every path, query, and body byte-identical
+- 🔑 **Key isolation** — clients send `PROXY_AUTH_TOKEN`, the proxy swaps in the real `NVIDIA_API_KEY` upstream
+- ⚡ **Streaming first** — SSE responses pass through unbuffered, chunk by chunk
+- 📨 **Header fidelity** — multi-value `set-cookie` preserved, hop-by-hop headers stripped both ways
+- 🛡️ **Constant-time auth** — token comparison via `timingSafeEqual`, no timing side channels
+- 🚀 **Deploy ready** — Render config included, graceful SIGTERM shutdown for zero-downtime deploys
+- 📦 **Zero dependencies** — Node.js built-ins only (Node >= 18.14)
 
 ## Quick start
 
@@ -44,6 +54,18 @@ curl http://localhost:10000/v1/chat/completions \
   -d '{"model": "meta/llama-3.1-8b-instruct", "messages": [{"role": "user", "content": "hi"}]}'
 ```
 
+Any OpenAI-compatible client works the same way — just set the base URL to your proxy and use
+`PROXY_AUTH_TOKEN` as the API key:
+
+```js
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: "https://your-proxy.example.com/v1",
+  apiKey: "my-secret-token", // your PROXY_AUTH_TOKEN, not the NVIDIA key
+});
+```
+
 > [!TIP]
 > Run the test suite (14 tests, no deps needed):
 > ```bash
@@ -65,11 +87,11 @@ curl http://localhost:10000/v1/chat/completions \
 
 ## Endpoints
 
-| Route        | Behavior                                                                                     |
-| ------------ | -------------------------------------------------------------------------------------------- |
-| `GET /health`| `200 { status: "ok" }` when configured, `503 { status: "unconfigured" }` otherwise            |
-| `ANY /v1/*`  | Proxied to upstream; requires `Authorization: Bearer <PROXY_AUTH_TOKEN>`                      |
-| anything else| `404 { error: "Not found" }`                                                                  |
+| Route         | Behavior                                                                              |
+| ------------- | ------------------------------------------------------------------------------------- |
+| `GET /health` | `200 { status: "ok" }` when configured, `503 { status: "unconfigured" }` otherwise     |
+| `ANY /v1/*`   | Proxied to upstream; requires `Authorization: Bearer <PROXY_AUTH_TOKEN>`               |
+| anything else | `404 { error: "Not found" }`                                                          |
 
 ### Path mapping
 
@@ -77,8 +99,8 @@ Incoming `/v1/...` paths map onto the configured base URL with its trailing `/v1
 so any correctly-shaped base works:
 
 ```
-client:  /v1/chat/completions?stream=true
-base:    https://integrate.api.nvidia.com/v1
+client:   /v1/chat/completions?stream=true
+base:     https://integrate.api.nvidia.com/v1
 upstream: https://integrate.api.nvidia.com/chat/completions?stream=true
 ```
 
