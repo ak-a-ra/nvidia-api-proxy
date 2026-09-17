@@ -241,6 +241,28 @@ describe("proxy", () => {
     assert.equal(body.message, undefined);
   });
 
+  test("204 no-body upstream passes through without body", async (t) => {
+    const proxy = await withProxy(t, { status: 204 });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 204);
+    assert.equal(await res.text(), "");
+  });
+
+  test("SIGTERM drops idle connections and exits promptly", async (t) => {
+    const proxy = await withProxy(t, {});
+    // keep-alive connection held open by undici pool
+    await proxiedFetch(proxy.port, "/health");
+    proxy.child.kill("SIGTERM");
+    const exited = new Promise((resolve) => proxy.child.on("exit", resolve));
+    const code = await Promise.race([
+      exited,
+      new Promise((_, rej) => setTimeout(() => rej(new Error("proxy did not exit after SIGTERM")), 4000)),
+    ]);
+    assert.equal(code, 0);
+  });
+
   test("wrong auth token rejected", async (t) => {
     const proxy = await withProxy(t, {
       token: "pt-secret",

@@ -6,6 +6,7 @@ const PORT = Number(process.env.PORT || 10000);
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
 const PROXY_AUTH_TOKEN = process.env.PROXY_AUTH_TOKEN;
 const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL;
+const unconfigured = !NVIDIA_API_KEY || !PROXY_AUTH_TOKEN;
 
 // Headers stripped when copying in either direction. Not all of these are
 // hop-by-hop: host is re-derived per upstream call, content-length no longer
@@ -24,7 +25,8 @@ const STRIPPED_HEADERS = new Set([
   "content-length",
 ]);
 
-function sendJson(res, status, body) {
+function sendJson(req, res, status, body) {
+  req.resume(); // drain so keep-alive connections survive early rejections
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -60,34 +62,27 @@ const server = http.createServer(async (req, res) => {
     const incoming = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
     if (incoming.pathname === "/health") {
-      if (!NVIDIA_API_KEY || !PROXY_AUTH_TOKEN) {
-        return sendJson(res, 503, { status: "unconfigured" });
-      }
-      return sendJson(res, 200, { status: "ok" });
+      if (unconfigured) return sendJson(req, res, 503, { status: "unconfigured" });
+      return sendJson(req, res, 200, { status: "ok" });
     }
 
     if (!/^\/v1\/?$/.test(incoming.pathname) && !incoming.pathname.startsWith("/v1/")) {
-      req.resume(); // drain so keep-alive connections survive early rejections
-      return sendJson(res, 404, { error: "Not found" });
+      return sendJson(req, res, 404, { error: "Not found" });
     }
 
     if (!authorized(req)) {
-      req.resume();
-      return sendJson(res, 401, { error: "Unauthorized" });
+      return sendJson(req, res, 401, { error: "Unauthorized" });
     }
 
-    if (!NVIDIA_API_KEY || !PROXY_AUTH_TOKEN) {
-      req.resume();
-      return sendJson(res, 503, { error: "Proxy is not configured" });
+    if (unconfigured) {
+      return sendJson(req, res, 503, { error: "Proxy is not configured" });
     }
 
     const headers = {};
     for (const [name, value] of Object.entries(req.headers)) {
-      if (!STRIPPED_HEADERS.has(name.toLowerCase()) && name.toLowerCase() !== "authorization") {
-        headers[name] = value;
-      }
+      if (!STRIPPED_HEADERS.has(name.toLowerCase())) headers[name] = value;
     }
-    headers.authorization = `Bearer ${NVIDIA_API_KEY}`;
+    headers.authorization = `Bearer ${NVIDIA_API_KEY}`; // overwrites the caller's token
 
     const method = req.method;
     const body = method === "GET" || method === "HEAD" ? undefined : req;
@@ -127,7 +122,7 @@ const server = http.createServer(async (req, res) => {
     console.error(error);
     if (!res.headersSent) {
       // Internal details (DNS names, URLs) must not leak to callers.
-      sendJson(res, 502, { error: "Bad gateway" });
+      sendJson(req, res, 502, { error: "Bad gateway" });
     } else {
       res.destroy();
     }
@@ -141,6 +136,14 @@ if (!NVIDIA_BASE_URL) {
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`NVIDIA API proxy listening on port ${PORT}`);
+});
+
+// Render sends SIGTERM on deploys: stop accepting, drop idle keep-alive
+// sockets, let in-flight streams finish, force-exit after a grace period.
+process.on("SIGTERM", () => {
+  server.closeIdleConnections();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 10_000).unref();
 });
 
 export default server;
