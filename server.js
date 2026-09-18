@@ -95,11 +95,14 @@ function authorized(req) {
 
 // The validated deploy base URL (config.baseURL, e.g.
 // https://integrate.api.nvidia.com/v1) is the single source of truth.
-// Incoming /v1/... paths are mapped onto the base path with its trailing /v1
-// segment removed, so any correct base works.
+// The incoming path is forwarded verbatim onto the base host: the /v1 a
+// client sends is the one the upstream sees. Dropping the incoming /v1
+// (as earlier versions did) targeted NVIDIA's bare endpoints, which 404.
+// The base's own /v1 suffix is intentionally ignored, so bases with or
+// without it produce identical upstream URLs.
 function upstreamUrl(incoming) {
-  const suffix = incoming.pathname.replace(/^\/v1\/?/, "/");
-  return `${config.baseURL.replace(/\/v1\/?$/, "")}${suffix}${incoming.search}`;
+  const base = new URL(config.baseURL);
+  return `${base.origin}${incoming.pathname}${incoming.search}`;
 }
 
 const server = http.createServer(async (req, res) => {

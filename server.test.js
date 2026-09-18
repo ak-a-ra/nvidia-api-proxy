@@ -107,7 +107,7 @@ function startProxyServer(baseURL, key, proxyToken, extraEnv = {}) {
 
 // Start a stub upstream and a proxy child pointing at it; both cleanups are
 // registered on the test context (LIFO: child killed before stub closed).
-async function withProxy(t, { base, key = "sk", token = "pt", proxyEnv = {}, ...stubOpts }) {
+async function withProxy(t, { base, baseSuffix = "/v1", key = "sk", token = "pt", proxyEnv = {}, ...stubOpts }) {
   const { srv: stub, receivedRequests } = await startStubUpstream(
     stubOpts.status ?? 200,
     stubOpts.body,
@@ -117,7 +117,10 @@ async function withProxy(t, { base, key = "sk", token = "pt", proxyEnv = {}, ...
   t.after(() => stub.close());
   if (base == null) {
     const a = stub.address();
-    base = `http://${a.address}:${a.port}`;
+    // Default to the documented NVIDIA base shape (…/v1) so path-mapping
+    // behavior is exercised against a realistic base. baseSuffix: ""
+    // yields an origin-only base for the equivalent-shape tests.
+    base = `http://${a.address}:${a.port}${baseSuffix}`;
   }
   const proxy = await startProxyServer(base, key, token, proxyEnv);
   t.after(() => proxy.child.kill());
@@ -198,7 +201,30 @@ describe("proxy", () => {
     assert.ok(req, "upstream should receive the proxied POST body verbatim");
     assert.equal(req.authorization, "Bearer sk-test");
     assert.equal(req.method, "POST");
-    assert.ok(req.path.includes("/chat/completions?stream=true"), "path and query preserved");
+    assert.equal(req.path, "/v1/chat/completions?stream=true", "path and query forwarded verbatim");
+  });
+
+  test("path mapping: upstream receives the /v1 path the client sent", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, { body: "{}" });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    // NVIDIA-style upstreams serve /v1/models; a mapping that strips the
+    // incoming /v1 would request /models and 404 upstream (the live bug).
+    assert.equal(receivedRequests[0].path, "/v1/models");
+  });
+
+  test("path mapping: origin-only base still targets /v1 endpoints", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      baseSuffix: "",
+      body: "{}",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(receivedRequests[0].path, "/v1/models");
   });
 
   test("health 200 when configured", async (t) => {

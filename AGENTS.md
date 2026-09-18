@@ -4,7 +4,7 @@ Zero-dependency Node.js (ESM) reverse proxy for the NVIDIA NIM API. All logic li
 
 ## Commands
 
-- `npm test` — full suite (21 tests, Node's built-in `node --test` runner, no deps to install)
+- `npm test` — full suite (23 tests, Node's built-in `node --test` runner, no deps to install)
 - `node --test --test-name-pattern "SIGTERM"` — run a single test by name (needs Node ≥ 20)
 - `npm start` — requires `NVIDIA_BASE_URL` (exits code 1 if missing) plus `NVIDIA_API_KEY` and `PROXY_AUTH_TOKEN` (missing ones → 503 responses, not a crash)
 - No CI: tests only run when you run them locally — run `npm test` before pushing
@@ -26,7 +26,7 @@ Zero-dependency Node.js (ESM) reverse proxy for the NVIDIA NIM API. All logic li
 - Multi-value `set-cookie` must go through `upstream.headers.getSetCookie()`; iterating `upstream.headers` merges duplicates with `", "` and corrupts cookies
 - `STRIPPED_HEADERS` intentionally includes non-hop-by-hop headers (`host`, `content-length`) — see the comment above it before "fixing" this
 - Error responses never leak internals (DNS names, URLs): upstream failures are a clean `502 { error: "Bad gateway" }`
-- Bare `/v1` or `/v1/` returns 404 — only `/v1/*` paths are proxied; path mapping strips the trailing `/v1` from `NVIDIA_BASE_URL`, so any correctly-shaped base works
+- Bare `/v1` or `/v1/` returns 404 — only `/v1/*` paths are proxied; path mapping forwards the incoming `/v1` path verbatim onto the base host (the base's own `/v1` suffix is ignored), so bases with or without `/v1` both work — see server.test.js "path mapping" tests
 - `sendJson` drains the request first (`req.resume()`) so keep-alive connections survive early rejections
 - SIGTERM: drop idle connections, let in-flight streams finish, force-exit after 10s (test asserts exit code 0)
 

@@ -6,7 +6,7 @@
 
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.14-3c873a?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](package.json)
-[![Tests](https://img.shields.io/badge/tests-14%20passing-blue?style=flat-square)](server.test.js)
+[![Tests](https://img.shields.io/badge/tests-23%20passing-blue?style=flat-square)](server.test.js)
 
 [Features](#features) • [Quick start](#quick-start) • [Configuration](#configuration) • [Endpoints](#endpoints) • [Deploy](#deploy-to-render)
 
@@ -67,7 +67,7 @@ const client = new OpenAI({
 ```
 
 > [!TIP]
-> Run the test suite (21 tests, no deps needed):
+> Run the test suite (23 tests, no deps needed):
 > ```bash
 > npm test
 > ```
@@ -99,13 +99,18 @@ const client = new OpenAI({
 
 ### Path mapping
 
-Incoming `/v1/...` paths map onto the configured base URL with its trailing `/v1` segment removed,
-so any correctly-shaped base works:
+The proxy forwards the incoming path verbatim onto the base URL's host — the `/v1` a client
+sends is the one the upstream sees. Any correctly-shaped base works, with or without a
+trailing `/v1`:
 
 ```
 client:   /v1/chat/completions?stream=true
 base:     https://integrate.api.nvidia.com/v1
-upstream: https://integrate.api.nvidia.com/chat/completions?stream=true
+upstream: https://integrate.api.nvidia.com/v1/chat/completions?stream=true
+
+client:   /v1/models
+base:     https://integrate.api.nvidia.com        (origin-only works too)
+upstream: https://integrate.api.nvidia.com/v1/models
 ```
 
 Error responses never leak internal details (DNS names, URLs) — upstream failures return a clean
