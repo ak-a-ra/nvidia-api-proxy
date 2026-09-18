@@ -53,7 +53,7 @@ export const CONNECT_TIMEOUT_SECONDS = readSeconds(
 );
 export const IDLE_TIMEOUT_SECONDS = readSeconds(
   "UPSTREAM_IDLE_TIMEOUT_SECONDS",
-  60
+  120
 );
 
 // Headers stripped when copying in either direction. Not all of these are

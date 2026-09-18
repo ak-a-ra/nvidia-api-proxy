@@ -24,7 +24,7 @@ Zero-dependency Node.js (ESM) reverse proxy for the NVIDIA NIM API. All logic li
 
 - `duplex: "half"` is required when the request body is a stream and the response is read — omitting it throws `ERR_STREAM_DUPLICATE_STREAM_OUTPUT`
 - Multi-value `set-cookie` must go through `upstream.headers.getSetCookie()`; iterating `upstream.headers` merges duplicates with `", "` and corrupts cookies
-- `STRIPPED_HEADERS` intentionally includes non-hop-by-hop headers (`host`, `content-length`) — see the comment above it before "fixing" this
+- `STRIPPED_HEADERS` intentionally includes non-hop-by-hop headers (`host`, `content-length`) — `content-length` is stripped during header copying but restored for upstream pass-through responses so clients get the correct length; see the comment above `STRIPPED_HEADERS` and the restoration block in the proxy handler
 - Error responses never leak internals (DNS names, URLs): upstream failures are a clean `502 { error: "Bad gateway" }`
 - Bare `/v1` or `/v1/` returns 404 — only `/v1/*` paths are proxied; path mapping forwards the incoming `/v1` path verbatim onto the base host (the base's own `/v1` suffix is ignored), so bases with or without `/v1` both work — see server.test.js "path mapping" tests
 - `sendJson` drains the request first (`req.resume()`) so keep-alive connections survive early rejections
