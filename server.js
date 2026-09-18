@@ -1,12 +1,19 @@
 import http from "node:http";
 import { pipeline, Readable } from "node:stream";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 const PORT = Number(process.env.PORT || 10000);
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
 const PROXY_AUTH_TOKEN = process.env.PROXY_AUTH_TOKEN;
 const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL;
 const unconfigured = !NVIDIA_API_KEY || !PROXY_AUTH_TOKEN;
+
+// Compare SHA-256 digests rather than raw bytes: equal-length inputs mean
+// timingSafeEqual never throws on length mismatch, and a throw-vs-compare
+// timing difference would otherwise leak the token's length.
+const TOKEN_DIGEST = PROXY_AUTH_TOKEN
+  ? createHash("sha256").update(PROXY_AUTH_TOKEN).digest()
+  : null;
 
 // Headers stripped when copying in either direction. Not all of these are
 // hop-by-hop: host is re-derived per upstream call, content-length no longer
@@ -36,17 +43,13 @@ function sendJson(req, res, status, body) {
 }
 
 function authorized(req) {
-  if (!PROXY_AUTH_TOKEN) return false;
-  try {
-    // Constant-time compare; timingSafeEqual throws on length mismatch,
-    // which covers both cases.
-    return timingSafeEqual(
-      Buffer.from(req.headers.authorization),
-      Buffer.from(`Bearer ${PROXY_AUTH_TOKEN}`)
-    );
-  } catch {
-    return false;
-  }
+  if (!TOKEN_DIGEST) return false;
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith("Bearer ")) return false;
+  return timingSafeEqual(
+    createHash("sha256").update(header.slice(7)).digest(),
+    TOKEN_DIGEST
+  );
 }
 
 // The deploy config (NVIDIA_BASE_URL, e.g. https://integrate.api.nvidia.com/v1)
@@ -66,7 +69,14 @@ const server = http.createServer(async (req, res) => {
       return sendJson(req, res, 200, { status: "ok" });
     }
 
-    if (!/^\/v1\/?$/.test(incoming.pathname) && !incoming.pathname.startsWith("/v1/")) {
+    // Bare /v1 or /v1/ — the proxy forwards /v1/* paths, not the /v1
+    // prefix itself. With the default base URL this would hit NVIDIA's
+    // API root, which isn't what clients expect from a /v1 proxy.
+    if (/^\/v1\/?$/.test(incoming.pathname)) {
+      return sendJson(req, res, 404, { error: "Not found" });
+    }
+
+    if (!incoming.pathname.startsWith("/v1/")) {
       return sendJson(req, res, 404, { error: "Not found" });
     }
 
@@ -80,7 +90,7 @@ const server = http.createServer(async (req, res) => {
 
     const headers = {};
     for (const [name, value] of Object.entries(req.headers)) {
-      if (!STRIPPED_HEADERS.has(name.toLowerCase())) headers[name] = value;
+      if (!STRIPPED_HEADERS.has(name)) headers[name] = value;
     }
     headers.authorization = `Bearer ${NVIDIA_API_KEY}`; // overwrites the caller's token
 
@@ -91,6 +101,8 @@ const server = http.createServer(async (req, res) => {
       method,
       headers,
       body,
+      // Required when `body` is a readable stream and we also read the
+      // response — without it Node throws ERR_STREAM_DUPLICATE_STREAM_OUTPUT.
       duplex: body ? "half" : undefined,
     });
 
@@ -99,8 +111,8 @@ const server = http.createServer(async (req, res) => {
     // common multi-value header; raw entries cover the rest.
     const responseHeaders = {};
     for (const [name, value] of upstream.headers) {
-      if (STRIPPED_HEADERS.has(name.toLowerCase())) continue;
-      if (name.toLowerCase() === "set-cookie") continue;
+      if (STRIPPED_HEADERS.has(name)) continue;
+      if (name === "set-cookie") continue;
       responseHeaders[name] = value;
     }
     const cookies = upstream.headers.getSetCookie();

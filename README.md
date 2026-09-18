@@ -91,6 +91,7 @@ const client = new OpenAI({
 | ------------- | ------------------------------------------------------------------------------------- |
 | `GET /health` | `200 { status: "ok" }` when configured, `503 { status: "unconfigured" }` otherwise     |
 | `ANY /v1/*`   | Proxied to upstream; requires `Authorization: Bearer <PROXY_AUTH_TOKEN>`               |
+| bare `/v1` or `/v1/` | `404 { error: "Not found" }` — the proxy forwards `/v1/*` paths, not the `/v1` prefix itself |
 | anything else | `404 { error: "Not found" }`                                                          |
 
 ### Path mapping

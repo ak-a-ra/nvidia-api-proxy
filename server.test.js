@@ -6,10 +6,10 @@ import { spawn } from "node:child_process";
 // Stub upstream: records requests, returns canned responses, can be told to
 // stream SSE, return multi-value set-cookie, abort mid-stream, or be unreachable.
 // Test scaffolding, not production code.
-const receivedRequests = [];
 
 function startStubUpstream(status, body, headers, mode) {
   return new Promise((resolve) => {
+    const receivedRequests = [];
     const srv = http.createServer((req, res) => {
       let chunks = [];
       req.on("data", (c) => chunks.push(c));
@@ -38,7 +38,7 @@ function startStubUpstream(status, body, headers, mode) {
         else res.end();
       });
     });
-    srv.listen(0, "127.0.0.1", () => resolve(srv));
+    srv.listen(0, "127.0.0.1", () => resolve({ srv, receivedRequests }));
   });
 }
 
@@ -87,7 +87,7 @@ function startProxyServer(baseURL, key, proxyToken) {
 // Start a stub upstream and a proxy child pointing at it; both cleanups are
 // registered on the test context (LIFO: child killed before stub closed).
 async function withProxy(t, { base, key = "sk", token = "pt", ...stubOpts }) {
-  const stub = await startStubUpstream(
+  const { srv: stub, receivedRequests } = await startStubUpstream(
     stubOpts.status ?? 200,
     stubOpts.body,
     stubOpts.headers,
@@ -100,7 +100,7 @@ async function withProxy(t, { base, key = "sk", token = "pt", ...stubOpts }) {
   }
   const proxy = await startProxyServer(base, key, token);
   t.after(() => proxy.child.kill());
-  return proxy;
+  return { proxy, receivedRequests };
 }
 
 function proxiedFetch(port, path, opts = {}) {
@@ -109,7 +109,7 @@ function proxiedFetch(port, path, opts = {}) {
 
 describe("proxy", () => {
   test("POST body forwarded byte-identical + query preserved + auth replaced upstream", async (t) => {
-    const proxy = await withProxy(t, {
+    const { proxy, receivedRequests } = await withProxy(t, {
       key: "sk-test",
       token: "pt-secret",
       body: JSON.stringify({ ok: true, echoed: "body" }),
@@ -132,34 +132,34 @@ describe("proxy", () => {
   });
 
   test("health 200 when configured", async (t) => {
-    const proxy = await withProxy(t, {});
+    const { proxy } = await withProxy(t, {});
     const res = await proxiedFetch(proxy.port, "/health");
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), { status: "ok" });
   });
 
   test("health 503 when unconfigured (missing proxy token)", async (t) => {
-    const proxy = await withProxy(t, { token: null });
+    const { proxy } = await withProxy(t, { token: null });
     const res = await proxiedFetch(proxy.port, "/health");
     assert.equal(res.status, 503);
   });
 
   test("401 without proxy auth token", async (t) => {
-    const proxy = await withProxy(t, { token: "pt-secret" });
+    const { proxy } = await withProxy(t, { token: "pt-secret" });
     const res = await proxiedFetch(proxy.port, "/v1/models");
     assert.equal(res.status, 401);
   });
 
   test("404 for non-/v1 paths", async (t) => {
-    const proxy = await withProxy(t, {});
+    const { proxy } = await withProxy(t, {});
     const res = await proxiedFetch(proxy.port, "/foo", {
       headers: { authorization: "Bearer pt" },
     });
     assert.equal(res.status, 404);
   });
 
-  test("bare /v1 and /v1/ accepted as proxy roots", async (t) => {
-    const proxy = await withProxy(t, {
+  test("bare /v1 and /v1/ return 404 (not proxied to upstream root)", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
       body: JSON.stringify({ data: [] }),
       headers: { "content-type": "application/json" },
     });
@@ -167,12 +167,13 @@ describe("proxy", () => {
       const res = await proxiedFetch(proxy.port, path, {
         headers: { authorization: "Bearer pt" },
       });
-      assert.equal(res.status, 200, `expected 200 for ${path}, got ${res.status}`);
+      assert.equal(res.status, 404, `expected 404 for ${path}, got ${res.status}`);
     }
+    assert.equal(receivedRequests.length, 0); // short-circuited, never proxied
   });
 
   test("multi-value set-cookie preserved (not merged)", async (t) => {
-    const proxy = await withProxy(t, {
+    const { proxy } = await withProxy(t, {
       body: "x",
       headers: { "content-type": "text/plain", "set-cookie": ["a=1; Path=/", "b=2; Path=/"] },
     });
@@ -184,7 +185,7 @@ describe("proxy", () => {
   });
 
   test("SSE streamed through unbuffered", async (t) => {
-    const proxy = await withProxy(t, {
+    const { proxy } = await withProxy(t, {
       headers: { "content-type": "text/event-stream" },
       mode: "sse",
     });
@@ -199,7 +200,7 @@ describe("proxy", () => {
   });
 
   test("upstream status passed through unchanged", async (t) => {
-    const proxy = await withProxy(t, {
+    const { proxy } = await withProxy(t, {
       status: 404,
       body: JSON.stringify({ error: "not found" }),
       headers: { "content-type": "application/json" },
@@ -214,7 +215,7 @@ describe("proxy", () => {
   });
 
   test("mid-stream upstream failure does not crash the process", async (t) => {
-    const proxy = await withProxy(t, {
+    const { proxy } = await withProxy(t, {
       headers: { "content-type": "text/plain" },
       mode: "midabort",
     });
@@ -231,7 +232,7 @@ describe("proxy", () => {
   });
 
   test("unreachable upstream returns 502 without internal details", async (t) => {
-    const proxy = await withProxy(t, { base: "http://127.0.0.1:1" });
+    const { proxy } = await withProxy(t, { base: "http://127.0.0.1:1" });
     const res = await proxiedFetch(proxy.port, "/v1/models", {
       headers: { authorization: "Bearer pt" },
     });
@@ -242,7 +243,7 @@ describe("proxy", () => {
   });
 
   test("204 no-body upstream passes through without body", async (t) => {
-    const proxy = await withProxy(t, { status: 204 });
+    const { proxy } = await withProxy(t, { status: 204 });
     const res = await proxiedFetch(proxy.port, "/v1/models", {
       headers: { authorization: "Bearer pt" },
     });
@@ -251,7 +252,7 @@ describe("proxy", () => {
   });
 
   test("SIGTERM drops idle connections and exits promptly", async (t) => {
-    const proxy = await withProxy(t, {});
+    const { proxy } = await withProxy(t, {});
     // keep-alive connection held open by undici pool
     await proxiedFetch(proxy.port, "/health");
     proxy.child.kill("SIGTERM");
@@ -264,7 +265,7 @@ describe("proxy", () => {
   });
 
   test("wrong auth token rejected", async (t) => {
-    const proxy = await withProxy(t, {
+    const { proxy } = await withProxy(t, {
       token: "pt-secret",
       body: JSON.stringify({ data: [] }),
       headers: { "content-type": "application/json" },
