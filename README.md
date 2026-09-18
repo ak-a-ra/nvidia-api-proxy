@@ -83,6 +83,21 @@ const client = new OpenAI({
 | `UPSTREAM_CONNECT_TIMEOUT_SECONDS` | no | Seconds to wait for upstream response headers (default `30`, `0` disables) |
 | `UPSTREAM_IDLE_TIMEOUT_SECONDS`    | no | Seconds a response stream may stay silent before it is cut (default `120`, `0` disables; resets on every chunk) |
 
+Copy-paste-ready local setup — fill in the two values marked `FIXME`:
+
+```bash
+# ---- required ----
+export NVIDIA_API_KEY="FIXME"    # your real NVIDIA key (nvapi-...)
+export PROXY_AUTH_TOKEN="FIXME"  # token your clients will send
+# ---- optional (defaults shown; uncomment to override) ----
+# export NVIDIA_BASE_URL="https://integrate.api.nvidia.com/v1"  # pinned by render.yaml
+# export PORT="10000"
+# export UPSTREAM_CONNECT_TIMEOUT_SECONDS="30"  # 0 disables
+# export UPSTREAM_IDLE_TIMEOUT_SECONDS="120"    # 0 disables; resets on every chunk
+
+npm start
+```
+
 > [!NOTE]
 > With missing required vars, `/health` returns `503 { status: "unconfigured" }` and proxied calls
 > return `503`. If `NVIDIA_BASE_URL` is unset or not a valid URL at startup, the process exits with
