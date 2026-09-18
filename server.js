@@ -25,7 +25,7 @@ function validateConfig(env) {
     baseURL: rawBase,
     apiKey: env.NVIDIA_API_KEY,
     proxyToken: env.PROXY_AUTH_TOKEN,
-    unconfigured: !env.NVIDIA_API_KEY || !env.PROXY_AUTH_TOKEN,
+    unconfigured: !env.NVIDIA_API_KEY?.trim() || !env.PROXY_AUTH_TOKEN?.trim(),
   };
 }
 
@@ -44,7 +44,9 @@ const TOKEN_DIGEST = config.proxyToken
 // (the timer resets on every chunk, so long-lived SSE streams are never cut
 // off while they keep producing). Both are env-tunable; 0 disables.
 function readSeconds(name, fallback) {
-  const raw = Number(process.env[name]);
+  const val = process.env[name];
+  if (val == null || val.trim() === "") return fallback;
+  const raw = Number(val);
   return Number.isFinite(raw) && raw >= 0 ? raw : fallback;
 }
 export const CONNECT_TIMEOUT_SECONDS = readSeconds(
@@ -57,9 +59,9 @@ export const IDLE_TIMEOUT_SECONDS = readSeconds(
 );
 
 // Headers stripped when copying in either direction. Not all of these are
-// hop-by-hop: host is re-derived per upstream call, content-length no longer
-// applies once a request body is re-streamed, and response content-length is
-// recomputed by Node when we stream the body through.
+// hop-by-hop: host is re-derived per upstream call and content-length is
+// re-evaluated (stripped during copying and selectively restored for
+// pass-through responses).
 const STRIPPED_HEADERS = new Set([
   "connection",
   "keep-alive",
@@ -72,6 +74,11 @@ const STRIPPED_HEADERS = new Set([
   "host",
   "content-length",
 ]);
+
+// fetch() automatically decompresses upstream response bodies, so forwarding
+// their content-encoding header would misrepresent the returned bytes. Client
+// request bodies are not decompressed and must retain their encoding header.
+const RESPONSE_STRIPPED_HEADERS = new Set([...STRIPPED_HEADERS, "content-encoding"]);
 
 function sendJson(req, res, status, body) {
   req.resume(); // drain so keep-alive connections survive early rejections
@@ -107,7 +114,7 @@ function upstreamUrl(incoming) {
 
 const server = http.createServer(async (req, res) => {
   try {
-    const incoming = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    const incoming = new URL(req.url || "/", "http://localhost");
 
     if (incoming.pathname === "/health") {
       if (config.unconfigured) return sendJson(req, res, 503, { status: "unconfigured" });
@@ -138,31 +145,44 @@ const server = http.createServer(async (req, res) => {
       if (!STRIPPED_HEADERS.has(name)) headers[name] = value;
     }
     headers.authorization = `Bearer ${config.apiKey}`; // overwrites the caller's token
+    headers["accept-encoding"] = "identity";
 
     const method = req.method;
     const body = method === "GET" || method === "HEAD" ? undefined : req;
 
-    // CONNECT_TIMEOUT bounds the pre-response phase. A whole-request abort
-    // would kill legitimate long streams mid-flight, so the body phase gets
-    // its own idle watchdog after the response headers arrive.
-    const upstream = await fetch(upstreamUrl(incoming), {
-      method,
-      headers,
-      body,
-      // Required when `body` is a readable stream and we also read the
-      // response — without it Node throws ERR_STREAM_DUPLICATE_STREAM_OUTPUT.
-      duplex: body ? "half" : undefined,
-      signal: CONNECT_TIMEOUT_SECONDS
-        ? AbortSignal.timeout(CONNECT_TIMEOUT_SECONDS * 1000)
-        : undefined,
-    });
+    // CONNECT_TIMEOUT bounds the pre-response phase: how long upstream may
+    // take to deliver headers. We manage the timer via AbortController and
+    // clear it once fetch resolves so active streaming bodies are never aborted
+    // mid-flight by the connect timeout. The streaming phase is guarded by
+    // the idle watchdog below.
+    const ac = new AbortController();
+    const connectTimer = CONNECT_TIMEOUT_SECONDS
+      ? setTimeout(
+          () => ac.abort(new Error("upstream connect timeout")),
+          CONNECT_TIMEOUT_SECONDS * 1000
+        )
+      : null;
+    let upstream;
+    try {
+      upstream = await fetch(upstreamUrl(incoming), {
+        method,
+        headers,
+        body,
+        // Required when `body` is a readable stream and we also read the
+        // response — without it Node throws ERR_STREAM_DUPLICATE_STREAM_OUTPUT.
+        duplex: body ? "half" : undefined,
+        signal: ac.signal,
+      });
+    } finally {
+      clearTimeout(connectTimer);
+    }
 
     // Copy raw multi-value headers (forEach over Headers merges duplicates
     // with ", " which corrupts set-cookie). getSetCookie handles the most
     // common multi-value header; raw entries cover the rest.
     const responseHeaders = {};
     for (const [name, value] of upstream.headers) {
-      if (STRIPPED_HEADERS.has(name)) continue;
+      if (RESPONSE_STRIPPED_HEADERS.has(name)) continue;
       if (name === "set-cookie") continue;
       responseHeaders[name] = value;
     }
@@ -173,10 +193,17 @@ const server = http.createServer(async (req, res) => {
     // the body is untouched, so it still has exactly that many bytes, and
     // forwarding the header avoids chunked framing. Responses generated
     // locally (401/404/502/503, /health) set their own length, and bodies
-    // without one (e.g. 204) must not gain a stale value.
+    // without one (e.g. 204) must not gain a stale value. HEAD responses
+    // have no body stream per spec but valid content-length must be preserved.
     const declaredRaw = upstream.headers.get("content-length");
     const declared = Number(declaredRaw);
-    if (declaredRaw && Number.isInteger(declared) && declared >= 0 && upstream.body) {
+    if (
+      declaredRaw &&
+      Number.isInteger(declared) &&
+      declared >= 0 &&
+      (upstream.body || method === "HEAD") &&
+      !upstream.headers.has("content-encoding")
+    ) {
       responseHeaders["content-length"] = String(declared);
     }
 

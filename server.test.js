@@ -2,6 +2,7 @@ import http from "node:http";
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import zlib from "node:zlib";
 
 // Stub upstream: records requests, returns canned responses, can be told to
 // stream SSE, return multi-value set-cookie, abort mid-stream, or be unreachable.
@@ -14,11 +15,14 @@ function startStubUpstream(status, body, headers, mode) {
       let chunks = [];
       req.on("data", (c) => chunks.push(c));
       req.on("end", () => {
+        const requestBody = Buffer.concat(chunks);
         receivedRequests.push({
           method: req.method,
           path: req.url,
-          body: Buffer.concat(chunks).toString("utf8"),
+          body: requestBody.toString("utf8"),
+          rawBody: requestBody,
           authorization: req.headers.authorization,
+          contentEncoding: req.headers["content-encoding"],
         });
         if (mode === "silent") return; // accept request, never send response headers
         // Real APIs (like NVIDIA) declare content-length on JSON responses;
@@ -48,6 +52,16 @@ function startStubUpstream(status, body, headers, mode) {
         if (mode === "slowfinish") {
           res.write("slow");
           setTimeout(() => res.end(" done"), 1500); // silent gap exceeds 1s idle window
+          return;
+        }
+        if (mode === "activelong") {
+          res.write("part1-");
+          setTimeout(() => {
+            res.write("part2-");
+            setTimeout(() => {
+              res.end("part3");
+            }, 600);
+          }, 600);
           return;
         }
         if (mode === "midabort") {
@@ -445,5 +459,90 @@ describe("proxy", () => {
       headers: { authorization: "Bearer wrong-token" },
     });
     assert.equal(res.status, 401);
+  });
+
+  test("stream duration exceeding connect timeout finishes successfully", async (t) => {
+    const { proxy } = await withProxy(t, {
+      headers: { "content-type": "text/plain" },
+      mode: "activelong",
+      proxyEnv: {
+        UPSTREAM_CONNECT_TIMEOUT_SECONDS: "1",
+        UPSTREAM_IDLE_TIMEOUT_SECONDS: "5",
+      },
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), "part1-part2-part3");
+    assert.equal(proxy.child.exitCode, null);
+  });
+
+  test("HEAD request preserves content-length without body", async (t) => {
+    const body = JSON.stringify({ data: [1, 2, 3] });
+    const { proxy } = await withProxy(t, {
+      body,
+      headers: { "content-type": "application/json" },
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      method: "HEAD",
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("content-length"), String(Buffer.byteLength(body)));
+    assert.equal(await res.text(), "");
+  });
+
+  test("empty or whitespace timeout env vars fall back to defaults", async (t) => {
+    const { proxy } = await withProxy(t, {
+      body: JSON.stringify({ ok: true }),
+      headers: { "content-type": "application/json" },
+      proxyEnv: {
+        UPSTREAM_CONNECT_TIMEOUT_SECONDS: "",
+        UPSTREAM_IDLE_TIMEOUT_SECONDS: "   ",
+      },
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+  });
+
+  test("gzip request body and content-encoding reach the upstream unchanged", async (t) => {
+    const payload = Buffer.from(JSON.stringify({ model: "nemotron" }));
+    const gzipped = zlib.gzipSync(payload);
+    const { proxy, receivedRequests } = await withProxy(t, { body: "{}" });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer pt",
+        "content-encoding": "gzip",
+        "content-type": "application/json",
+      },
+      body: gzipped,
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(receivedRequests[0].rawBody, gzipped);
+    assert.equal(receivedRequests[0].contentEncoding, "gzip");
+  });
+
+  test("upstream content-encoding is stripped and decompressed body streamed cleanly", async (t) => {
+    const json = JSON.stringify({ ok: true });
+    const gzipped = zlib.gzipSync(Buffer.from(json));
+    const { proxy } = await withProxy(t, {
+      body: gzipped,
+      headers: {
+        "content-type": "application/json",
+        "content-encoding": "gzip",
+        "content-length": String(gzipped.length),
+      },
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("content-encoding"), null);
+    assert.notEqual(res.headers.get("content-length"), String(gzipped.length));
+    assert.equal(await res.text(), json);
   });
 });

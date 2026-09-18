@@ -6,7 +6,7 @@
 
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.14-3c873a?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](package.json)
-[![Tests](https://img.shields.io/badge/tests-23%20passing-blue?style=flat-square)](server.test.js)
+[![Tests](https://img.shields.io/badge/tests-28%20passing-blue?style=flat-square)](server.test.js)
 
 [Features](#features) • [Quick start](#quick-start) • [Configuration](#configuration) • [Endpoints](#endpoints) • [Deploy](#deploy-to-render)
 
@@ -67,7 +67,7 @@ const client = new OpenAI({
 ```
 
 > [!TIP]
-> Run the test suite (23 tests, no deps needed):
+> Run the test suite (28 tests, no deps needed):
 > ```bash
 > npm test
 > ```
@@ -81,7 +81,7 @@ const client = new OpenAI({
 | `NVIDIA_BASE_URL`   | yes      | Upstream base URL, e.g. `https://integrate.api.nvidia.com/v1` |
 | `PORT`              | no       | Listen port (default `10000`, binds `0.0.0.0`)                |
 | `UPSTREAM_CONNECT_TIMEOUT_SECONDS` | no | Seconds to wait for upstream response headers (default `30`, `0` disables) |
-| `UPSTREAM_IDLE_TIMEOUT_SECONDS`    | no | Seconds a response stream may stay silent before it is cut (default `60`, `0` disables; resets on every chunk) |
+| `UPSTREAM_IDLE_TIMEOUT_SECONDS`    | no | Seconds a response stream may stay silent before it is cut (default `120`, `0` disables; resets on every chunk) |
 
 > [!NOTE]
 > With missing required vars, `/health` returns `503 { status: "unconfigured" }` and proxied calls
