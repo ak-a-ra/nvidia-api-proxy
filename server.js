@@ -166,6 +166,17 @@ const server = http.createServer(async (req, res) => {
     const cookies = upstream.headers.getSetCookie();
     if (cookies.length > 0) responseHeaders["set-cookie"] = cookies;
 
+    // Preserve the upstream content-length for pure pass-through responses:
+    // the body is untouched, so it still has exactly that many bytes, and
+    // forwarding the header avoids chunked framing. Responses generated
+    // locally (401/404/502/503, /health) set their own length, and bodies
+    // without one (e.g. 204) must not gain a stale value.
+    const declaredRaw = upstream.headers.get("content-length");
+    const declared = Number(declaredRaw);
+    if (declaredRaw && Number.isInteger(declared) && declared >= 0 && upstream.body) {
+      responseHeaders["content-length"] = String(declared);
+    }
+
     res.writeHead(upstream.status, responseHeaders);
 
     if (!upstream.body) return res.end();

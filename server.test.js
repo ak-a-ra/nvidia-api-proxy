@@ -21,7 +21,16 @@ function startStubUpstream(status, body, headers, mode) {
           authorization: req.headers.authorization,
         });
         if (mode === "silent") return; // accept request, never send response headers
-        res.writeHead(status, headers);
+        // Real APIs (like NVIDIA) declare content-length on JSON responses;
+        // mirror that so pass-through behavior is exercised realistically.
+        const outHeaders = { ...headers };
+        const hasCL = Object.keys(outHeaders).some(
+          (k) => k.toLowerCase() === "content-length"
+        );
+        if (body !== undefined && !hasCL) {
+          outHeaders["content-length"] = String(Buffer.byteLength(String(body)));
+        }
+        res.writeHead(status, outHeaders);
         if (mode === "sse") {
           res.write("data: chunk1\n\n");
           setTimeout(() => {
@@ -360,6 +369,31 @@ describe("proxy", () => {
     });
     assert.equal(res.status, 204);
     assert.equal(await res.text(), "");
+  });
+
+  test("upstream content-length is preserved on pass-through", async (t) => {
+    const body = JSON.stringify({ data: [1, 2, 3] });
+    const { proxy } = await withProxy(t, {
+      body,
+      headers: { "content-type": "application/json" },
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("content-length"), String(Buffer.byteLength(body)));
+    assert.equal(await res.text(), body); // complete, not truncated
+  });
+
+  test("generated 404 keeps its own content-length", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {});
+    const res = await proxiedFetch(proxy.port, "/v1", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 404);
+    assert.equal(res.headers.get("content-length"), "21"); // {"error":"Not found"}
+    assert.equal(await res.text(), '{"error":"Not found"}');
+    assert.equal(receivedRequests.length, 0); // generated locally, not proxied
   });
 
   test("SIGTERM drops idle connections and exits promptly", async (t) => {

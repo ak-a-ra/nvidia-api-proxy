@@ -67,7 +67,7 @@ const client = new OpenAI({
 ```
 
 > [!TIP]
-> Run the test suite (16 tests, no deps needed):
+> Run the test suite (21 tests, no deps needed):
 > ```bash
 > npm test
 > ```

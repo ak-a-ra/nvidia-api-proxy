@@ -4,7 +4,7 @@ Zero-dependency Node.js (ESM) reverse proxy for the NVIDIA NIM API. All logic li
 
 ## Commands
 
-- `npm test` — full suite (14 tests, Node's built-in `node --test` runner, no deps to install)
+- `npm test` — full suite (21 tests, Node's built-in `node --test` runner, no deps to install)
 - `node --test --test-name-pattern "SIGTERM"` — run a single test by name (needs Node ≥ 20)
 - `npm start` — requires `NVIDIA_BASE_URL` (exits code 1 if missing) plus `NVIDIA_API_KEY` and `PROXY_AUTH_TOKEN` (missing ones → 503 responses, not a crash)
 - No CI: tests only run when you run them locally — run `npm test` before pushing
