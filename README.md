@@ -83,7 +83,8 @@ const client = new OpenAI({
 
 > [!NOTE]
 > With missing required vars, `/health` returns `503 { status: "unconfigured" }` and proxied calls
-> return `503`. If `NVIDIA_BASE_URL` is unset at startup, the process exits with code 1.
+> return `503`. If `NVIDIA_BASE_URL` is unset or not a valid URL at startup, the process exits with
+> code 1.
 
 ## Endpoints
 

@@ -107,6 +107,55 @@ function proxiedFetch(port, path, opts = {}) {
   return fetch(`http://127.0.0.1:${port}${path}`, opts);
 }
 
+// Run server.js once as a bare child (no IPC) and collect how it exits —
+// for asserting startup validation failures.
+function runProxyOnce(envOverrides) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ["--input-type=module", "-e", `import server from ${JSON.stringify(SERVER_PATH)};`],
+      {
+        env: { ...process.env, ...envOverrides, PORT: "0" },
+        stdio: ["ignore", "ignore", "pipe", "ignore"],
+      }
+    );
+    let stderr = "";
+    child.stderr.on("data", (d) => (stderr += d));
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error("proxy process did not exit"));
+    }, 4000);
+    timer.unref();
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      resolve({ code, stderr });
+    });
+    child.on("error", reject);
+  });
+}
+
+describe("startup", () => {
+  test("exits 1 when NVIDIA_BASE_URL is missing", async () => {
+    const { code, stderr } = await runProxyOnce({
+      NVIDIA_BASE_URL: "",
+      NVIDIA_API_KEY: "k",
+      PROXY_AUTH_TOKEN: "t",
+    });
+    assert.equal(code, 1);
+    assert.ok(stderr.includes("NVIDIA_BASE_URL is required"));
+  });
+
+  test("exits 1 when NVIDIA_BASE_URL is not a valid URL", async () => {
+    const { code, stderr } = await runProxyOnce({
+      NVIDIA_BASE_URL: "not-a-url",
+      NVIDIA_API_KEY: "k",
+      PROXY_AUTH_TOKEN: "t",
+    });
+    assert.equal(code, 1);
+    assert.ok(stderr.includes("not a valid URL"));
+  });
+});
+
 describe("proxy", () => {
   test("POST body forwarded byte-identical + query preserved + auth replaced upstream", async (t) => {
     const { proxy, receivedRequests } = await withProxy(t, {

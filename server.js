@@ -3,16 +3,39 @@ import { pipeline, Readable } from "node:stream";
 import { createHash, timingSafeEqual } from "node:crypto";
 
 const PORT = Number(process.env.PORT || 10000);
-const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
-const PROXY_AUTH_TOKEN = process.env.PROXY_AUTH_TOKEN;
-const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL;
-const unconfigured = !NVIDIA_API_KEY || !PROXY_AUTH_TOKEN;
+
+// Single source of truth for configuration: one function validates every
+// required variable. NVIDIA_BASE_URL problems are fatal at startup — the
+// proxy must never come up half-configured or doomed. Missing key/token are
+// runtime problems instead: /health and proxied requests report 503 until
+// they are set.
+function validateConfig(env) {
+  const rawBase = env.NVIDIA_BASE_URL;
+  if (!rawBase || !rawBase.trim()) {
+    console.error("NVIDIA_BASE_URL is required");
+    process.exit(1);
+  }
+  try {
+    new URL(rawBase);
+  } catch {
+    console.error(`NVIDIA_BASE_URL is not a valid URL: ${rawBase}`);
+    process.exit(1);
+  }
+  return {
+    baseURL: rawBase,
+    apiKey: env.NVIDIA_API_KEY,
+    proxyToken: env.PROXY_AUTH_TOKEN,
+    unconfigured: !env.NVIDIA_API_KEY || !env.PROXY_AUTH_TOKEN,
+  };
+}
+
+const config = validateConfig(process.env);
 
 // Compare SHA-256 digests rather than raw bytes: equal-length inputs mean
 // timingSafeEqual never throws on length mismatch, and a throw-vs-compare
 // timing difference would otherwise leak the token's length.
-const TOKEN_DIGEST = PROXY_AUTH_TOKEN
-  ? createHash("sha256").update(PROXY_AUTH_TOKEN).digest()
+const TOKEN_DIGEST = config.proxyToken
+  ? createHash("sha256").update(config.proxyToken).digest()
   : null;
 
 // Headers stripped when copying in either direction. Not all of these are
@@ -52,12 +75,13 @@ function authorized(req) {
   );
 }
 
-// The deploy config (NVIDIA_BASE_URL, e.g. https://integrate.api.nvidia.com/v1)
-// is the single source of truth. Incoming /v1/... paths are mapped onto the
-// base path with its trailing /v1 segment removed, so any correct base works.
+// The validated deploy base URL (config.baseURL, e.g.
+// https://integrate.api.nvidia.com/v1) is the single source of truth.
+// Incoming /v1/... paths are mapped onto the base path with its trailing /v1
+// segment removed, so any correct base works.
 function upstreamUrl(incoming) {
   const suffix = incoming.pathname.replace(/^\/v1\/?/, "/");
-  return `${NVIDIA_BASE_URL.replace(/\/v1\/?$/, "")}${suffix}${incoming.search}`;
+  return `${config.baseURL.replace(/\/v1\/?$/, "")}${suffix}${incoming.search}`;
 }
 
 const server = http.createServer(async (req, res) => {
@@ -65,7 +89,7 @@ const server = http.createServer(async (req, res) => {
     const incoming = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
     if (incoming.pathname === "/health") {
-      if (unconfigured) return sendJson(req, res, 503, { status: "unconfigured" });
+      if (config.unconfigured) return sendJson(req, res, 503, { status: "unconfigured" });
       return sendJson(req, res, 200, { status: "ok" });
     }
 
@@ -84,7 +108,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(req, res, 401, { error: "Unauthorized" });
     }
 
-    if (unconfigured) {
+    if (config.unconfigured) {
       return sendJson(req, res, 503, { error: "Proxy is not configured" });
     }
 
@@ -92,7 +116,7 @@ const server = http.createServer(async (req, res) => {
     for (const [name, value] of Object.entries(req.headers)) {
       if (!STRIPPED_HEADERS.has(name)) headers[name] = value;
     }
-    headers.authorization = `Bearer ${NVIDIA_API_KEY}`; // overwrites the caller's token
+    headers.authorization = `Bearer ${config.apiKey}`; // overwrites the caller's token
 
     const method = req.method;
     const body = method === "GET" || method === "HEAD" ? undefined : req;
@@ -140,11 +164,6 @@ const server = http.createServer(async (req, res) => {
     }
   }
 });
-
-if (!NVIDIA_BASE_URL) {
-  console.error("NVIDIA_BASE_URL is required");
-  process.exit(1);
-}
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`NVIDIA API proxy listening on port ${PORT}`);
