@@ -67,7 +67,7 @@ const client = new OpenAI({
 ```
 
 > [!TIP]
-> Run the test suite (14 tests, no deps needed):
+> Run the test suite (16 tests, no deps needed):
 > ```bash
 > npm test
 > ```
@@ -80,6 +80,8 @@ const client = new OpenAI({
 | `PROXY_AUTH_TOKEN`  | yes      | Token clients must send as `Authorization: Bearer <token>`    |
 | `NVIDIA_BASE_URL`   | yes      | Upstream base URL, e.g. `https://integrate.api.nvidia.com/v1` |
 | `PORT`              | no       | Listen port (default `10000`, binds `0.0.0.0`)                |
+| `UPSTREAM_CONNECT_TIMEOUT_SECONDS` | no | Seconds to wait for upstream response headers (default `30`, `0` disables) |
+| `UPSTREAM_IDLE_TIMEOUT_SECONDS`    | no | Seconds a response stream may stay silent before it is cut (default `60`, `0` disables; resets on every chunk) |
 
 > [!NOTE]
 > With missing required vars, `/health` returns `503 { status: "unconfigured" }` and proxied calls

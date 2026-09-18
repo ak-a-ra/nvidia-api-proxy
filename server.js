@@ -38,6 +38,24 @@ const TOKEN_DIGEST = config.proxyToken
   ? createHash("sha256").update(config.proxyToken).digest()
   : null;
 
+// Upstream timeout windows (seconds). CONNECT bounds the pre-response phase:
+// how long the upstream may take to deliver response headers. IDLE bounds the
+// streaming phase: how long the pass-through may go without receiving a byte
+// (the timer resets on every chunk, so long-lived SSE streams are never cut
+// off while they keep producing). Both are env-tunable; 0 disables.
+function readSeconds(name, fallback) {
+  const raw = Number(process.env[name]);
+  return Number.isFinite(raw) && raw >= 0 ? raw : fallback;
+}
+export const CONNECT_TIMEOUT_SECONDS = readSeconds(
+  "UPSTREAM_CONNECT_TIMEOUT_SECONDS",
+  30
+);
+export const IDLE_TIMEOUT_SECONDS = readSeconds(
+  "UPSTREAM_IDLE_TIMEOUT_SECONDS",
+  60
+);
+
 // Headers stripped when copying in either direction. Not all of these are
 // hop-by-hop: host is re-derived per upstream call, content-length no longer
 // applies once a request body is re-streamed, and response content-length is
@@ -121,6 +139,9 @@ const server = http.createServer(async (req, res) => {
     const method = req.method;
     const body = method === "GET" || method === "HEAD" ? undefined : req;
 
+    // CONNECT_TIMEOUT bounds the pre-response phase. A whole-request abort
+    // would kill legitimate long streams mid-flight, so the body phase gets
+    // its own idle watchdog after the response headers arrive.
     const upstream = await fetch(upstreamUrl(incoming), {
       method,
       headers,
@@ -128,6 +149,9 @@ const server = http.createServer(async (req, res) => {
       // Required when `body` is a readable stream and we also read the
       // response — without it Node throws ERR_STREAM_DUPLICATE_STREAM_OUTPUT.
       duplex: body ? "half" : undefined,
+      signal: CONNECT_TIMEOUT_SECONDS
+        ? AbortSignal.timeout(CONNECT_TIMEOUT_SECONDS * 1000)
+        : undefined,
     });
 
     // Copy raw multi-value headers (forEach over Headers merges duplicates
@@ -147,8 +171,25 @@ const server = http.createServer(async (req, res) => {
     if (!upstream.body) return res.end();
 
     // pipeline owns the streams and the error path: a mid-stream upstream
-    // failure destroys this response instead of crashing the process.
-    pipeline(Readable.fromWeb(upstream.body), res, (error) => {
+    // failure destroys this response instead of crashing the process. The
+    // idle watchdog bounds stalls: every received chunk resets the timer, so
+    // a stream that keeps producing is never cut off, but a silent upstream
+    // cannot hold the client connection open forever.
+    const src = Readable.fromWeb(upstream.body);
+    let idleTimer = null;
+    const armIdle = () => {
+      if (!IDLE_TIMEOUT_SECONDS) return;
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(
+        () => src.destroy(new Error("upstream idle timeout")),
+        IDLE_TIMEOUT_SECONDS * 1000
+      );
+      idleTimer.unref();
+    };
+    armIdle();
+    src.on("data", armIdle);
+    pipeline(src, res, (error) => {
+      clearTimeout(idleTimer);
       if (error) {
         console.error("stream error:", error.message);
         res.destroy();

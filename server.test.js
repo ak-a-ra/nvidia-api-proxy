@@ -20,6 +20,7 @@ function startStubUpstream(status, body, headers, mode) {
           body: Buffer.concat(chunks).toString("utf8"),
           authorization: req.headers.authorization,
         });
+        if (mode === "silent") return; // accept request, never send response headers
         res.writeHead(status, headers);
         if (mode === "sse") {
           res.write("data: chunk1\n\n");
@@ -27,6 +28,17 @@ function startStubUpstream(status, body, headers, mode) {
             res.write("data: chunk2\n\n");
             res.end();
           }, 5);
+          return;
+        }
+        if (mode === "stall") {
+          // One chunk flushes the headers; then silence forever — the idle
+          // watchdog must cut this.
+          res.write("hello");
+          return;
+        }
+        if (mode === "slowfinish") {
+          res.write("slow");
+          setTimeout(() => res.end(" done"), 1500); // silent gap exceeds 1s idle window
           return;
         }
         if (mode === "midabort") {
@@ -47,9 +59,9 @@ function startStubUpstream(status, body, headers, mode) {
 // server.listen at import, so we just report the port back over IPC.
 const SERVER_PATH = new URL("./server.js", import.meta.url).pathname;
 
-function startProxyServer(baseURL, key, proxyToken) {
+function startProxyServer(baseURL, key, proxyToken, extraEnv = {}) {
   return new Promise((resolve, reject) => {
-    const env = { ...process.env };
+    const env = { ...process.env, ...extraEnv };
     // Loose != null: passing undefined would collide with caller-side
     // destructuring defaults, so null is the "leave unset" sentinel.
     if (baseURL != null) env.NVIDIA_BASE_URL = baseURL;
@@ -86,7 +98,7 @@ function startProxyServer(baseURL, key, proxyToken) {
 
 // Start a stub upstream and a proxy child pointing at it; both cleanups are
 // registered on the test context (LIFO: child killed before stub closed).
-async function withProxy(t, { base, key = "sk", token = "pt", ...stubOpts }) {
+async function withProxy(t, { base, key = "sk", token = "pt", proxyEnv = {}, ...stubOpts }) {
   const { srv: stub, receivedRequests } = await startStubUpstream(
     stubOpts.status ?? 200,
     stubOpts.body,
@@ -98,7 +110,7 @@ async function withProxy(t, { base, key = "sk", token = "pt", ...stubOpts }) {
     const a = stub.address();
     base = `http://${a.address}:${a.port}`;
   }
-  const proxy = await startProxyServer(base, key, token);
+  const proxy = await startProxyServer(base, key, token, proxyEnv);
   t.after(() => proxy.child.kill());
   return { proxy, receivedRequests };
 }
@@ -289,6 +301,56 @@ describe("proxy", () => {
     const body = await res.json();
     assert.deepEqual(body, { error: "Bad gateway" });
     assert.equal(body.message, undefined);
+  });
+
+  test("upstream that never sends response headers times out with 502", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      mode: "silent",
+      proxyEnv: { UPSTREAM_CONNECT_TIMEOUT_SECONDS: "1" },
+    });
+    const started = Date.now();
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 502);
+    assert.deepEqual(await res.json(), { error: "Bad gateway" });
+    // The 1s connect window must have been honored (undici's own header
+    // timeout is ~300s, so only our abort can produce a fast 502 here).
+    assert.ok(Date.now() - started >= 900, "waited for the connect window");
+    assert.ok(Date.now() - started < 5000, "connect timeout fired quickly");
+    assert.equal(proxy.child.exitCode, null, "proxy survives the timeout");
+  });
+
+  test("stalled stream is cut by the idle timeout", async (t) => {
+    const { proxy } = await withProxy(t, {
+      headers: { "content-type": "text/plain" },
+      mode: "stall",
+      proxyEnv: { UPSTREAM_IDLE_TIMEOUT_SECONDS: "1" },
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    const reader = res.body.getReader();
+    const first = await reader.read();
+    assert.equal(new TextDecoder().decode(first.value), "hello");
+    // Second read must fail: the idle watchdog destroys the stalled stream.
+    await assert.rejects(reader.read());
+    assert.equal(proxy.child.exitCode, null, "proxy survives the idle timeout");
+  });
+
+  test("idle timeout disabled (0) lets a slow stream finish", async (t) => {
+    const { proxy } = await withProxy(t, {
+      headers: { "content-type": "text/plain" },
+      mode: "slowfinish",
+      proxyEnv: { UPSTREAM_IDLE_TIMEOUT_SECONDS: "0" },
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), "slow done");
+    assert.equal(proxy.child.exitCode, null);
   });
 
   test("204 no-body upstream passes through without body", async (t) => {
