@@ -13,3 +13,12 @@ services:
         sync: false
       - key: PROXY_AUTH_TOKEN
         sync: false
+      # Pinned explicitly so dashboard drift cannot disable the idle watchdog:
+      # if it is 0 (or > undici's internal 300s body timeout), a silent upstream
+      # gets cut by undici itself with the opaque message
+      # "The operation was aborted due to timeout" (UND_ERR_BODY_TIMEOUT)
+      # instead of our clear "upstream idle timeout".
+      - key: UPSTREAM_CONNECT_TIMEOUT_SECONDS
+        value: "30"
+      - key: UPSTREAM_IDLE_TIMEOUT_SECONDS
+        value: "120"

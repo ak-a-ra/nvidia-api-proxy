@@ -232,7 +232,9 @@ const server = http.createServer(async (req, res) => {
     pipeline(src, res, (error) => {
       clearTimeout(idleTimer);
       if (error) {
-        console.error("stream error:", error.message);
+        // error.code names the abort source (e.g. UND_ERR_BODY_TIMEOUT from
+        // undici's internal 300s body timeout vs our "upstream idle timeout").
+        console.error("stream error:", error.message, error.code ?? "");
         res.destroy();
       }
     });
