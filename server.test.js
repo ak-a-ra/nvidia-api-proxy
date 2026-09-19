@@ -252,6 +252,33 @@ describe("proxy", () => {
     const { proxy } = await withProxy(t, { token: null });
     const res = await proxiedFetch(proxy.port, "/health");
     assert.equal(res.status, 503);
+    assert.deepEqual(await res.json(), { status: "unconfigured" });
+  });
+
+  // Non-leak invariant: auth is checked before the unconfigured flag, so an
+  // anonymous probe must learn nothing about which credential is missing.
+  // A deployment missing only NVIDIA_API_KEY answers 401 on /v1/*, never 503.
+  test("unauthenticated request gets 401 (not 503) when only the API key is missing", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, { key: " " });
+    const res = await proxiedFetch(proxy.port, "/v1/models");
+    assert.equal(res.status, 401);
+    assert.deepEqual(await res.json(), { error: "Unauthorized" });
+    // the proxy must reject before ever contacting the upstream
+    assert.equal(receivedRequests.length, 0);
+  });
+
+  // Degraded responses must be generic: the 503 body may not name the
+  // missing credential, so its content is pinned here.
+  test("proxied request on unconfigured proxy returns generic 503 body", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, { key: " " });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: JSON.stringify({ model: "m", messages: [] }),
+    });
+    assert.equal(res.status, 503);
+    assert.deepEqual(await res.json(), { error: "Proxy is not configured" });
+    assert.equal(receivedRequests.length, 0);
   });
 
   test("401 without proxy auth token", async (t) => {

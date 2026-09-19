@@ -6,7 +6,7 @@
 
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.14-3c873a?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](package.json)
-[![Tests](https://img.shields.io/badge/tests-28%20passing-blue?style=flat-square)](server.test.js)
+[![Tests](https://img.shields.io/badge/tests-30%20passing-blue?style=flat-square)](server.test.js)
 
 [Features](#features) • [Quick start](#quick-start) • [Configuration](#configuration) • [Endpoints](#endpoints) • [Deploy](#deploy-to-render)
 
@@ -67,7 +67,7 @@ const client = new OpenAI({
 ```
 
 > [!TIP]
-> Run the test suite (28 tests, no deps needed):
+> Run the test suite (30 tests, no deps needed):
 > ```bash
 > npm test
 > ```
