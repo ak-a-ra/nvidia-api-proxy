@@ -126,3 +126,19 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. All logic in `se
 - Timeout defaults: `UPSTREAM_CONNECT_TIMEOUT_SECONDS` 30, `UPSTREAM_IDLE_TIMEOUT_SECONDS` 120 (reset per chunk, so active SSE streams never cut)
 - Known limitations tracked as GitHub issues — check `gh issue list` before treating current behavior as intentional or final. As of 2026-09-18: no open issues (#2–#7 all closed)
 - Node ≥ 18.14 required (engines); dev machine runs Node 24
+
+---
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `ak-a-ra/nvidia-api-proxy` via `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default label vocabulary (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout — one `CONTEXT.md` + `docs/adr/` at repo root. See `docs/agents/domain.md`.
