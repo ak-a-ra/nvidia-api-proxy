@@ -40,7 +40,7 @@ Splitting the two regimes by *what kind of state the variable describes* resolve
 ## Decision
 
 1. **`NVIDIA_BASE_URL` problems are fatal at startup** (`process.exit(1)`): missing,
-   whitespace-only, or not parseable as a URL.
+   whitespace-only, not parseable as a URL, or using a scheme other than `http`/`https`.
 2. **Missing `NVIDIA_API_KEY` or `PROXY_AUTH_TOKEN` is a runtime condition, not a crash.** The
    proxy starts normally, marks itself `unconfigured`, and:
    * `/health` reports 503 with `{ status: "unconfigured" }`;

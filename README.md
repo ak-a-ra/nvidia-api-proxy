@@ -6,7 +6,7 @@
 
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.14-3c873a?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](package.json)
-[![Tests](https://img.shields.io/badge/tests-31%20passing-blue?style=flat-square)](server.test.js)
+[![Tests](https://img.shields.io/badge/tests-33%20passing-blue?style=flat-square)](server.test.js)
 
 [Features](#features) • [Quick start](#quick-start) • [Configuration](#configuration) • [Endpoints](#endpoints) • [Deploy](#deploy-to-render)
 
@@ -45,6 +45,7 @@ flowchart LR
 - 📨 **Header fidelity** — multi-value `set-cookie` preserved, hop-by-hop headers stripped both ways
 - 🛡️ **Constant-time auth** — token comparison via `timingSafeEqual`, no timing side channels
 - 🚀 **Deploy ready** — Render config included, graceful SIGTERM shutdown for zero-downtime deploys
+- ✂️ **Client disconnect cancels upstream** — if a client aborts or disconnects mid-request, the upstream fetch is cancelled too, so abandoned calls don't hold sockets or quota
 - 📦 **Zero dependencies** — Node.js built-ins only (Node >= 18.14)
 
 ## Quick start
@@ -82,7 +83,7 @@ const client = new OpenAI({
 ```
 
 > [!TIP]
-> Run the test suite (31 tests, no deps needed):
+> Run the test suite (33 tests, no deps needed):
 > ```bash
 > npm test
 > ```

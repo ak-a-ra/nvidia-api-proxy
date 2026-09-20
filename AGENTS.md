@@ -86,7 +86,7 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. All logic in `se
 
 ### Commands
 
-- `npm test` — full suite (30 tests, Node built-in `node --test` runner, no deps to install)
+- `npm test` — full suite (33 tests, Node built-in `node --test` runner, no deps to install)
 - `node --test --test-name-pattern "SIGTERM"` — run single test by name (needs Node ≥ 20)
 - `npm start` — requires `NVIDIA_BASE_URL` (exits code 1 if missing) plus `NVIDIA_API_KEY` and `PROXY_AUTH_TOKEN` (missing ones → 503 responses, not a crash)
 - No CI: tests only run when run locally — run `npm test` before pushing
@@ -102,7 +102,7 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. All logic in `se
 - Env vars (`NVIDIA_API_KEY`, `PROXY_AUTH_TOKEN`, `NVIDIA_BASE_URL`, `PORT`) read at **module import time** in `server.js`. Setting `process.env` + re-importing in-process does not work — tests spawn `server.js` as child process with per-test env, get port back over IPC (see `startProxyServer` / `withProxy` in `server.test.js`)
 - In test helpers, `null` = "leave unset" sentinel; `undefined` collides with destructuring defaults
 - Each test gets stub upstream HTTP server; cleanups register via `t.after` (LIFO: proxy child killed before stub closed)
-- Stub upstream modes: `sse`, `stall`, `slowfinish`, `silent`, `activelong`, `midabort`
+- Stub upstream modes: `sse`, `stall`, `slowfinish`, `silent`, `activelong`, `midabort`, `abortable`
 - Test count synced in three places: README badge, README tip, AGENTS.md — update all when adding tests
 
 ### server.js invariants (tests assert these)
@@ -119,6 +119,7 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. All logic in `se
 - `sendJson` drains request first (`req.resume()`) so keep-alive connections survive early rejections
 - `pipeline(src, res)` owns stream error path: mid-stream upstream failure destroys response, never crashes process
 - SIGTERM: drop idle connections, let in-flight streams finish, force-exit after 10s (test asserts exit code 0)
+- Client disconnect cancels upstream: when the downstream `res` closes (client aborted/disconnected), the per-request `AbortController` aborts the upstream fetch; a client-disconnect `AbortError` is swallowed in the catch block without sending a 502
 
 ### Deploy / repo notes
 

@@ -16,7 +16,14 @@ function validateConfig(env) {
     process.exit(1);
   }
   try {
-    new URL(rawBase);
+    const parsed = new URL(rawBase);
+    // Only http(s) can be an upstream: other schemes are structurally
+    // unusable (file: has no origin, data: is inline), so they are a
+    // doomed config — same fatal regime as an unparseable URL.
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      console.error(`NVIDIA_BASE_URL must use http or https, got: ${rawBase}`);
+      process.exit(1);
+    }
   } catch {
     console.error(`NVIDIA_BASE_URL is not a valid URL: ${rawBase}`);
     process.exit(1);
@@ -150,12 +157,16 @@ const server = http.createServer(async (req, res) => {
     const method = req.method;
     const body = method === "GET" || method === "HEAD" ? undefined : req;
 
-    // CONNECT_TIMEOUT bounds the pre-response phase: how long upstream may
-    // take to deliver headers. We manage the timer via AbortController and
-    // clear it once fetch resolves so active streaming bodies are never aborted
-    // mid-flight by the connect timeout. The streaming phase is guarded by
-    // the idle watchdog below.
+    // A single per-request AbortController owns both the connect window and
+    // the downstream lifecycle: if the client disconnects (before headers or
+    // mid-stream) the upstream fetch is aborted so abandoned work does not
+    // linger on the upstream socket. The listener is removed on normal
+    // completion — after the response pipeline finishes — so completed
+    // requests retain no lifecycle handlers.
     const ac = new AbortController();
+    const onDownstreamClose = () => ac.abort(new Error("client disconnected"));
+    res.on("close", onDownstreamClose);
+
     const connectTimer = CONNECT_TIMEOUT_SECONDS
       ? setTimeout(
           () => ac.abort(new Error("upstream connect timeout")),
@@ -209,7 +220,10 @@ const server = http.createServer(async (req, res) => {
 
     res.writeHead(upstream.status, responseHeaders);
 
-    if (!upstream.body) return res.end();
+    if (!upstream.body) {
+      res.removeListener("close", onDownstreamClose);
+      return res.end();
+    }
 
     // pipeline owns the streams and the error path: a mid-stream upstream
     // failure destroys this response instead of crashing the process. The
@@ -231,6 +245,7 @@ const server = http.createServer(async (req, res) => {
     src.on("data", armIdle);
     pipeline(src, res, (error) => {
       clearTimeout(idleTimer);
+      res.removeListener("close", onDownstreamClose);
       if (error) {
         // error.code names the abort source (e.g. UND_ERR_BODY_TIMEOUT from
         // undici's internal 300s body timeout vs our "upstream idle timeout").
@@ -239,8 +254,12 @@ const server = http.createServer(async (req, res) => {
       }
     });
   } catch (error) {
+    if (error.name === "AbortError" && error.message === "client disconnected") {
+      // Client went away: nothing to report, no response to send.
+      return;
+    }
     console.error(error);
-    if (!res.headersSent) {
+    if (!res.headersSent && !res.destroyed) {
       // Internal details (DNS names, URLs) must not leak to callers.
       sendJson(req, res, 502, { error: "Bad gateway" });
     } else {

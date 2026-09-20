@@ -69,11 +69,25 @@ function startStubUpstream(status, body, headers, mode) {
           req.socket.destroy();
           return;
         }
+        if (mode === "abortable") {
+          // Send one chunk then hold the connection open without more data.
+          // The client receives the first chunk, then the downstream request
+          // is aborted; the proxy must close the upstream stream in response.
+          res.write("part1-");
+          return;
+        }
         if (body !== undefined) res.end(body, "utf8");
         else res.end();
       });
     });
-    srv.listen(0, "127.0.0.1", () => resolve({ srv, receivedRequests }));
+    const sockets = new Map();
+    srv.on("connection", (socket) => {
+      sockets.set(socket);
+      socket.on("close", () => sockets.delete(socket));
+    });
+    srv.listen(0, "127.0.0.1", () =>
+      resolve({ srv, receivedRequests, sockets })
+    );
   });
 }
 
@@ -122,7 +136,7 @@ function startProxyServer(baseURL, key, proxyToken, extraEnv = {}) {
 // Start a stub upstream and a proxy child pointing at it; both cleanups are
 // registered on the test context (LIFO: child killed before stub closed).
 async function withProxy(t, { base, baseSuffix = "/v1", key = "sk", token = "pt", proxyEnv = {}, ...stubOpts }) {
-  const { srv: stub, receivedRequests } = await startStubUpstream(
+  const { srv: stub, receivedRequests, sockets } = await startStubUpstream(
     stubOpts.status ?? 200,
     stubOpts.body,
     stubOpts.headers,
@@ -138,7 +152,7 @@ async function withProxy(t, { base, baseSuffix = "/v1", key = "sk", token = "pt"
   }
   const proxy = await startProxyServer(base, key, token, proxyEnv);
   t.after(() => proxy.child.kill());
-  return { proxy, receivedRequests };
+  return { proxy, receivedRequests, sockets };
 }
 
 function proxiedFetch(port, path, opts = {}) {
@@ -191,6 +205,16 @@ describe("startup", () => {
     });
     assert.equal(code, 1);
     assert.ok(stderr.includes("not a valid URL"));
+  });
+
+  test("exits 1 when NVIDIA_BASE_URL is not http(s)", async () => {
+    const { code, stderr } = await runProxyOnce({
+      NVIDIA_BASE_URL: "file:///etc/hosts",
+      NVIDIA_API_KEY: "k",
+      PROXY_AUTH_TOKEN: "t",
+    });
+    assert.equal(code, 1);
+    assert.ok(stderr.includes("must use http or https"));
   });
 });
 
@@ -571,5 +595,79 @@ describe("proxy", () => {
     assert.equal(res.headers.get("content-encoding"), null);
     assert.notEqual(res.headers.get("content-length"), String(gzipped.length));
     assert.equal(await res.text(), json);
+  });
+
+  // Client disconnects → upstream work must be cancelled. The per-request
+  // AbortController must receive the downstream lifecycle, not just the
+  // connect-timeout signal. Two phases: pending upstream (no headers yet)
+  // and active streaming (first chunk already flushed to client).
+  test("downstream disconnect aborts pending upstream (pre-headers)", async (t) => {
+    const { proxy, receivedRequests, sockets } = await withProxy(t, {
+      mode: "silent", // accepts request, never sends response headers
+      proxyEnv: { UPSTREAM_CONNECT_TIMEOUT_SECONDS: "30" },
+    });
+    const controller = new AbortController();
+    const req = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+      signal: controller.signal,
+    });
+    // Wait until the proxy has forwarded the request to the upstream.
+    const deadline = Date.now() + 3000;
+    while (receivedRequests.length === 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    assert.equal(receivedRequests.length, 1, "upstream received the request");
+    // Abort the downstream fetch — simulates client disconnect. The promise
+    // rejects with AbortError; swallow it — the assertion is about the
+    // upstream socket, not the downstream fetch result.
+    controller.abort();
+    req.catch(() => {});
+    // The upstream connection must close because the proxy aborted the fetch.
+    const socketClosed = Promise.race([
+      (async () => {
+        const check = () => sockets.size === 0;
+        if (check()) return true;
+        for (let i = 0; i < 200 && !check(); i++) {
+          await new Promise((r) => setTimeout(r, 10));
+        }
+        return check();
+      })(),
+      new Promise((r) => setTimeout(() => r(false), 3000)),
+    ]);
+    assert.ok(await socketClosed, "upstream connection should close on downstream disconnect");
+    // Proxy must survive: a subsequent health check proves availability.
+    const health = await fetch(`http://127.0.0.1:${proxy.port}/health`);
+    assert.equal(health.status, 200);
+    assert.equal(proxy.child.exitCode, null, "proxy survives downstream disconnect");
+  });
+
+  test("downstream disconnect aborts active upstream stream", async (t) => {
+    const { proxy, receivedRequests, sockets } = await withProxy(t, {
+      mode: "abortable", // sends one chunk, then holds the stream open
+      proxyEnv: { UPSTREAM_CONNECT_TIMEOUT_SECONDS: "30", UPSTREAM_IDLE_TIMEOUT_SECONDS: "0" },
+    });
+    // Start the proxied request as a stream so we can abort mid-flight.
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    const reader = res.body.getReader();
+    const first = await reader.read();
+    assert.ok(first.value, "first chunk received from upstream");
+    assert.equal(new TextDecoder().decode(first.value), "part1-");
+    // Simulate downstream client disconnect.
+    reader.cancel();
+    // The upstream connection must close — the proxy must abort its fetch.
+    const socketClosed = (async () => {
+      for (let i = 0; i < 200 && sockets.size > 0; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      return sockets.size === 0;
+    })();
+    assert.ok(await socketClosed, "upstream stream should close on downstream disconnect");
+    // Proxy must survive.
+    const health = await fetch(`http://127.0.0.1:${proxy.port}/health`);
+    assert.equal(health.status, 200);
+    assert.equal(proxy.child.exitCode, null, "proxy survives downstream disconnect");
   });
 });
