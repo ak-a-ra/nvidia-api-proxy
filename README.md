@@ -6,7 +6,7 @@
 
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.14-3c873a?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](package.json)
-[![Tests](https://img.shields.io/badge/tests-30%20passing-blue?style=flat-square)](server.test.js)
+[![Tests](https://img.shields.io/badge/tests-31%20passing-blue?style=flat-square)](server.test.js)
 
 [Features](#features) • [Quick start](#quick-start) • [Configuration](#configuration) • [Endpoints](#endpoints) • [Deploy](#deploy-to-render)
 
@@ -21,6 +21,21 @@ flowchart LR
     client["Client app<br/>Bearer my-secret-token"] -->|"/v1/chat/completions"| proxy["nvidia-api-proxy"]
     proxy -->|"Bearer nvapi-…<br/>(key swapped in)"| nim["integrate.api.nvidia.com"]
 ```
+
+<figure>
+<svg viewBox="0 0 900 260" role="img" aria-label="Client to NVIDIA via proxy request flow">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="currentColor"/></marker></defs>
+<rect x="50" y="80" width="160" height="100" rx="8" fill="none" stroke="currentColor"/><text x="130" y="115" text-anchor="middle" font-size="13">Client</text><text x="130" y="135" text-anchor="middle" font-size="11">Bearer PROXY_TOKEN</text><text x="130" y="155" text-anchor="middle" font-size="11">/v1/*</text>
+<rect x="370" y="50" width="160" height="160" rx="8" fill="none" stroke="currentColor"/><text x="450" y="75" text-anchor="middle" font-size="13">Proxy server.js</text><text x="450" y="100" text-anchor="middle" font-size="11">/health</text><text x="450" y="120" text-anchor="middle" font-size="11">auth + path</text><text x="450" y="140" text-anchor="middle" font-size="11">upstreamUrl()</text><text x="450" y="160" text-anchor="middle" font-size="11">CONNECT timeout</text><text x="450" y="180" text-anchor="middle" font-size="11">IDLE watchdog</text>
+<rect x="690" y="80" width="160" height="100" rx="8" fill="none" stroke="currentColor"/><text x="770" y="115" text-anchor="middle" font-size="13">NVIDIA NIM</text><text x="770" y="135" text-anchor="middle" font-size="11">Bearer NVIDIA_API_KEY</text><text x="770" y="155" text-anchor="middle" font-size="11">https://integrate.api.nvidia.com/v1</text>
+<line x1="210" y1="130" x2="370" y2="130" stroke="currentColor" marker-end="url(#arrow)"/><text x="290" y="120" text-anchor="middle" font-size="11">request</text>
+<line x1="530" y1="130" x2="690" y2="130" stroke="currentColor" marker-end="url(#arrow)"/><text x="610" y="120" text-anchor="middle" font-size="11">fetch duplex half</text>
+<line x1="690" y1="180" x2="530" y2="180" stroke="currentColor" marker-end="url(#arrow)"/><text x="610" y="205" text-anchor="middle" font-size="11">upstream body</text>
+<line x1="210" y1="180" x2="370" y2="180" stroke="currentColor" marker-end="url(#arrow)"/><text x="290" y="205" text-anchor="middle" font-size="11">response</text>
+<text x="450" y="230" text-anchor="middle" font-size="11">strip hop-by-hop + content-encoding, copy set-cookie via getSetCookie</text>
+</svg>
+</figure>
+
 
 ## Features
 
@@ -67,7 +82,7 @@ const client = new OpenAI({
 ```
 
 > [!TIP]
-> Run the test suite (30 tests, no deps needed):
+> Run the test suite (31 tests, no deps needed):
 > ```bash
 > npm test
 > ```
