@@ -132,6 +132,26 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. All logic in `se
 
 ## Agent skills
 
+### Orchestrator role (always uses subagents)
+
+The primary agent acts as orchestrator for any implementation work: it never edits source code, writes tests, or commits directly in its own context. Instead it dispatches a fresh implementer subagent per task via `spawn_subagent`, then dispatches a separate reviewer subagent to verify each task's spec compliance and code quality. The orchestrator's job is coordination only: crafting task briefs, dispatching implementers, reading reports, dispatching reviewers, tracking a ledger, and adjudicating findings at the cap.
+
+When a user request is implementable (a feature, a fix, a refactor, a plan execution), the orchestrator:
+
+1. Resolves the work into discrete tasks (one subagent per task).
+2. Reads the brief and writes a task brief file as the single source of requirements.
+3. Dispatches an implementer subagent with the brief path, report-file path, and relevant constraints.
+4. Reads the implementer's report (status, commits, test summary, concerns).
+5. Dispatches a task reviewer subagent with the diff, brief, and report.
+6. Resolves findings: resume the implementer (rounds 1–3), escalate to a more capable model (rounds 4–5), or adjudicate at the cap.
+7. After all tasks pass review, dispatches the final whole-branch reviewer on the most capable available model.
+
+The orchestrator never writes implementation code itself. It never runs review logic inline. It dispatches subagents and tracks outcomes in a ledger file that survives session compaction.
+
+**Small tasks and blocked tasks:** The orchestrator may do trivial, reversible, non-behavioral work inline when a subagent would be heavier than the work itself (one-line fixes, doc tweaks, config touch-ups) — but never implementation that changes behavior, adds tests, or touches production logic. A task is "blocked" only when the orchestrator cannot proceed without a human decision (irreversible ops, security-sensitive actions, side effects outside the worktree); in that case the orchestrator stops and asks, rather than inlining.
+
+See the subagent-driven-development skill at `.agents/skills/subagent-driven-development/SKILL.md`.
+
 ### Issue tracker
 
 GitHub Issues on `ak-a-ra/nvidia-api-proxy` via `gh` CLI. See `docs/agents/issue-tracker.md`.

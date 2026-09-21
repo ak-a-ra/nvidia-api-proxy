@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proxy Flow</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font-family:system-ui,sans-serif;margin:24px;color:#111;background:#fff}
+@media(prefers-color-scheme:dark){body{color:#eee;background:#111}}
+figure{margin:0}
+svg{width:100%;height:auto;max-width:900px}
+figcaption{margin-top:8px;font-size:13px;color:#555}
+</style>
+</head>
+<body>
+<figure>
+<svg viewBox="0 0 900 260" role="img" aria-label="Client to NVIDIA via proxy request flow">
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+<path d="M0 0 L10 5 L0 10 Z" fill="currentColor"/>
+</marker>
+</defs>
+<!-- boxes -->
+<rect x="50" y="80" width="160" height="100" rx="8" fill="none" stroke="currentColor"/>
+<text x="130" y="115" text-anchor="middle" font-size="13">Client</text>
+<text x="130" y="135" text-anchor="middle" font-size="11">Bearer PROXY_TOKEN</text>
+<text x="130" y="155" text-anchor="middle" font-size="11">/v1/*</text>
+
+<rect x="370" y="50" width="160" height="160" rx="8" fill="none" stroke="currentColor"/>
+<text x="450" y="75" text-anchor="middle" font-size="13">Proxy server.js</text>
+<text x="450" y="100" text-anchor="middle" font-size="11">/health</text>
+<text x="450" y="120" text-anchor="middle" font-size="11">auth + path</text>
+<text x="450" y="140" text-anchor="middle" font-size="11">upstreamUrl()</text>
+<text x="450" y="160" text-anchor="middle" font-size="11">CONNECT timeout</text>
+<text x="450" y="180" text-anchor="middle" font-size="11">IDLE watchdog</text>
+
+<rect x="690" y="80" width="160" height="100" rx="8" fill="none" stroke="currentColor"/>
+<text x="770" y="115" text-anchor="middle" font-size="13">NVIDIA NIM</text>
+<text x="770" y="135" text-anchor="middle" font-size="11">Bearer NVIDIA_API_KEY</text>
+<text x="770" y="155" text-anchor="middle" font-size="11">https://integrate.api.nvidia.com/v1</text>
+
+<!-- arrows request -->
+<line x1="210" y1="130" x2="370" y2="130" stroke="currentColor" marker-end="url(#arrow)"/>
+<text x="290" y="120" text-anchor="middle" font-size="11">request</text>
+
+<line x1="530" y1="130" x2="690" y2="130" stroke="currentColor" marker-end="url(#arrow)"/>
+<text x="610" y="120" text-anchor="middle" font-size="11">fetch duplex half</text>
+
+<!-- arrows response -->
+<line x1="690" y1="180" x2="530" y2="180" stroke="currentColor" marker-end="url(#arrow)"/>
+<text x="610" y="205" text-anchor="middle" font-size="11">upstream body</text>
+
+<line x1="210" y1="180" x2="370" y2="180" stroke="currentColor" marker-end="url(#arrow)"/>
+<text x="290" y="205" text-anchor="middle" font-size="11">response</text>
+
+<!-- labels -->
+<text x="450" y="230" text-anchor="middle" font-size="11">strip hop-by-hop + content-encoding, copy set-cookie via getSetCookie</text>
+</svg>
+<figcaption>Request enters proxy, auth/path checked, headers stripped, token swapped, fetch to NVIDIA with connect timeout; response headers copied, set-cookie preserved, content-length restored when safe, body piped with idle reset.</figcaption>
+</figure>
+</body>
+</html>
