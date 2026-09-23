@@ -127,6 +127,10 @@ first.
 **Test-count sync (mandatory, all three places):** suite goes 30 → 32. README.md badge (~line 9),
 README.md tip (~line 70), AGENTS.md `npm test` bullet.
 
+**Superseded (2026-09-23):** "three places" is wrong — the rule is every living doc that states a
+count (currently 34). The 30 → 32 figure and the line numbers above are stale; read the real total
+from `node --test` and grep the sites, per `AGENTS.md` "Testing quirks".
+
 ## Docs
 
 - README Configuration table: add row

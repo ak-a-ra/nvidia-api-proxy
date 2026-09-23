@@ -40,7 +40,7 @@ ADR 0001 §1 clause) and plan 04 (`63c49f6` revised plan, `dfab41e` fix, `2866f7
   actual new total in **every** living doc that states a count — the `README.md` badge and tip,
   `AGENTS.md` `npm test` bullet, `CONVENTIONS.md`, and the four `specs/` docs. Re-derive the list
   instead of trusting it (line numbers drift; the README tip is ~line 86, not ~70):
-  `grep -rnE 'tests(-| )?3[0-9]|3[0-9][ -]tests?' --include='*.md' --include='*.yaml' .`
+  `grep -rnE 'tests(-| )?[0-9]{2}|[0-9]{2}[ -]tests?' --include='*.md' --include='*.yaml' .`
   Read the current count from `node --test` output; do not hardcode the numbers above. (The old
   examples — badge `tests-30%20passing`, tip "(30 tests, no deps needed)" — are stale, not current
   facts: the suite is at 34. A dated historical note,

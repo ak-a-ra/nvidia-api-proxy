@@ -103,7 +103,7 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. All logic in `se
 - In test helpers, `null` = "leave unset" sentinel; `undefined` collides with destructuring defaults
 - Each test gets stub upstream HTTP server; cleanups register via `t.after` (LIFO: proxy child killed before stub closed)
 - Stub upstream modes: `sse`, `stall`, `slowfinish`, `silent`, `activelong`, `midabort`, `abortable`
-- Test count synced in **every** living doc that states one (currently 34) — grep, never trust this list or its line numbers: `grep -rnE 'tests(-| )?3[0-9]|3[0-9][ -]tests?' --include='*.md' --include='*.yaml' .`
+- Test count synced in **every** living doc that states one (currently 34) — grep, never trust this list or its line numbers: `grep -rnE 'tests(-| )?[0-9]{2}|[0-9]{2}[ -]tests?' --include='*.md' --include='*.yaml' .`
   Sites as of 2026-09-23: `README.md:9` badge `tests-34%20passing`, `README.md:86` tip, `AGENTS.md:89` `npm test` bullet, `CONVENTIONS.md:17`, `specs/README.md:19`, `specs/tech-architecture/tech-stack.md:82`, `specs/tech-architecture/TEST_PLAN_LATEST.md:44,294,351`, `specs/product/VISION_LATEST.yaml:20`. `plans/*.md` hold historical per-plan numbers — not living docs.
   `docs/research/config-invariant-guard-tests.md` is a dated historical note — do **not** update it.
 

@@ -97,6 +97,10 @@ must be pinned.
 update the real new total in: README.md badge (line ~9, URL-encoded), README.md tip (line ~70),
 AGENTS.md `npm test` bullet.
 
+**Superseded (2026-09-23):** "three places" is wrong — the rule is every living doc that states a
+count (currently 34). The 30 → 32 figure and the line numbers above are stale; read the real total
+from `node --test` and grep the sites, per `AGENTS.md` "Testing quirks".
+
 ## Docs (same PR)
 
 - ADR 0001 §Compliance: replace the sentence "The token side of `.trim()` is not covered by a
