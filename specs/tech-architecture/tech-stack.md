@@ -79,7 +79,7 @@ The proxy follows a modular reverse proxy pattern with separation of concerns:
 ## Testing Strategy
 
 ### Test Architecture
-- 33 tests in `server.test.js`
+- 34 tests in `server.test.js`
 - Each test spawns isolated upstream stub
 - Per-test environment configuration
 - LIFO cleanup (proxy killed before stub closed)

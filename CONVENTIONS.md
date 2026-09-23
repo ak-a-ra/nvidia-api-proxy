@@ -14,7 +14,7 @@ Zero-dependency Node.js reverse proxy for NVIDIA NIM API. Client apps call the p
 ## Commands
 
 - `npm start` — runs the proxy server
-- `npm test` — runs all 33 tests
+- `npm test` — runs all 34 tests
 - `node --test --test-name-pattern "TEST_NAME"` — run single test by name
 
 ## Defensive Code Categories

@@ -41,7 +41,7 @@ Comprehensive test plan for the NVIDIA NIM API reverse proxy. This plan defines 
 - No state sharing between tests
 
 #### Test Coverage
-- 33 tests covering all major scenarios
+- 34 tests covering all major scenarios
 - Each upstream stub mode tested
 - Error conditions thoroughly tested
 - Authentication scenarios covered
@@ -291,7 +291,7 @@ rejects(async () => {
    - Ensure remaining tests pass
 
 ### Test Quality Gates
-- All 33 tests must pass
+- All 34 tests must pass
 - No test failures in CI
 - Test isolation maintained
 - Performance within acceptable limits
@@ -348,6 +348,6 @@ node --test
 
 ## Conclusion
 
-This comprehensive test plan ensures the NVIDIA API Proxy meets all requirements and maintains high quality through thorough testing. The 33-test suite provides good coverage of all major scenarios while maintaining the zero-dependency philosophy.
+This comprehensive test plan ensures the NVIDIA API Proxy meets all requirements and maintains high quality through thorough testing. The 34-test suite provides good coverage of all major scenarios while maintaining the zero-dependency philosophy.
 
 Regular review and updates to this test plan are essential as new features are added and the system evolves.

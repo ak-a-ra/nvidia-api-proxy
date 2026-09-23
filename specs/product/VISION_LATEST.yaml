@@ -17,7 +17,7 @@ key_features:
   - Path mapping: `/v1/*` forwarded to base URL
   - Health endpoint for deployment monitoring
   - Client disconnect cancellation of upstream requests
-  - 33 tests covering all major scenarios
+  - 34 tests covering all major scenarios
 
 user_benefits:
   - Developers can use existing OpenAI-compatible clients without code changes
