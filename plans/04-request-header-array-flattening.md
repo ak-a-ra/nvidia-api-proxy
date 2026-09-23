@@ -160,6 +160,14 @@ None required — README's header-fidelity claim describes the **response** dire
 2. `git diff` scope is exactly: `server.js` (one loop + its comment), `server.test.js` (one stub
    field + one test), `README.md` (2 count spots), `AGENTS.md` (1 count spot). Nothing else.
 
+**Scope note (2026-09-23, added after review):** the four-file gate above describes the
+implementation commit (`dfab41e`) only. The branch also carries `63c49f6` (this plan's own revision)
+and `2866f72` — a separate docs-only commit whose count sync reached five more living references
+(`CONVENTIONS.md`, `specs/README.md`, `specs/tech-architecture/tech-stack.md`,
+`specs/tech-architecture/TEST_PLAN_LATEST.md`, `specs/product/VISION_LATEST.yaml`) that the "three
+places" rule above had missed. Five changed files branch-wide is expected, not scope creep.
+`docs/research/config-invariant-guard-tests.md` is deliberately stale (dated historical note).
+
 ## Measured evidence (2026-09-23, Node v24.18.0, undici 7.28.0)
 
 Stub upstream recording `req.headers["set-cookie"]`, with the real `server.js` spawned and
