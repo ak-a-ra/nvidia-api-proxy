@@ -1,6 +1,6 @@
 # Plan 01: Add GitHub Actions CI
 
-Category: CI/DX · Priority: high · Effort: small (one new file + docs touch) · Introduced-by: n/a (gap)
+Category: CI/DX · Priority: high · Effort: small (one new file + docs touch) · Introduced-by: n/a (gap) · Issue: #12
 
 ## Problem
 

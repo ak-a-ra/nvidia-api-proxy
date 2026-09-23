@@ -1,6 +1,6 @@
 # Plan 03: Close config-invariant test gaps
 
-Category: Tests · Priority: medium · Effort: small (2 tests + count sync) · Introduced-by: n/a (coverage debt)
+Category: Tests · Priority: medium · Effort: small (2 tests + count sync) · Introduced-by: n/a (coverage debt) · Issue: #10
 
 ## Problem
 

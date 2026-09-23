@@ -1,6 +1,6 @@
 # Plan 05: Opt-in request logging via PROXY_LOG_REQUESTS
 
-Category: Observability/DX · Priority: medium-low · Effort: medium (server.js + 2 tests + count sync + docs)
+Category: Observability/DX · Priority: medium-low · Effort: medium (server.js + 2 tests + count sync + docs) · Issue: #9
 
 ## Problem
 
@@ -20,7 +20,7 @@ no secrets.
   `validateConfig` (l. 15, 21), stream-error (l. 237), and generic catch (l. 242). Nothing per-request.
 - Timeout knobs (`readSeconds`, `server.js:46-59`) establish the exact pattern for env-tunable
   operational knobs: read at import, null/empty → fallback, invalid → fallback. Reuse it.
-- No GitHub issue open on this (`AGENTS.md`, 2026-09-18: all closed). Original finding.
+- Tracked as GitHub issue **#9** — this plan is its implementation (`AGENTS.md`, 2026-09-23).
 
 ## Goal
 

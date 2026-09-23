@@ -127,7 +127,7 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. All logic in `se
 
 - `render.yaml` = deploy config (free plan, health check `/health`) and pins `NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1`
 - Timeout defaults: `UPSTREAM_CONNECT_TIMEOUT_SECONDS` 30, `UPSTREAM_IDLE_TIMEOUT_SECONDS` 120 (reset per chunk, so active SSE streams never cut)
-- Known limitations tracked as GitHub issues — check `gh issue list` before treating current behavior as intentional or final. As of 2026-09-18: no open issues (#2–#7 all closed)
+- Known limitations tracked as GitHub issues — check `gh issue list` before treating current behavior as intentional or final. As of 2026-09-23: 3 open, each paired with a plan — #9 opt-in request logging (`plans/05`), #10 token-side config guards (`plans/03`), #12 CI workflow (`plans/01`). #11 (request-header array flattening) was closed by `dfab41e`; #2–#8 all closed
 - Node ≥ 18.14 required (engines); dev machine runs Node 24
 
 ---

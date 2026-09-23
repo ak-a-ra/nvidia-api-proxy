@@ -1,6 +1,6 @@
 # Plan 04: Fix request-header flattening (set-cookie from clients)
 
-Category: Robustness · Priority: low · Effort: small (one loop in server.js) · Introduced-by: n/a (original)
+Category: Robustness · Priority: low · Effort: small (one loop in server.js) · Introduced-by: n/a (original) · Issue: #11 (closed by `dfab41e`)
 
 **Revision note (2026-09-23, tree at `e1a482d`):** this plan was rewritten after its original
 claims were measured against the live runtime. The original asserted that undici *rejects* array

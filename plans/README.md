@@ -17,6 +17,9 @@ be executed by an agent that has never seen this session. Execute in the order b
 Landed since the audit: plan 02 (`ec069d8` — guard `server.js:20-27`, test `server.test.js:211`,
 ADR 0001 §1 clause) and plan 04 (`63c49f6` revised plan, `dfab41e` fix, `2866f72` count sync).
 
+Tracker: each remaining plan has a GitHub issue — plan 01 → #12, plan 03 → #10, plan 05 → #9.
+Plan 04 → #11, closed by `dfab41e`. `gh issue list` is the live source of truth.
+
 ## Recommended execution order
 
 `03 → 01 → 05` — the remainder; plans 02 and 04 are already done.
@@ -27,8 +30,8 @@ ADR 0001 §1 clause) and plan 04 (`63c49f6` revised plan, `dfab41e` fix, `2866f7
   count-sync edits will conflict.
 - Plan 01 is independent and can go any time; it is placed second only because 03 is smaller and
   lands the code invariants first.
-- Plan 06 adds no tests and touches no count-sync location, so it is order-independent; it edits only
-  the upstream-URL construction in `server.js`, which plan 04 does not touch.
+- Plans 06 and 04 are done, so their positions in the order above are historical. Plan 06 added no
+  tests and touches no count-sync location, which is why it was order-independent.
 
 ## Executor constraints (apply to every plan)
 
@@ -56,8 +59,9 @@ ADR 0001 §1 clause) and plan 04 (`63c49f6` revised plan, `dfab41e` fix, `2866f7
 - The audit session could not execute shell commands (`/bin/bash` unavailable on the audit host), so
   `npm test`, `git log`, and `gh issue list` were **not** run. Findings come from full static reads
   of all 10 tracked files. Re-run `npm test` before starting and after finishing every plan.
-- GitHub issue state unverified. Per `AGENTS.md` (as of 2026-09-18): issues #2–#7 all closed, none
-  open. Before treating any current behavior as intentional/final, re-check `gh issue list`.
+- GitHub issue state was unverified at audit time. Re-checked 2026-09-23: #9, #10 and #12 are open,
+  each paired with a plan above; #11 was closed by `dfab41e`. Re-check `gh issue list` before treating
+  any current behavior as intentional/final.
 
 ## Findings deliberately rejected (do not implement)
 
