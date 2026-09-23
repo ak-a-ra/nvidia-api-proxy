@@ -11,7 +11,7 @@ const PORT = Number(process.env.PORT || 10000);
 // they are set.
 function validateConfig(env) {
   const rawBase = env.NVIDIA_BASE_URL;
-  if (!rawBase || !rawBase.trim()) {
+  if (!rawBase?.trim()) {
     console.error("NVIDIA_BASE_URL is required");
     process.exit(1);
   }
@@ -56,7 +56,7 @@ const BASE_ORIGIN = new URL(config.baseURL).origin;
 // off while they keep producing). Both are env-tunable; 0 disables.
 function readSeconds(name, fallback) {
   const val = process.env[name];
-  if (val == null || val.trim() === "") return fallback;
+  if (!val?.trim()) return fallback;
   const raw = Number(val);
   return Number.isFinite(raw) && raw >= 0 ? raw : fallback;
 }
@@ -134,7 +134,7 @@ const server = http.createServer(async (req, res) => {
     // Bare /v1 or /v1/ — the proxy forwards /v1/* paths, not the /v1
     // prefix itself. With the default base URL this would hit NVIDIA's
     // API root, which isn't what clients expect from a /v1 proxy.
-    if (/^\/v1\/?$/.test(incoming.pathname)) {
+    if (incoming.pathname === "/v1" || incoming.pathname === "/v1/") {
       return sendJson(req, res, 404, { error: "Not found" });
     }
 
