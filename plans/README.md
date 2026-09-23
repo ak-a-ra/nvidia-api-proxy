@@ -8,22 +8,25 @@ be executed by an agent that has never seen this session. Execute in the order b
 | # | Plan | Category | Status | Depends on |
 | --- | --- | --- | --- | --- |
 | 1 | [01-ci-github-actions.md](01-ci-github-actions.md) | CI/DX | TODO | — |
-| 2 | [02-base-url-scheme-validation.md](02-base-url-scheme-validation.md) | Correctness | TODO | — |
+| 2 | [02-base-url-scheme-validation.md](02-base-url-scheme-validation.md) | Correctness | DONE | — |
 | 3 | [03-config-guard-tests-round-2.md](03-config-guard-tests-round-2.md) | Tests | TODO | — |
 | 4 | [04-request-header-array-flattening.md](04-request-header-array-flattening.md) | Robustness | DONE | — |
 | 5 | [05-opt-in-request-logging.md](05-opt-in-request-logging.md) | Observability/DX | TODO | — |
 | 6 | [06-hoist-upstream-base-origin.md](06-hoist-upstream-base-origin.md) | Performance | DONE | — |
 
+Landed since the audit: plan 02 (`ec069d8` — guard `server.js:20-27`, test `server.test.js:211`,
+ADR 0001 §1 clause) and plan 04 (`63c49f6` revised plan, `dfab41e` fix, `2866f72` count sync).
+
 ## Recommended execution order
 
-`02 → 03 → 01 → 04 → 05`.
+`03 → 01 → 05` — the remainder; plans 02 and 04 are already done.
 
-- Plans 02, 03, 05 each add tests and therefore all touch the same count-sync sites — every living
+- Plans 03 and 05 each add tests and therefore both touch the same count-sync sites — every living
   doc that states a test count, not just the three README/AGENTS.md spots (see `AGENTS.md` "Testing
   quirks"; grep for the sites, the list drifts). **Run them sequentially**, not in parallel, or the
   count-sync edits will conflict.
-- Plan 01 is independent and can go any time; it is placed third only because 02+03 are smaller and
-  land the code invariants first.
+- Plan 01 is independent and can go any time; it is placed second only because 03 is smaller and
+  lands the code invariants first.
 - Plan 06 adds no tests and touches no count-sync location, so it is order-independent; it edits only
   the upstream-URL construction in `server.js`, which plan 04 does not touch.
 
