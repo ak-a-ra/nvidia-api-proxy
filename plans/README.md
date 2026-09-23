@@ -12,6 +12,7 @@ be executed by an agent that has never seen this session. Execute in the order b
 | 3 | [03-config-guard-tests-round-2.md](03-config-guard-tests-round-2.md) | Tests | TODO | — |
 | 4 | [04-request-header-array-flattening.md](04-request-header-array-flattening.md) | Robustness | TODO | — |
 | 5 | [05-opt-in-request-logging.md](05-opt-in-request-logging.md) | Observability/DX | TODO | — |
+| 6 | [06-hoist-upstream-base-origin.md](06-hoist-upstream-base-origin.md) | Performance | DONE | — |
 
 ## Recommended execution order
 
@@ -22,6 +23,8 @@ be executed by an agent that has never seen this session. Execute in the order b
   parallel, or the count-sync edits will conflict.
 - Plan 01 is independent and can go any time; it is placed third only because 02+03 are smaller and
   land the code invariants first.
+- Plan 06 adds no tests and touches no count-sync location, so it is order-independent; it edits only
+  the upstream-URL construction in `server.js`, which plan 04 does not touch.
 
 ## Executor constraints (apply to every plan)
 

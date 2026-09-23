@@ -45,6 +45,10 @@ const TOKEN_DIGEST = config.proxyToken
   ? createHash("sha256").update(config.proxyToken).digest()
   : null;
 
+// config.baseURL never changes after startup, so its origin is resolved once
+// here instead of re-parsing the same string on every request.
+const BASE_ORIGIN = new URL(config.baseURL).origin;
+
 // Upstream timeout windows (seconds). CONNECT bounds the pre-response phase:
 // how long the upstream may take to deliver response headers. IDLE bounds the
 // streaming phase: how long the pass-through may go without receiving a byte
@@ -115,8 +119,7 @@ function authorized(req) {
 // The base's own /v1 suffix is intentionally ignored, so bases with or
 // without it produce identical upstream URLs.
 function upstreamUrl(incoming) {
-  const base = new URL(config.baseURL);
-  return `${base.origin}${incoming.pathname}${incoming.search}`;
+  return `${BASE_ORIGIN}${incoming.pathname}${incoming.search}`;
 }
 
 const server = http.createServer(async (req, res) => {
