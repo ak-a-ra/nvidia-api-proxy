@@ -150,9 +150,17 @@ const server = http.createServer(async (req, res) => {
       return sendJson(req, res, 503, { error: "Proxy is not configured" });
     }
 
+    // Node's req.headers values are string | string[]. undici accepts an array
+    // but silently collapses it into one comma-joined value, so normalize to a
+    // scalar here and join with ", " — byte-identical to what
+    // Headers.append("set-cookie", ...) produces. In practice only set-cookie can
+    // arrive as an array (cookie is pre-merged by Node; STRIPPED_HEADERS covers
+    // the hop-by-hop candidates). The response direction solves its sibling
+    // problem with getSetCookie() below.
     const headers = {};
     for (const [name, value] of Object.entries(req.headers)) {
-      if (!STRIPPED_HEADERS.has(name)) headers[name] = value;
+      const v = Array.isArray(value) ? value.join(", ") : value;
+      if (!STRIPPED_HEADERS.has(name)) headers[name] = v;
     }
     headers.authorization = `Bearer ${config.apiKey}`; // overwrites the caller's token
     headers["accept-encoding"] = "identity";

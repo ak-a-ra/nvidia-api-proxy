@@ -23,6 +23,7 @@ function startStubUpstream(status, body, headers, mode) {
           rawBody: requestBody,
           authorization: req.headers.authorization,
           contentEncoding: req.headers["content-encoding"],
+          setCookie: req.headers["set-cookie"],
         });
         if (mode === "silent") return; // accept request, never send response headers
         // Real APIs (like NVIDIA) declare content-length on JSON responses;
@@ -669,5 +670,36 @@ describe("proxy", () => {
     const health = await fetch(`http://127.0.0.1:${proxy.port}/health`);
     assert.equal(health.status, 200);
     assert.equal(proxy.child.exitCode, null, "proxy survives downstream disconnect");
+  });
+
+  test("request set-cookie headers reach the upstream as one comma-joined header", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, { body: "{}" });
+    // proxiedFetch cannot be used here: undici collapses duplicate set-cookie
+    // request headers into one before they leave, so node:http builds the wire
+    // request to guarantee two headers actually arrive at the proxy.
+    const res = await new Promise((resolve, reject) => {
+      const r = http.request(
+        {
+          host: "127.0.0.1",
+          port: proxy.port,
+          path: "/v1/models",
+          method: "GET",
+          headers: { authorization: "Bearer pt" },
+        },
+        (response) => {
+          response.resume();
+          response.on("end", () => resolve(response));
+        }
+      );
+      r.on("error", reject);
+      // Two headers so the pre-fix and post-fix bytes differ: unfixed, undici
+      // coerces the array to "a,b"; fixed, the loop joins to "a, b".
+      r.setHeader("set-cookie", ["sid=abc; Path=/", "theme=dark; Path=/"]);
+      r.end();
+    });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(receivedRequests[0].setCookie, [
+      "sid=abc; Path=/, theme=dark; Path=/",
+    ]);
   });
 });
