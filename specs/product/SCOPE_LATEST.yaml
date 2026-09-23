@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: MIT
+
+# SCOPE_LATEST
+
+```yaml
+vision: "Zero-dependency Node.js reverse proxy for NVIDIA NIM API that authenticates with a client-controlled token while keeping the real API key server-side."
+scope:
+  include:
+    - Reverse proxy functionality for NVIDIA NIM API
+    - Authentication via PROXY_AUTH_TOKEN
+    - Transparent drop-in replacement for OpenAI-compatible clients
+    - Streaming support (SSE responses)
+    - Header fidelity preservation
+    - Constant-time authentication
+    - Graceful SIGTERM shutdown for zero-downtime deploys
+  exclude:
+    - Web UI or dashboard features
+    - Database storage
+    - Caching mechanisms
+    - Load balancing
+    - Monitoring beyond health endpoint
+    - API key rotation features
+    - Multi-region deployment
+
+defensive_categories:
+  - Rate limit
+  - Retry
+  - Circuit breaker
+  - Timeout
+  - Graceful degradation
+
+tech_stack:
+  language: JavaScript (ESM)
+  runtime: Node.js >= 18.14
+  test_runner: Node built-in `node --test`
+  dependencies: 0
+```

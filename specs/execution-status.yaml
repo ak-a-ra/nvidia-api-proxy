@@ -1,0 +1,12 @@
+# execution-status
+
+# SPDX-License-Identifier: MIT
+
+# Execution Status
+
+```yaml
+completed_stories: []
+pending_stories: []
+active_stories: []
+blocked_stories: []
+```

@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+
+# VISION_LATEST
+
+```yaml
+primary_goal: "Create a transparent drop-in reverse proxy that sits in front of the NVIDIA NIM API, authenticating clients with their own tokens while keeping the real NVIDIA API key server-side."
+
+secondary_goals:
+  - Maintain zero dependencies (Node built-ins only)
+  - Support streaming responses (SSE) for real-time AI interactions
+  - Preserve header fidelity (multi-value cookies, hop-by-hop headers)
+  - Implement constant-time authentication for security
+  - Enable graceful zero-downtime deploys via SIGTERM handling
+
+key_features:
+  - Client token authentication with proxy key swapping
+  - Path mapping: `/v1/*` forwarded to base URL
+  - Health endpoint for deployment monitoring
+  - Client disconnect cancellation of upstream requests
+  - 33 tests covering all major scenarios
+
+user_benefits:
+  - Developers can use existing OpenAI-compatible clients without code changes
+  - Simplified authentication management (single proxy token)
+  - Improved security (API key never exposed to clients)
+  - Production-ready with comprehensive testing
+  - Easy deployment and maintenance

@@ -1,0 +1,20 @@
+# planning-status
+
+# SPDX-License-Identifier: MIT
+
+# Planning Status
+
+```yaml
+discover:
+  complete: true
+  artifacts:
+    - CLAUDE.md
+    - AGENTS.md
+    - CONTEXT.md
+    - CONVENTIONS.md
+  next: plan
+plan:
+  complete: false
+  artifacts: []
+  next: slice-tasks
+```
