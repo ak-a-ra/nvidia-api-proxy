@@ -165,8 +165,9 @@ implementation commit (`dfab41e`) only. The branch also carries `63c49f6` (this 
 and `2866f72` — a separate docs-only commit whose count sync reached five more living references
 (`CONVENTIONS.md`, `specs/README.md`, `specs/tech-architecture/tech-stack.md`,
 `specs/tech-architecture/TEST_PLAN_LATEST.md`, `specs/product/VISION_LATEST.yaml`) that the "three
-places" rule above had missed. Six changed files across the branch at that point (this plan's file
-plus those five) is expected, not scope creep.
+places" rule above had missed. Counting the plan and those five additional count-sync documents
+gives six plan/count-sync documents; together with the four files from `dfab41e`, the full branch
+range at `2866f72` changes 10 unique files. That extra documentation is expected, not scope creep.
 `docs/research/config-invariant-guard-tests.md` is deliberately stale (dated historical note).
 
 ## Measured evidence (2026-09-23, Node v24.18.0, undici 7.28.0)
