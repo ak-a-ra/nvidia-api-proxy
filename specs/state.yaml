@@ -7,14 +7,60 @@
 ```yaml
 vcs:
   kind: git
-  commit: 29ac602d26a713ea2aa9196bb2370cb27be88fbe
+  commit: 4cc7fc6
+  branch: epic-14-config-owner
+  worktree: ../epic-14-config-owner
 workflow_mode: solo-git
-active_flow: plan
+active_flow: build
+active_epic: e04
+active_story: e04s01
 session_start: 2026-09-23T08:14:23Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: plan-work
-  source: seed-conventions
+  next_skill: execute-plan
+  source: plan-work
+  note: >-
+    Release plan built from GitHub issue #13 (parent) and slices #14-#22. WSJF order
+    is e01 CI (#12), e02 config guards (#10), e03 logging (#9), e04 rate limiting (#13).
+    e04 is only unblocked at its first slice e04s01 (#14); e04s02-e04s09 are blocked
+    with no capsule until their blocker lands. Story specs and runnable verify commands
+    exist for e01s01, e02s01, e03s01, e04s01 only. e04s01 tasks are all at
+    status: failing (failing ledger); flip one to passing only when its verify exits 0.
+decisions:
+  - decision: Plan only the unblocked slice of the rate limiting epic
+    rationale: >-
+      #14 through #22 form a strict linear blocked-by chain. Writing capsules for
+      blocked slices would imply work that cannot start and would go stale before
+      it is reachable.
+  - decision: Use issue #13 body as the elaborate-spec output
+    rationale: >-
+      No elaborate-spec run ever happened; the discover-phase checklist recorded
+      plan: complete: false when the release plan was built. The issue body is a
+      544-line spec with 150 numbered user stories, which is more detailed than
+      elaborate-spec would produce.
+  - decision: Epic IDs follow capsule directory names, not WSJF rank
+    rationale: >-
+      The plan-release skill allows stable IDs with WSJF order expressed only in
+      release-plan.yaml. Matching ID to directory keeps cross-references checkable.
+  - decision: Hand-sync execution-status.yaml
+    rationale: >-
+      scripts/sync-status-from-epics.sh does not exist in this repository, as do
+      scripts/validate-specs-yaml.sh and docs/countable-story-format.md. A 20-section
+      story format was reconstructed from the section anchors other skills cite
+      (1 business narrative, 5 solution, 6 constraints, 17 Gherkin, 18 out of scope).
+  - decision: e04s01 extracts config.js only; the deep-module split is deferred
+    rationale: >-
+      Decided 2026-09-30. Issue #13 user stories 135-138 describe deep internal modules
+      (limiter, queue, reconciliation) distinct from a server entry, but they belong to
+      e04s02-e04s09, not to issue #14. e04s01 lands config.js as the single config owner
+      and leaves server.js holding its HTTP logic. AGENTS.md ("All logic in server.js")
+      and CONVENTIONS.md ("source code in project root") are amended by tasks 9 and 10
+      so the repo documents the split instead of silently diverging from it.
+  - decision: e04s01 executes through a subagent per task, then a reviewer subagent
+    rationale: >-
+      Decided 2026-09-30. Follows the orchestrator role in AGENTS.md and the task-brief
+      flow in plans/README.md. The bigpowers chain assumes in-context execution; the
+      repo convention wins for implementation work on this branch.
 metrics:
-  story_start: 2026-09-23T08:14:23Z
+  story_start: 2026-09-30T00:00:00Z
 ```

@@ -1,0 +1,53 @@
+story_id: e02s01
+title: Pin the token-side config invariants ADR 0001 leaves uncovered
+status: todo
+bcps: 2
+tasks:
+  - id: 1
+    description: "Add a startup test asserting a whitespace-only PROXY_AUTH_TOKEN is treated as missing, mirroring the existing key-side .trim() tests. Use runProxyOnce/withProxy with \" \"; do not pass undefined (collides with destructuring defaults)."
+    verify: "node --test --test-name-pattern 'token' server.test.js"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Security Review"
+        - "Config"
+  - id: 2
+    description: "Add a test asserting an authenticated proxied request against a whitespace-only token gets the generic 503 body and never contacts the upstream"
+    verify: "node --test --test-name-pattern 'token' server.test.js"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Security Review"
+        - "Config"
+  - id: 3
+    description: "Add a test pinning auth-before-unconfigured ordering on the token side: both credentials missing, unauthenticated request gets 401 and leaks nothing about credential state"
+    verify: "node --test --test-name-pattern 'unconfigured' server.test.js"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Security Review"
+  - id: 4
+    description: "Update ADR 0001 §Compliance to record that the token-side .trim() path is now covered, naming the new tests"
+    verify: "grep -q 'token side' docs/adr/0001-config-validation-fail-fast-vs-degrade.md && ! grep -q 'is not covered by a dedicated' docs/adr/0001-config-validation-fail-fast-vs-degrade.md"
+    risk: P2
+    status: failing
+    allure:
+      severity: normal
+      categories:
+        - "Documentation"
+  - id: 5
+    description: "Full suite green, then sync the new total into every living doc that states a count"
+    verify: "npm test && node scripts/check-test-count.mjs"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Regression"
+        - "Documentation"

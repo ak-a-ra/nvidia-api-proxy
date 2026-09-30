@@ -1,0 +1,13 @@
+id: e02
+title: Config guard tests, token side
+wsjf: 5.0
+total_bcps: 2
+status: todo
+issue: 10
+stories:
+  - id: e02s01
+    title: Pin the token-side config invariants ADR 0001 leaves uncovered
+    bcps: 2
+    status: todo
+    spec: e02s01-token-side-guards.md
+    tasks: e02s01-tasks.yaml

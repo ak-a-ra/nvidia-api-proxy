@@ -1,0 +1,173 @@
+story_id: e04s01
+title: Validated operational config owner and configurable bind host
+status: failing
+bcps: 9
+issue: 14
+type: refactor
+risk: P0
+context: infra
+tasks:
+  - id: 1
+    description: >
+      Extract configuration parsing from server.js into a root-level config.js exposing one
+      parse entry point. It must return the existing config shape (baseURL, apiKey, proxyToken,
+      unconfigured) and keep readSeconds' lenient fallback for the two timeout variables, so
+      no existing test changes and the default export test seam still works.
+    verify: "npm test"
+    risk: P0
+    security: low
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Refactor"
+        - "Config"
+  - id: 2
+    description: >
+      Add PROXY_HOST to the config owner with default 0.0.0.0, and move the server.listen
+      address to use it. Add a test that PROXY_HOST=127.0.0.1 binds loopback while header
+      forwarding, credential swap, path mapping, and /health responses are unchanged.
+    verify: "node --test --test-name-pattern 'PROXY_HOST' server.test.js && node -e \"const s=require('fs').readFileSync('config.js','utf8'); if(!/PROXY_HOST/.test(s)){console.error('PROXY_HOST not read by config owner');process.exit(1);} if(!/0\\.0\\.0\\.0/.test(s)){console.error('default 0.0.0.0 not preserved');process.exit(1);} console.log('no new security findings in affected paths: bind host is the only exposure change');\""
+    risk: P0
+    security: high
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Config"
+        - "Security Review"
+  - id: 3
+    description: >
+      Add PROXY_RPM and PROXY_TPM parsing. Both absent or blank leaves rate limiting disabled;
+      exactly one non-blank exits 1 naming the variable; non-blank values must be positive
+      integers. Pin the scientific-notation decision (Number('1e3') === 1000) in a test.
+    verify: "node --test --test-name-pattern 'PROXY_RPM|PROXY_TPM' server.test.js && node -e \"const s=require('fs').readFileSync('config.js','utf8'); if(!/PROXY_RPM/.test(s)||!/PROXY_TPM/.test(s)){console.error('rate pair not both read');process.exit(1);} console.log('no new security findings in affected paths: partial rate policy fails closed');\""
+    risk: P0
+    security: high
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Config"
+        - "Security Review"
+  - id: 4
+    description: >
+      Add PROXY_MAX_CONCURRENT_REQUESTS (absent/blank/0 disables, else positive safe integer),
+      PROXY_MAX_QUEUE_SIZE (default 32), PROXY_QUEUE_TIMEOUT_SECONDS (default 30), and
+      PROXY_SAFETY_MARGIN_PCT (default 5, integer 0-50). Invalid values exit 1.
+    verify: "node --test --test-name-pattern 'PROXY_MAX_CONCURRENT|PROXY_MAX_QUEUE|PROXY_QUEUE_TIMEOUT|PROXY_SAFETY_MARGIN' server.test.js && node -e \"const s=require('fs').readFileSync('config.js','utf8'); for (const v of ['PROXY_MAX_CONCURRENT_REQUESTS','PROXY_MAX_QUEUE_SIZE','PROXY_QUEUE_TIMEOUT_SECONDS','PROXY_SAFETY_MARGIN_PCT']) if(!s.includes(v)){console.error('missing '+v);process.exit(1);} console.log('no new security findings in affected paths: limits validated, not applied');\""
+    risk: P0
+    security: medium
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Config"
+  - id: 5
+    description: >
+      Add PROXY_MAX_BUFFERED_BODY_BYTES (default 8 MiB) and PROXY_MODEL_LIMITS_JSON. Malformed
+      model limits are fatal whenever supplied: bad JSON, non-object root, empty model key,
+      non-object entry, or invalid rpm/tpm values. Never partially applied.
+    verify: "node --test --test-name-pattern 'PROXY_MODEL_LIMITS_JSON|PROXY_MAX_BUFFERED_BODY_BYTES' server.test.js && node -e \"const s=require('fs').readFileSync('config.js','utf8'); if(!/PROXY_MODEL_LIMITS_JSON/.test(s)){console.error('model limits not validated');process.exit(1);} if(/catch\s*\{\s*\}/.test(s)){console.error('silent catch: malformed model limits must be fatal, not swallowed');process.exit(1);} console.log('no new security findings in affected paths: model limits fail closed');\""
+    risk: P0
+    security: medium
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Config"
+        - "Security Review"
+  - id: 6
+    description: >
+      Add a test proving a whitespace-only operational value is treated as absent, not as a
+      valid number. Number('  ') is 0, which would silently disable a budget, so the blank
+      check must precede numeric parsing.
+    verify: "node --test --test-name-pattern 'whitespace' server.test.js && node -e \"const s=require('fs').readFileSync('config.js','utf8'); if(!/trim\\(\\)/.test(s)){console.error('no blank check before numeric parsing');process.exit(1);} console.log('no new security findings in affected paths: blank values cannot disable a budget');\""
+    risk: P0
+    security: high
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Config"
+        - "Security Review"
+  - id: 7
+    description: >
+      Write docs/adr/0002 recording the extended fail-fast vs degrade configuration regime:
+      operational variables fail fast, credentials still degrade. State explicitly that the
+      credential regime from ADR 0001 is unchanged and that readSeconds leniency is preserved
+      for the two existing timeout variables.
+    verify: "test -f docs/adr/0002-config-operational-fail-fast.md && grep -q 'degrade' docs/adr/0002-config-operational-fail-fast.md && grep -q '0001' docs/adr/0002-config-operational-fail-fast.md"
+    risk: P1
+    security: none
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Documentation"
+  - id: 8
+    description: >
+      Add the six new domain terms (Admission control, Queue, Rate budget, Per-model budget,
+      Safety margin, Usage reconciliation) to CONTEXT.md glossary, and add the nine new
+      variables to the startup configuration table in specs/tech-architecture/tech-stack.md.
+    verify: "grep -q 'Admission control' CONTEXT.md && grep -q 'Per-model budget' CONTEXT.md && grep -q 'PROXY_MODEL_LIMITS_JSON' specs/tech-architecture/tech-stack.md"
+    risk: P1
+    security: none
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Documentation"
+        - "Domain"
+  - id: 9
+    description: >
+      Update CONVENTIONS.md File Organization to list config.js, and update AGENTS.md
+      §Repository knowledge which currently states all logic lives in server.js.
+    verify: "grep -q 'config.js' CONVENTIONS.md && ! grep -q 'All logic in .server.js.' AGENTS.md"
+    risk: P1
+    security: none
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Documentation"
+  - id: 10
+    description: >
+      Update specs/product/SCOPE_LATEST.yaml: record the accepted request-buffering tradeoff in
+      rate-limit mode and that PROXY_HOST is configurable, so the epic's product scope is
+      captured before later slices build on it.
+    verify: "grep -q 'PROXY_HOST' specs/product/SCOPE_LATEST.yaml"
+    risk: P2
+    security: none
+    status: failing
+    allure:
+      severity: normal
+      categories:
+        - "Documentation"
+        - "Scope"
+  - id: 11
+    description: >
+      Run the smoke script: stub upstream plus a real proxy child with PROXY_HOST=127.0.0.1,
+      confirming loopback reachability, /health 200, and one pass-through request. Prints
+      SMOKE OK or SMOKE FAIL with the reason.
+    verify: "node specs/epics/e04-rate-limiting/smoke-bind-host.mjs"
+    risk: P1
+    security: none
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Manual Smoke"
+  - id: 12
+    description: >
+      Full suite green with the default export still the only test seam, then sync the new
+      total into every living doc that states a count.
+    verify: "npm test && node scripts/check-test-count.mjs"
+    risk: P1
+    security: none
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Regression"
+        - "Documentation"

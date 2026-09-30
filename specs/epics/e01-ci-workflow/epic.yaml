@@ -1,0 +1,13 @@
+id: e01
+title: CI workflow
+wsjf: 5.5
+total_bcps: 3
+status: todo
+issue: 12
+stories:
+  - id: e01s01
+    title: Run the suite and test count sync on every push
+    bcps: 3
+    status: todo
+    spec: e01s01-ci-workflow.md
+    tasks: e01s01-tasks.yaml
