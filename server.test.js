@@ -1128,3 +1128,281 @@ describe("operational limit config", () => {
     assert.equal(receivedRequests.length, 1);
   });
 });
+
+// The buffered-body ceiling and the per-model budget map, the last two
+// variables this story adds. Neither is acted on here: the assertions are
+// about startup — which configurations come up, which crash, and what stderr
+// says. Both harness seams already existed: runProxyOnce for the fatal cases
+// (with a valid base URL and credentials, so an exit 1 proves these two
+// variables and not an unrelated missing NVIDIA_BASE_URL) and withProxy for the
+// configurations that must start.
+describe("buffered body ceiling and per-model limits", () => {
+  const NAME = "PROXY_MODEL_LIMITS_JSON";
+
+  // Fatal cases inherit process.env, so a valid upstream base and both
+  // credentials are passed explicitly: without them the child would exit 1
+  // for an unrelated reason and the assertion would prove nothing.
+  const BASE_ENV = {
+    NVIDIA_BASE_URL: "https://example.com/v1",
+    NVIDIA_API_KEY: "k",
+    PROXY_AUTH_TOKEN: "t",
+  };
+
+  // Non-blank ceiling values that are not a safe integer in plain decimal
+  // digits: the same shapes the other scalar ceilings reject, plus 0. 0 is in
+  // the table rather than beside it because it needs its own reasoning — a
+  // zero-byte buffer rejects every request body, a limit that appears to
+  // exist and does not. 2^53+1 and the 30-digit run are the safe-integer bound.
+  const INVALID_CEILINGS = [
+    ["zero", "0"],
+    ["negative", "-1"],
+    ["fraction", "1.5"],
+    ["non-numeric", "abc"],
+    ["unsafe integer", "9007199254740993"],
+    ["scientific", "1e3"],
+    ["hex", "0x10"],
+    ["explicitly signed", "+5"],
+    ["leading-dot fraction", ".5"],
+    ["digit separator", "1_000"],
+    ["30-digit run", "1".repeat(30)],
+  ];
+
+  // Non-object roots. An array parses and its indices would silently become
+  // model IDs; a number or string is not a budget map at all.
+  const NON_OBJECT_ROOTS = [
+    ["null", "null"],
+    ["array", "[]"],
+    ["string", '"a"'],
+    ["number", "5"],
+    ["boolean", "true"],
+  ];
+
+  // Budget values that are not positive safe integers. Note the asymmetry with
+  // the env-var guard: "60" and true are JSON-typed, not text, so they are
+  // rejected by type before the integer guard ever sees them, while 1e30 is a
+  // real JSON number that only the guard's safe-integer bound can reject.
+  const INVALID_BUDGETS = [
+    ["zero", "0"],
+    ["negative", "-1"],
+    ["fraction", "1.5"],
+    ["quoted number", '"60"'],
+    ["boolean", "true"],
+    ["overflowing exponent", "1e30"],
+  ];
+
+  // withProxy merges proxyEnv over process.env, so omitting a key pins the
+  // author's shell rather than absence. undefined drops the key from the
+  // child's env entirely, which is what makes these the absent cases.
+  test("PROXY_MAX_BUFFERED_BODY_BYTES and PROXY_MODEL_LIMITS_JSON absent start and serve /health", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_BUFFERED_BODY_BYTES: undefined,
+        PROXY_MODEL_LIMITS_JSON: undefined,
+      },
+    });
+    const res = await proxiedFetch(proxy.port, "/health");
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { status: "ok" });
+  });
+
+  // JSON.parse("  ") throws, so a blank model-limits value that reached the
+  // parser would exit 1 — a blank value crashing startup is the silent rewrite
+  // the story names in §12. Number("  ") is 0, so the ceiling's blank check has
+  // to precede numeric parsing for the same reason: blank means absent.
+  test("PROXY_MAX_BUFFERED_BODY_BYTES and PROXY_MODEL_LIMITS_JSON blank start and serve /health", async (t) => {
+    for (const blank of ["", "   ", " \t "]) {
+      const proxyEnv = {
+        PROXY_MAX_BUFFERED_BODY_BYTES: blank,
+        PROXY_MODEL_LIMITS_JSON: blank,
+      };
+      const { proxy } = await withProxy(t, { proxyEnv });
+      const res = await proxiedFetch(proxy.port, "/health");
+      assert.equal(res.status, 200, `expected a successful start for ${JSON.stringify(proxyEnv)}`);
+    }
+  });
+
+  test("PROXY_MAX_BUFFERED_BODY_BYTES at its boundary values starts and serves /health", async (t) => {
+    for (const proxyEnv of [
+      { PROXY_MAX_BUFFERED_BODY_BYTES: "1" },
+      { PROXY_MAX_BUFFERED_BODY_BYTES: "8388608" },
+      { PROXY_MAX_BUFFERED_BODY_BYTES: "9007199254740991" },
+      { PROXY_MAX_BUFFERED_BODY_BYTES: " 4096 " },
+    ]) {
+      const { proxy } = await withProxy(t, { proxyEnv });
+      const res = await proxiedFetch(proxy.port, "/health");
+      assert.equal(res.status, 200, `expected a successful start for ${JSON.stringify(proxyEnv)}`);
+    }
+  });
+
+  test("PROXY_MAX_BUFFERED_BODY_BYTES rejects a non-blank invalid value, names itself and states its rule", async () => {
+    for (const [label, value] of INVALID_CEILINGS) {
+      const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_MAX_BUFFERED_BODY_BYTES: value });
+      assert.equal(code, 1, `expected exit 1 for PROXY_MAX_BUFFERED_BODY_BYTES ${label} (${value})`);
+      assert.ok(
+        stderr.includes("PROXY_MAX_BUFFERED_BODY_BYTES must be a positive integer"),
+        `stderr should name PROXY_MAX_BUFFERED_BODY_BYTES and its rule for ${label}: ${stderr}`
+      );
+      assert.ok(
+        stderr.includes(`got: ${value}`),
+        `stderr should echo the offending value for ${label}: ${stderr}`
+      );
+    }
+  });
+
+  // This story validates and stores the ceiling; it does not enforce it. A
+  // one-byte body ceiling must still pass a request through, so a later slice
+  // that starts buffering has to change this test deliberately.
+  test("PROXY_MAX_BUFFERED_BODY_BYTES=1 still proxies normally (values validated, not applied)", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: { PROXY_MAX_BUFFERED_BODY_BYTES: "1" },
+      body: "{}",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer pt",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ model: "nemotron" }),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(receivedRequests.length, 1);
+  });
+
+  // Four well-formed shapes: both fields, rpm alone, tpm alone, and the empty
+  // object — zero models is a well-formed statement that no per-model budget
+  // exists, not a missing configuration.
+  test("PROXY_MODEL_LIMITS_JSON with well-formed budgets starts and serves /health", async (t) => {
+    for (const value of [
+      '{"gpt-4o-mini":{"rpm":60,"tpm":100000}}',
+      '{"gpt-4o-mini":{"rpm":60}}',
+      '{"gpt-4o-mini":{"tpm":100000}}',
+      "{}",
+    ]) {
+      const { proxy } = await withProxy(t, { proxyEnv: { PROXY_MODEL_LIMITS_JSON: value } });
+      const res = await proxiedFetch(proxy.port, "/health");
+      assert.equal(res.status, 200, `expected a successful start for ${value}`);
+    }
+  });
+
+  test("PROXY_MODEL_LIMITS_JSON with well-formed budgets still proxies normally (values validated, not applied)", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: { PROXY_MODEL_LIMITS_JSON: '{"nemotron":{"rpm":1,"tpm":1}}' },
+      body: "{}",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer pt",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ model: "nemotron" }),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(receivedRequests.length, 1);
+  });
+
+  test("PROXY_MODEL_LIMITS_JSON with bad JSON exits 1 naming the variable", async () => {
+    const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_MODEL_LIMITS_JSON: "{not json" });
+    assert.equal(code, 1);
+    assert.ok(stderr.includes(NAME), `stderr should name ${NAME}: ${stderr}`);
+  });
+
+  test("PROXY_MODEL_LIMITS_JSON with a non-object root exits 1 naming the variable", async () => {
+    for (const [label, value] of NON_OBJECT_ROOTS) {
+      const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_MODEL_LIMITS_JSON: value });
+      assert.equal(code, 1, `expected exit 1 for a ${label} root (${value})`);
+      assert.ok(stderr.includes(NAME), `stderr should name ${NAME} for a ${label} root: ${stderr}`);
+    }
+  });
+
+  test("PROXY_MODEL_LIMITS_JSON with a blank model key exits 1 naming the variable", async () => {
+    for (const [label, value] of [
+      ["empty", '{"":{"rpm":5}}'],
+      ["spaces", '{"   ":{"rpm":5}}'],
+      ["tab", '{"\\t":{"rpm":5}}'],
+    ]) {
+      const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_MODEL_LIMITS_JSON: value });
+      assert.equal(code, 1, `expected exit 1 for a ${label} model key (${value})`);
+      assert.ok(stderr.includes(NAME), `stderr should name ${NAME} for a ${label} model key: ${stderr}`);
+    }
+  });
+
+  // The model key is in the message because the document can be large: an
+  // operator reading only stderr has to be able to find the offending entry.
+  test("PROXY_MODEL_LIMITS_JSON with a non-object entry exits 1 naming the variable and the model key", async () => {
+    for (const [label, value] of [
+      ["number", '{"gpt":5}'],
+      ["null", '{"gpt":null}'],
+      ["array", '{"gpt":[]}'],
+      ["string", '{"gpt":"x"}'],
+    ]) {
+      const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_MODEL_LIMITS_JSON: value });
+      assert.equal(code, 1, `expected exit 1 for a ${label} entry (${value})`);
+      assert.ok(stderr.includes(`${NAME}["gpt"]`), `stderr should name the model key for a ${label} entry: ${stderr}`);
+    }
+  });
+
+  test("PROXY_MODEL_LIMITS_JSON with an invalid rpm or tpm exits 1 naming the model key and the field", async () => {
+    for (const field of ["rpm", "tpm"]) {
+      for (const [label, value] of INVALID_BUDGETS) {
+        const doc = `{"gpt-4o-mini":{"${field}":${value}}}`;
+        const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_MODEL_LIMITS_JSON: doc });
+        assert.equal(code, 1, `expected exit 1 for ${field}=${value} (${label})`);
+        assert.ok(
+          stderr.includes(`${NAME}["gpt-4o-mini"].${field} must be a positive integer`),
+          `stderr should name the model key and field for ${label} ${field}: ${stderr}`
+        );
+      }
+    }
+  });
+
+  // An entry that supplies neither field, and an entry whose key was
+  // misspelled, are the same failure: a budget that appears to exist and does
+  // not. Neither is silently accepted, and neither is partially adopted.
+  test("PROXY_MODEL_LIMITS_JSON with an entry that supplies no budget exits 1 naming the model key", async () => {
+    for (const [label, value] of [
+      ["neither rpm nor tpm", '{"gpt":{}}'],
+      ["a misspelled field name", '{"gpt":{"rps":5}}'],
+      ["a misspelled field name beside a real one", '{"gpt":{"rpm":5,"rps":1}}'],
+    ]) {
+      const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_MODEL_LIMITS_JSON: value });
+      assert.equal(code, 1, `expected exit 1 for ${label} (${value})`);
+      assert.ok(stderr.includes(`${NAME}["gpt"]`), `stderr should name the model key for ${label}: ${stderr}`);
+    }
+  });
+
+  // The observable half of "never partially applied": the harness cannot read
+  // the stored map, but it can prove the process does not come up, which means
+  // the valid half was not adopted alongside the invalid one.
+  test("PROXY_MODEL_LIMITS_JSON with one valid and one invalid entry exits 1 (never partially applied)", async () => {
+    const { code, stderr } = await runProxyOnce({
+      ...BASE_ENV,
+      PROXY_MODEL_LIMITS_JSON: '{"gpt-4o-mini":{"rpm":60},"gpt":{"rpm":0}}',
+    });
+    assert.equal(code, 1);
+    assert.ok(stderr.includes(`${NAME}["gpt"].rpm`), `stderr should name the rejected entry: ${stderr}`);
+  });
+
+  // Keys are exact, case-sensitive model IDs. Two that differ only in case are
+  // two distinct models and both survive, so no lowercasing happens; a key with
+  // surrounding spaces can never match anything, so it is fatal rather than
+  // trimmed into a match the operator did not write.
+  test("PROXY_MODEL_LIMITS_JSON model keys are case-sensitive and unnormalized", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_MODEL_LIMITS_JSON: '{"Gpt":{"rpm":5},"gpt":{"rpm":6}}' },
+    });
+    const res = await proxiedFetch(proxy.port, "/health");
+    assert.equal(res.status, 200, "keys differing only in case are two distinct models");
+  });
+
+  test("PROXY_MODEL_LIMITS_JSON with a model key that has surrounding spaces exits 1 naming the variable", async () => {
+    const { code, stderr } = await runProxyOnce({
+      ...BASE_ENV,
+      PROXY_MODEL_LIMITS_JSON: '{" gpt-4o-mini ":{"rpm":60}}',
+    });
+    assert.equal(code, 1);
+    assert.ok(stderr.includes(NAME), `stderr should name ${NAME}: ${stderr}`);
+    assert.ok(stderr.includes("gpt-4o-mini"), `stderr should name the offending model key: ${stderr}`);
+  });
+});
