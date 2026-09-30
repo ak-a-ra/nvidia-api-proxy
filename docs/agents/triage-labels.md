@@ -1,17 +1,15 @@
 # Triage Labels
 
-Label strings used by the triage state machine. Each role maps to exactly one label.
+The skills speak in terms of five canonical triage roles. This file maps those roles to label strings used by this repo's GitHub issue tracker.
 
-| Role | Label | Description |
-|---|---|---|
-| Evaluate | `needs-triage` | Maintainer needs to evaluate this issue |
-| Waiting | `needs-info` | Waiting on reporter for more information |
-| Agent-ready | `ready-for-agent` | Fully specified; an AFK agent can pick this up |
-| Human-ready | `ready-for-human` | Needs human implementation |
-| Won't fix | `wontfix` | Will not be actioned |
+| Label in mattpocock/skills | Label in our tracker | Meaning |
+| --- | --- | --- |
+| `needs-triage` | `needs-triage` | Maintainer needs to evaluate this issue |
+| `needs-info` | `needs-info` | Waiting on reporter for more information |
+| `ready-for-agent` | `ready-for-agent` | Fully specified, ready for an AFK agent |
+| `ready-for-human` | `ready-for-human` | Requires human implementation |
+| `wontfix` | `wontfix` | Will not be actioned |
 
-## Usage
+When a skill mentions a role, use the corresponding label string from this table.
 
-- When triaging, apply exactly one of these labels to indicate the issue's current state.
-- Remove the previous triage label before applying a new one.
-- These labels can coexist with other labels (e.g. `bug`, `enhancement`).
+Edit the right-hand column if tracker vocabulary changes. Apply exactly one triage label per issue, removing the previous triage label when changing state.

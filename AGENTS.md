@@ -82,7 +82,7 @@ Example — destructive op:
 
 ## Part 2 — Repository knowledge
 
-Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. All logic in `server.js` (~160 lines); tests in `server.test.js` (~550 lines). No lint/typecheck/formatter config exists.
+Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. All logic in `server.js` (~294 lines); tests in `server.test.js` (~705 lines). No lint/typecheck/formatter config exists.
 
 ### Commands
 
@@ -104,7 +104,7 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. All logic in `se
 - Each test gets stub upstream HTTP server; cleanups register via `t.after` (LIFO: proxy child killed before stub closed)
 - Stub upstream modes: `sse`, `stall`, `slowfinish`, `silent`, `activelong`, `midabort`, `abortable`
 - Test count synced in **every** living doc that states one (currently 34) — grep, never trust this list or its line numbers: `grep -rnE 'tests(-| )?[0-9]{2}|[0-9]{2}[ -]tests?' --include='*.md' --include='*.yaml' .`
-  Sites as of 2026-09-23: `README.md:9` badge `tests-34%20passing`, `README.md:86` tip, `AGENTS.md:89` `npm test` bullet, `CONVENTIONS.md:17`, `specs/README.md:19`, `specs/tech-architecture/tech-stack.md:82`, `specs/tech-architecture/TEST_PLAN_LATEST.md:44,294,351`, `specs/product/VISION_LATEST.yaml:20`. `plans/*.md` hold historical per-plan numbers — not living docs.
+  Sites as of 2026-09-30: `README.md:9` badge `tests-34%20passing`, `README.md:86` tip, `AGENTS.md:89` `npm test` bullet, `CONVENTIONS.md:17`, `specs/README.md:19`, `specs/tech-architecture/tech-stack.md:129`, `specs/tech-architecture/TEST_PLAN_LATEST.md:44,294,351`, `specs/product/VISION_LATEST.yaml:20`. `plans/*.md` hold historical per-plan numbers — not living docs.
   `docs/research/config-invariant-guard-tests.md` is a dated historical note — do **not** update it.
 
 ### server.js invariants (tests assert these)
@@ -127,7 +127,11 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. All logic in `se
 
 - `render.yaml` = deploy config (free plan, health check `/health`) and pins `NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1`
 - Timeout defaults: `UPSTREAM_CONNECT_TIMEOUT_SECONDS` 30, `UPSTREAM_IDLE_TIMEOUT_SECONDS` 120 (reset per chunk, so active SSE streams never cut)
-- Known limitations tracked as GitHub issues — check `gh issue list` before treating current behavior as intentional or final. As of 2026-09-23: 3 open, each paired with a plan — #9 opt-in request logging (`plans/05`), #10 token-side config guards (`plans/03`), #12 CI workflow (`plans/01`). #11 (request-header array flattening) was closed by `dfab41e`; #2–#8 all closed
+- Known limitations tracked as GitHub issues — check `gh issue list` before treating current behavior as intentional or final. As of 2026-09-30: 13 open, each labeled `enhancement` + `ready-for-agent`.
+  - Audit plans (2026-09-20), each with a plan file: #9 opt-in request logging (`plans/05`), #10 token-side config guards (`plans/03`), #12 CI workflow (`plans/01`). Order per `plans/README.md`: 03 → 01 → 05, sequential because 03 and 05 both add tests and touch the same count-sync sites.
+  - Rate-limiting epic (2026-09-25, parent #13): #14 → #15 → #16 → #17 → #18 → #19 → #20 → #21 → #22 is a strict linear `Blocked by` chain. #14 (validated operational config owner + configurable bind host) is the only unblocked slice; nothing in it is implemented yet — no `/stats` route, no `PROXY_RPM`/`PROXY_TPM` parsing, no admission path. No plan files exist for the epic. #13's body supersedes its own earlier scope.
+  - Closed: #11 (request-header array flattening) by `dfab41e`; #2–#8 all closed.
+- Epic work will add env vars and change configuration failure modes. When landing any slice, extend the startup-config table in `specs/tech-architecture/tech-stack.md` and record the fail-fast-vs-degrade decision in `docs/adr/`.
 - Node ≥ 18.14 required (engines); dev machine runs Node 24
 
 ---
@@ -160,8 +164,8 @@ GitHub Issues on `ak-a-ra/nvidia-api-proxy` via `gh` CLI. See `docs/agents/issue
 
 ### Triage labels
 
-Default label vocabulary (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
+Default label vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-Single-context layout — one `CONTEXT.md` + `docs/adr/` at repo root. See `docs/agents/domain.md`.
+Single-context layout: one `CONTEXT.md` and `docs/adr/` at repo root. See `docs/agents/domain.md`.

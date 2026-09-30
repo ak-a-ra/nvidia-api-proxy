@@ -19,16 +19,19 @@ Zero-dependency Node.js reverse proxy for NVIDIA NIM API. Client apps call the p
 
 ## Defensive Code Categories
 
-- Rate limit
-- Retry
-- Circuit breaker
-- Timeout
-- Graceful degradation
+Categories this project recognizes. Only the marked ones are implemented — do not assume the rest
+exist in `server.js`.
+
+- **Timeout** — implemented: `UPSTREAM_CONNECT_TIMEOUT_SECONDS` (30), `UPSTREAM_IDLE_TIMEOUT_SECONDS` (120)
+- **Graceful degradation** — implemented: missing key/token yields 503, not a crash
+- Rate limit — planned, not implemented. Opt-in admission subsystem, issues #13–#22
+- Retry — not implemented. Deliberately rejected: replaying a non-idempotent request is unsafe
+- Circuit breaker — not implemented
 
 ## Architecture
 
-- `server.js` — Main reverse proxy logic (~160 lines)
-- `server.test.js` — Test suite (~550 lines)
+- `server.js` — Main reverse proxy logic (~294 lines)
+- `server.test.js` — Test suite (~705 lines)
 - Key modules organized by concern (auth, routing, upstream handling)
 
 ## Naming Conventions
@@ -53,7 +56,7 @@ Zero-dependency Node.js reverse proxy for NVIDIA NIM API. Client apps call the p
 - Never expose NVIDIA API key to clients
 - Never bypass authentication
 - Never hardcode secrets in code
-- Never modify test files (tests define invariants)
+- Never weaken, delete, or skip an existing test to make a change pass. Adding new tests is required, not forbidden — see below.
 
 ## Testing Philosophy
 
@@ -62,3 +65,20 @@ Zero-dependency Node.js reverse proxy for NVIDIA NIM API. Client apps call the p
 - Each test gets isolated upstream stub
 - Env vars read at import time - tests spawn child processes
 - No lint/typecheck/formatter config
+
+**Existing tests are the invariant contract, not untouchable files.** The intent of the old
+"never modify test files" rule was to stop an implementer from rewriting a failing assertion until
+it agreed with the code. Adding tests, and extending an existing test's fixture setup, are normal
+work. What stays forbidden: deleting a test, relaxing an assertion, adding a skip or `only`, or
+loosening a stub so a real defect stops showing.
+
+When a change adds or removes tests, sync the new total into **every** living doc that states a
+count — the README badge and tip, `AGENTS.md` `npm test` bullet, this file, and the four `specs/`
+docs. Re-derive the site list rather than trusting a remembered one:
+
+```
+grep -rnE 'tests(-| )?[0-9]{2}|[0-9]{2}[ -]tests?' --include='*.md' --include='*.yaml' .
+```
+
+`plans/*.md` and `docs/research/config-invariant-guard-tests.md` are dated historical records —
+leave them unchanged.

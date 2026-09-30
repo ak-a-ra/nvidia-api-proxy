@@ -1,20 +1,28 @@
 # Domain Docs
 
+How engineering skills consume this repo's domain documentation.
+
 ## Layout
 
-Single-context
+Single-context repository.
 
-## Context file
+## Before exploring
 
-`CONTEXT.md` at repo root (create if missing — describes the project's domain language, key concepts, and bounded contexts).
+- Read `CONTEXT.md` at repo root first when work touches domain concepts, naming, architecture, or tests.
+- Read relevant ADRs under `docs/adr/` before proposing architectural changes.
+- If files are missing, proceed silently. `/domain-modeling` creates them when terminology or decisions need recording.
 
-## ADR directory
+## File structure
 
-`docs/adr/` at repo root (create if missing — Architectural Decision Records in standard MADR format).
+- `CONTEXT.md`: canonical domain language, concepts, and bounded context.
+- `docs/adr/`: Architectural Decision Records in standard MADR format.
 
-## Consumer rules
+## Use glossary vocabulary
 
-- **Always read `CONTEXT.md` first** when working on tasks that touch domain concepts, naming, or architecture.
-- **Check `docs/adr/` before proposing architectural changes** — a prior ADR may already cover the decision.
-- **Never modify `CONTEXT.md` or ADRs as a side effect** of other work. Update them intentionally via dedicated commits.
-- **If a domain term is ambiguous**, check `CONTEXT.md` for the canonical definition before inventing new terminology.
+When output names a domain concept in an issue title, proposal, hypothesis, or test, use the term defined in `CONTEXT.md`. Do not drift to synonyms the glossary explicitly avoids.
+
+If a needed concept is missing, either reconsider invented language or note a real gap for `/domain-modeling`.
+
+## ADR conflicts
+
+If proposed work contradicts an existing ADR, surface the conflict explicitly rather than silently overriding it.
