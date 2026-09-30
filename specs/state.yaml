@@ -25,9 +25,10 @@ handoff:
     e04 is only unblocked at its first slice e04s01 (#14); e04s02-e04s09 are blocked
     with no capsule until their blocker lands. Story specs and runnable verify commands
     exist for e01s01, e02s01, e03s01, e04s01 only. e04s01 tasks 1 (extract
-    config.js), 2 (PROXY_HOST) and 3 (the PROXY_RPM/PROXY_TPM rate pair) are
-    at status: passing; tasks 4-12 stay failing until their own
-    verify command exits 0, so the story remains failing.
+    config.js), 2 (PROXY_HOST), 3 (the PROXY_RPM/PROXY_TPM rate pair) and 4 (the
+    PROXY_MAX_CONCURRENT_REQUESTS/PROXY_MAX_QUEUE_SIZE/PROXY_QUEUE_TIMEOUT_SECONDS/
+    PROXY_SAFETY_MARGIN_PCT limits) are at status: passing; tasks 5-12 stay failing until
+    their own verify command exits 0, so the story remains failing.
     Implementation runs
     through one implementer subagent per task plus a reviewer subagent, not in
     this context. Running work log lives in LOG.md at the project root.
