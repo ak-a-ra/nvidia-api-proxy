@@ -16,6 +16,8 @@ One line per landed commit. Check any SHA against `git log`.
 - `f3d20de` docs: `AGENTS.md` ownership correction after the extraction: the Repository knowledge line now describes two modules instead of "all logic in server.js", the two config invariant bullets name `config.js` `parseConfig` and `readSeconds`, and task 9 is rescoped to `CONVENTIONS.md` with the `AGENTS.md` clause kept as a regression guard; no runtime change, `npm test` stays 34/34.
 - `b003122` docs: this file created at the project root with the three-section `done` / `decided` / `next` structure; seeded from `git log`, `specs/state.yaml`, and the e04s01 ledgers, and verified line by line against them.
 - `cafcc41` feat(config): bind host now read from `PROXY_HOST` in `config.js` (default `0.0.0.0`, exported as `config.host`) and used by `server.listen` in place of the literal; the proxy child additionally reports its bound address over IPC so tests assert on it instead of guessing a non-loopback address; three `PROXY_HOST` tests added and the suite synced to 37 tests across all ten living count sites in the same commit; e04s01 task 2 -> `passing`.
+- `37f6209` docs: task 2's own LOG.md append, which `cafcc41` could not contain because a commit cannot carry its own SHA.
+- `36be6ed` docs: review fallout from `cafcc41` closed — README gains a `PROXY_HOST` row and stops crediting `PORT` with the bind address, the e04s01 epic spec's stale "34 tests" is corrected, and e04s01 task 12 plus e01s01 stop calling the nonexistent `scripts/check-test-count.mjs`; the task 12 replacement is negative-tested, so a mutated badge or a stale doc count now fails instead of passing silently.
 
 ## decided
 
@@ -29,6 +31,7 @@ One line per decision recorded in `specs/state.yaml`.
 - e04s01 executes through a subagent per task plus a reviewer subagent, per the `AGENTS.md` orchestrator role and the task-brief flow in `plans/README.md`; the bigpowers in-context chain does not apply to implementation on this branch.
 - Branch work is logged in `LOG.md` at the project root, not only in commits: read it before a task, append one line each to `done`, `decided`, and `next` after one, never rewrite earlier entries.
 - `PROXY_HOST` is passed to `server.listen` unvalidated and untrimmed (whitespace-only counts as unset, via the existing `?.trim()` convention): no URL parsing, no DNS resolution, no allowlist, because rejecting an unknown value would turn a working deploy into a startup crash and `listen()` already fails loudly at bind time; the comment in `config.js` states this so a later "just validate it" change is a deliberate reversal.
+- Test-count drift is checked by a command derived from `npm test`, never by a hardcoded number and never by a script this repository does not have. Task ledgers and briefs are excluded from the sweep: e01s01 carries a deliberately wrong count as a CI fixture, and briefs are dated records of what a task was asked to prove at the time. Every such check gets negative-tested — a check that only ever runs green is not a check.
 
 ## next
 
@@ -38,3 +41,4 @@ One line per known upcoming step, oldest first.
 - e04s01 tasks 3-12 stay `failing` until their own verify command exits 0, and `specs/execution-status.yaml` keeps the story at `failing` for as long as the story is incomplete.
 - `specs/tech-architecture/tech-stack.md` startup-config table and `docs/adr/` need a new entry for every env var e04s01 adds; `AGENTS.md` now requires this, and task 7 writes ADR 0002 for the fail-fast-versus-degrade extension.
 - e04s01 task 3 is next: `PROXY_RPM` and `PROXY_TPM` parsing, the first strictly-parsed operational pair. Note the bind host added in task 2 is still absent from the `tech-stack.md` startup-config table — task 8 owns that table and covers `PROXY_HOST` with the other nine variables.
+- Status of the line above this one: e04s01 task 2 is now landed (`cafcc41`) and no longer upcoming. Entries in `next` are append-only and are never deleted, so a completed item stays visible and this line supersedes it. The current next task is e04s01 task 3, `PROXY_RPM` and `PROXY_TPM` parsing.
