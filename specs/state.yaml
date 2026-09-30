@@ -7,7 +7,7 @@
 ```yaml
 vcs:
   kind: git
-  commit: 4cc7fc6
+  commit: b003122
   branch: epic-14-config-owner
   worktree: ../epic-14-config-owner
 workflow_mode: solo-git
@@ -24,8 +24,11 @@ handoff:
     is e01 CI (#12), e02 config guards (#10), e03 logging (#9), e04 rate limiting (#13).
     e04 is only unblocked at its first slice e04s01 (#14); e04s02-e04s09 are blocked
     with no capsule until their blocker lands. Story specs and runnable verify commands
-    exist for e01s01, e02s01, e03s01, e04s01 only. e04s01 tasks are all at
-    status: failing (failing ledger); flip one to passing only when its verify exits 0.
+    exist for e01s01, e02s01, e03s01, e04s01 only. e04s01 task 1 (extract
+    config.js) is at status: passing; tasks 2-12 stay failing until their own
+    verify command exits 0, so the story remains failing. Implementation runs
+    through one implementer subagent per task plus a reviewer subagent, not in
+    this context. Running work log lives in LOG.md at the project root.
 decisions:
   - decision: Plan only the unblocked slice of the rate limiting epic
     rationale: >-
