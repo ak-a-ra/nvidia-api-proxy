@@ -110,6 +110,39 @@ decisions:
       already destroyed the textual evidence the digits-only rule inspects: 1e3 is valid JSON and
       yields 1000, so the scientific-notation rejection is a property of env scalars only. The
       typeof check has to come first or a quoted "60" would pass, since String("60") is "60".
+  - decision: Fatal messages name the type of an offending value, never its text
+    rationale: >-
+      Decided 2026-09-30, after the task 5 review, on the orchestrator's authority rather than
+      the brief's. The brief said only "do not echo the whole document", which reads as a size
+      rule; it is a robustness one. The fatal message for a non-number budget value called
+      JSON.stringify on the offending value with no bound, so a 42 KB env var of 7000-deep
+      nesting threw RangeError inside the fatal path: the process still exited 1, but stderr
+      was a raw Node stack dump that never named the variable, which is the opposite of what
+      the operator needs. Below the crash threshold the same expression put 36 KB of the
+      operator's document on one stderr line. Objects and arrays now report their type through
+      the existing typeName helper, and only primitives echo their text. The test for it cannot
+      assert that stderr mentions PROXY_MODEL_LIMITS_JSON: a crash dump quotes the source line,
+      so that assertion passes against the very crash it is meant to catch. It asserts the
+      interpolated field path instead, which the dump renders literally as the model variable,
+      and the absence of a stack dump. A second consequence is recorded in the task 7 ledger
+      row: a fatal message that can itself crash is a path that must be re-proved by test, not
+      by inspection, because inspection is exactly what missed it.
+  - decision: A duplicate top-level model key stays accepted, and the gap is recorded rather than closed
+    rationale: >-
+      Decided 2026-09-30, after the task 5 review found it. PROXY_MODEL_LIMITS_JSON with a
+      duplicated gpt key storing rpm first and tpm second keeps only tpm, so one of the two
+      budgets the operator wrote disappears and the proxy starts silently. That is the same
+      failure class the same commit makes fatal for a misspelled field, so the code is
+      inconsistent with its own stated standard. Closing it in code is neither cheap nor clean:
+      JSON.parse exposes no duplicate-key hook, so detection needs a reviver with per-holder
+      bookkeeping that cannot know its own path, which makes the error message worse than the
+      bug, and a regex over the raw text false-positives on nested keys. RFC 8259 leaves
+      duplicate-name behavior implementation-defined and last-wins is what every JSON parser
+      does, so this is a deliberate accepted gap, recorded in the task 7 ledger row as an
+      accepted fail-open rather than an oversight. A model key containing a C0 control character
+      is closed in the same round, because that one contradicts a rule the code already applies:
+      a padded key is rejected for never matching a model ID, and a control character cannot
+      match one either.
       Reversal is one guard plus the tests that pin it.
 metrics:
   story_start: 2026-09-30T00:00:00Z
