@@ -7,7 +7,7 @@
 ```yaml
 vcs:
   kind: git
-  commit: b003122
+  commit: 6639128
   branch: epic-14-config-owner
   worktree: ../epic-14-config-owner
 workflow_mode: solo-git
@@ -24,9 +24,10 @@ handoff:
     is e01 CI (#12), e02 config guards (#10), e03 logging (#9), e04 rate limiting (#13).
     e04 is only unblocked at its first slice e04s01 (#14); e04s02-e04s09 are blocked
     with no capsule until their blocker lands. Story specs and runnable verify commands
-    exist for e01s01, e02s01, e03s01, e04s01 only. e04s01 task 1 (extract
-    config.js) is at status: passing; tasks 2-12 stay failing until their own
-    verify command exits 0, so the story remains failing. Implementation runs
+    exist for e01s01, e02s01, e03s01, e04s01 only. e04s01 tasks 1 (extract
+    config.js) and 2 (PROXY_HOST) are at status: passing; tasks 3-12 stay
+    failing until their own verify command exits 0, so the story remains failing.
+    Implementation runs
     through one implementer subagent per task plus a reviewer subagent, not in
     this context. Running work log lives in LOG.md at the project root.
 decisions:
@@ -64,6 +65,16 @@ decisions:
       Decided 2026-09-30. Follows the orchestrator role in AGENTS.md and the task-brief
       flow in plans/README.md. The bigpowers chain assumes in-context execution; the
       repo convention wins for implementation work on this branch.
+  - decision: Rate limits accept decimal digits only, never Number() coercion
+    rationale: >-
+      Decided 2026-09-30, for e04s01 task 3. Story section 12 requires this story to
+      settle whether scientific notation is accepted instead of leaving it to
+      Number(). Number("1e3") is 1000 and Number("0x10") is 16, so a permissive
+      Number() check silently reinterprets an operator's budget. A supplied
+      PROXY_RPM or PROXY_TPM must match /^[0-9]+$/ after trimming and be a safe
+      integer greater than zero; everything else is fatal at startup. Fail closed,
+      and typing 1000 instead of 1e3 is the cheaper mistake. Reversal is one guard
+      and one pinned test.
 metrics:
   story_start: 2026-09-30T00:00:00Z
 ```
