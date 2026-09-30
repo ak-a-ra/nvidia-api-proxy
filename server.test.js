@@ -1226,7 +1226,20 @@ describe("buffered body ceiling and per-model limits", () => {
       { PROXY_MAX_BUFFERED_BODY_BYTES: "1" },
       { PROXY_MAX_BUFFERED_BODY_BYTES: "8388608" },
       { PROXY_MAX_BUFFERED_BODY_BYTES: "9007199254740991" },
+    ]) {
+      const { proxy } = await withProxy(t, { proxyEnv });
+      const res = await proxiedFetch(proxy.port, "/health");
+      assert.equal(res.status, 200, `expected a successful start for ${JSON.stringify(proxyEnv)}`);
+    }
+  });
+
+  // Padded, not a boundary: the guard trims before it checks, so " 4096 " is
+  // the same ceiling as "4096". Separate from the boundary test so the padding
+  // case is pinned by a test whose name claims it.
+  test("PROXY_MAX_BUFFERED_BODY_BYTES with surrounding spaces starts and serves /health", async (t) => {
+    for (const proxyEnv of [
       { PROXY_MAX_BUFFERED_BODY_BYTES: " 4096 " },
+      { PROXY_MAX_BUFFERED_BODY_BYTES: " 8388608\t" },
     ]) {
       const { proxy } = await withProxy(t, { proxyEnv });
       const res = await proxiedFetch(proxy.port, "/health");
@@ -1374,14 +1387,82 @@ describe("buffered body ceiling and per-model limits", () => {
 
   // The observable half of "never partially applied": the harness cannot read
   // the stored map, but it can prove the process does not come up, which means
-  // the valid half was not adopted alongside the invalid one.
+  // the valid half was not adopted alongside the invalid one. Both orderings,
+  // because the guard has to fire whichever entry the parser hands over first —
+  // a refactor that collected the valid entries before validating them would
+  // pass a table holding only the invalid-last row.
   test("PROXY_MODEL_LIMITS_JSON with one valid and one invalid entry exits 1 (never partially applied)", async () => {
-    const { code, stderr } = await runProxyOnce({
-      ...BASE_ENV,
-      PROXY_MODEL_LIMITS_JSON: '{"gpt-4o-mini":{"rpm":60},"gpt":{"rpm":0}}',
-    });
-    assert.equal(code, 1);
-    assert.ok(stderr.includes(`${NAME}["gpt"].rpm`), `stderr should name the rejected entry: ${stderr}`);
+    for (const doc of [
+      '{"gpt-4o-mini":{"rpm":60},"gpt":{"rpm":0}}',
+      '{"gpt":{"rpm":0},"gpt-4o-mini":{"rpm":60}}',
+    ]) {
+      const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_MODEL_LIMITS_JSON: doc });
+      assert.equal(code, 1, `expected exit 1 for ${doc}`);
+      assert.ok(stderr.includes(`${NAME}["gpt"].rpm`), `stderr should name the rejected entry: ${stderr}`);
+    }
+  });
+
+  // A model ID cannot contain a control character either, so the same rule that
+  // rejects a padded key rejects this one. The document escapes the byte, so
+  // the parsed key really holds it: written raw, JSON.parse rejects the whole
+  // document as bad JSON first and the key check is never reached. The message
+  // names the code point in escaped form and never echoes the raw byte, so
+  // stderr stays one line and cannot carry an escape into a terminal.
+  test("PROXY_MODEL_LIMITS_JSON with a control character in a model key exits 1 naming the byte, not the raw byte", async () => {
+    for (const point of ["U+0001", "U+001B", "U+007F"]) {
+      // The JSON text carries the byte as an escape, so JSON.parse hands the key
+      // the raw character; `raw` is that character, for the assertion that stderr
+      // never echoes it.
+      const hex = point.slice(2);
+      const raw = String.fromCharCode(parseInt(hex, 16));
+      const doc = `{"gpt\\u${hex}x":{"rpm":5}}`;
+      const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_MODEL_LIMITS_JSON: doc });
+      assert.equal(code, 1, `expected exit 1 for a ${point} model key`);
+      assert.ok(
+        stderr.includes(`control character: ${point}`),
+        `stderr should name the offending code point ${point}: ${JSON.stringify(stderr)}`
+      );
+      assert.ok(
+        !stderr.includes(raw),
+        `stderr must not echo the raw ${point} byte: ${JSON.stringify(stderr)}`
+      );
+      assert.equal(
+        stderr.trim().split("\n").length,
+        1,
+        `stderr must stay on one line for a ${point} key: ${JSON.stringify(stderr)}`
+      );
+    }
+  });
+
+  // The fatal path must survive a pathological document. A JSON.stringify of the
+  // offending value recurses without bound, so deep nesting used to throw
+  // RangeError inside the fatal path: the process still exited 1, but stderr was
+  // a stack dump quoting the source line, which names the variable and the rule
+  // by accident. So nothing here may assert the variable name alone — the
+  // interpolated field path is the assertion the dump cannot fake, and the
+  // stack-dump and length checks pin both the crash and the flood.
+  test("PROXY_MODEL_LIMITS_JSON with a deeply nested non-number budget exits 1 with a bounded one-line message, not a crash", async () => {
+    for (const depth of [2000, 7000]) {
+      const nested = `{"a":${'{"a":'.repeat(depth - 1)}1${"}".repeat(depth - 1)}}`;
+      const { code, stderr } = await runProxyOnce({
+        ...BASE_ENV,
+        PROXY_MODEL_LIMITS_JSON: `{"gpt":{"rpm":${nested}}}`,
+      });
+      assert.equal(code, 1, `expected exit 1 at nesting depth ${depth}`);
+      assert.ok(
+        stderr.includes(`${NAME}["gpt"].rpm must be a positive integer`),
+        `stderr should carry the interpolated field path at depth ${depth}: ${JSON.stringify(stderr)}`
+      );
+      assert.ok(
+        stderr.includes("an object"),
+        `stderr should name the value's type instead of echoing it at depth ${depth}: ${JSON.stringify(stderr)}`
+      );
+      for (const marker of ["RangeError", "Maximum call stack size exceeded", "at JSON.stringify", "${model}"]) {
+        assert.ok(!stderr.includes(marker), `stderr must be a message, not a stack dump (${marker}) at depth ${depth}: ${JSON.stringify(stderr)}`);
+      }
+      assert.equal(stderr.trim().split("\n").length, 1, `stderr must stay on one line at depth ${depth}`);
+      assert.ok(stderr.length < 300, `stderr must stay short at depth ${depth}, got ${stderr.length} bytes`);
+    }
   });
 
   // Keys are exact, case-sensitive model IDs. Two that differ only in case are
