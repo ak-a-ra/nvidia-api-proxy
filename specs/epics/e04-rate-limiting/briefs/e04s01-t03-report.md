@@ -64,7 +64,7 @@ All in commit `8169595`:
 - `specs/tech-architecture/tech-stack.md:129` — `**Test Count**: 47 tests`
 - `specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md:336` — the §16 risk narrative's "unchanged existing suite (47 tests)". Not named in the brief's site list and not in its exclusion list, and it is a current-count statement, so it would otherwise fail task 12's count check.
 
-Not touched, per the brief: `plans/*.md`, `docs/research/config-invariant-guard-tests.md`, `specs/epics/*/briefs/`, `specs/epics/*/*-tasks.yaml`. The two count-shaped hits remaining in the sweep are the historical `LOG.md` entries for `cafcc41` and `36be6ed`; `LOG.md` is append-only history, so they stay. The count grep outside the excluded paths returns 47 everywhere.
+Not touched, per the brief: `plans/*.md`, `docs/research/config-invariant-guard-tests.md`, `specs/epics/*/briefs/`, `specs/epics/*/*-tasks.yaml`. The count-shaped hits remaining in the sweep are two historical `LOG.md` entries (lines 18 and 20, for `cafcc41` and `36be6ed`) that quote the counts those commits reported; `LOG.md` is append-only history, so they stay. Correction recorded after review: this report originally also claimed the sweep "returns 47 everywhere", which was false — `LOG.md` was not excluded by the brief's list. `LOG.md` has since been added to task 12's exclusion in `e04s01-tasks.yaml`, so task 12's count check passes with `n=47`; every living doc outside the exclusions does state 47.
 
 ## Mutation check
 

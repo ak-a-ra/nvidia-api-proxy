@@ -55,7 +55,7 @@ tasks:
       Add PROXY_MAX_CONCURRENT_REQUESTS (absent/blank/0 disables, else positive safe integer),
       PROXY_MAX_QUEUE_SIZE (default 32), PROXY_QUEUE_TIMEOUT_SECONDS (default 30), and
       PROXY_SAFETY_MARGIN_PCT (default 5, integer 0-50). Invalid values exit 1.
-    verify: "node --test --test-name-pattern 'PROXY_MAX_CONCURRENT|PROXY_MAX_QUEUE|PROXY_QUEUE_TIMEOUT|PROXY_SAFETY_MARGIN' server.test.js && node -e \"const s=require('fs').readFileSync('config.js','utf8'); for (const v of ['PROXY_MAX_CONCURRENT_REQUESTS','PROXY_MAX_QUEUE_SIZE','PROXY_QUEUE_TIMEOUT_SECONDS','PROXY_SAFETY_MARGIN_PCT']) if(!s.includes(v)){console.error('missing '+v);process.exit(1);} console.log('no new security findings in affected paths: limits validated, not applied');\""
+    verify: "out=$(node --test --test-reporter=tap --test-name-pattern 'PROXY_MAX_CONCURRENT|PROXY_MAX_QUEUE|PROXY_QUEUE_TIMEOUT|PROXY_SAFETY_MARGIN' server.test.js 2>&1); rc=$?; test $rc -eq 0 && t=$(printf '%s\\n' \"$out\" | grep -cE '^[[:space:]]*ok [0-9]+ - ') && test \"$t\" -ge 1 && node -e \"const s=require('fs').readFileSync('config.js','utf8'); for (const v of ['PROXY_MAX_CONCURRENT_REQUESTS','PROXY_MAX_QUEUE_SIZE','PROXY_QUEUE_TIMEOUT_SECONDS','PROXY_SAFETY_MARGIN_PCT']) if(!s.includes(v)){console.error('missing '+v);process.exit(1);} console.log('no new security findings in affected paths: limits validated, not applied');\""
     risk: P0
     security: medium
     status: failing
@@ -68,7 +68,7 @@ tasks:
       Add PROXY_MAX_BUFFERED_BODY_BYTES (default 8 MiB) and PROXY_MODEL_LIMITS_JSON. Malformed
       model limits are fatal whenever supplied: bad JSON, non-object root, empty model key,
       non-object entry, or invalid rpm/tpm values. Never partially applied.
-    verify: "node --test --test-name-pattern 'PROXY_MODEL_LIMITS_JSON|PROXY_MAX_BUFFERED_BODY_BYTES' server.test.js && node -e \"const s=require('fs').readFileSync('config.js','utf8'); if(!/PROXY_MODEL_LIMITS_JSON/.test(s)){console.error('model limits not validated');process.exit(1);} if(/catch\\s*\\{\\s*\\}/.test(s)){console.error('silent catch: malformed model limits must be fatal, not swallowed');process.exit(1);} console.log('no new security findings in affected paths: model limits fail closed');\""
+    verify: "out=$(node --test --test-reporter=tap --test-name-pattern 'PROXY_MODEL_LIMITS_JSON|PROXY_MAX_BUFFERED_BODY_BYTES' server.test.js 2>&1); rc=$?; test $rc -eq 0 && t=$(printf '%s\\n' \"$out\" | grep -cE '^[[:space:]]*ok [0-9]+ - ') && test \"$t\" -ge 1 && node -e \"const s=require('fs').readFileSync('config.js','utf8'); if(!/PROXY_MODEL_LIMITS_JSON/.test(s)){console.error('model limits not validated');process.exit(1);} if(/catch\\s*\\{\\s*\\}/.test(s)){console.error('silent catch: malformed model limits must be fatal, not swallowed');process.exit(1);} console.log('no new security findings in affected paths: model limits fail closed');\""
     risk: P0
     security: medium
     status: failing
@@ -81,8 +81,11 @@ tasks:
     description: >
       Add a test proving a whitespace-only operational value is treated as absent, not as a
       valid number. Number('  ') is 0, which would silently disable a budget, so the blank
-      check must precede numeric parsing.
-    verify: "node --test --test-name-pattern 'whitespace' server.test.js && node -e \"const s=require('fs').readFileSync('config.js','utf8'); if(!/trim\\(\\)/.test(s)){console.error('no blank check before numeric parsing');process.exit(1);} console.log('no new security findings in affected paths: blank values cannot disable a budget');\""
+      check must precede numeric parsing. The word whitespace also matches pre-existing tests and
+      two from task 3, so this task's tests must name the variable they cover: the verify
+      requires a passing test whose name contains whitespace and one of the variables task 4
+      introduced. A test about the rate pair does not satisfy it.
+    verify: "out=$(node --test --test-reporter=tap --test-name-pattern 'whitespace' server.test.js 2>&1); rc=$?; test $rc -eq 0 && t=$(printf '%s\\n' \"$out\" | grep -E '^[[:space:]]*ok [0-9]+ - .*whitespace' | grep -cE 'PROXY_MAX_CONCURRENT|PROXY_MAX_QUEUE|PROXY_QUEUE_TIMEOUT|PROXY_SAFETY_MARGIN') && test \"$t\" -ge 1 && node -e \"const s=require('fs').readFileSync('config.js','utf8'); if(!/trim\\(\\)/.test(s)){console.error('no blank check before numeric parsing');process.exit(1);} console.log('no new security findings in affected paths: blank values cannot disable a budget');\""
     risk: P0
     security: high
     status: failing
@@ -166,11 +169,12 @@ tasks:
       Full suite green with the default export still the only test seam, then sync the new
       total into every living doc that states a count. The verify below asserts the assertion
       rather than trusting it: it derives N from npm test and fails if any hit outside
-      plans/, docs/research/, specs/epics/*/briefs/, and specs/epics/*/*-tasks.yaml states a
-      different number. Task ledgers are excluded because e01s01 carries a deliberately wrong
-      count as a CI test fixture, which is not a statement about the suite. Briefs are dated
-      records of what a task was asked to prove at the time and are never rewritten.
-    verify: "npm test && n=$(npm test 2>/dev/null | grep -E '^. tests ' | grep -oE '[0-9]+$') && grep -q \"tests-${n}%20passing\" README.md && test -z \"$(grep -rnE 'tests(-| )?[0-9]{2,4}|[0-9]{2,4}[ -]?tests?' --include='*.md' --include='*.yaml' . | grep -vE '^\\./(plans/|docs/research/|specs/epics/.*/briefs/|specs/epics/.*-tasks\\.yaml)' | grep -vE \"tests(-| )?${n}|[^0-9]${n}[ -]?tests?\")\" && echo \"count ok: ${n} across the living docs\""
+      plans/, docs/research/, LOG.md, specs/epics/*/briefs/, and specs/epics/*/*-tasks.yaml
+      states a different number. Task ledgers are excluded because e01s01 carries a deliberately
+      wrong count as a CI test fixture, which is not a statement about the suite. Briefs and
+      LOG.md are append-only dated records of what a task reported at the time and are never
+      rewritten.
+    verify: "npm test && n=$(npm test 2>/dev/null | grep -E '^. tests ' | grep -oE '[0-9]+$') && grep -q \"tests-${n}%20passing\" README.md && test -z \"$(grep -rnE 'tests(-| )?[0-9]{2,4}|[0-9]{2,4}[ -]?tests?' --include='*.md' --include='*.yaml' . | grep -vE '^\\./(plans/|docs/research/|LOG\\.md|specs/epics/.*/briefs/|specs/epics/.*-tasks\\.yaml)' | grep -vE \"tests(-| )?${n}|[^0-9]${n}[ -]?tests?\")\" && echo \"count ok: ${n} across the living docs\""
     risk: P1
     security: none
     status: failing
