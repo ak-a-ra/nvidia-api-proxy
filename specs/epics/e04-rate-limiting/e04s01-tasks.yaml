@@ -121,9 +121,12 @@ tasks:
         - "Domain"
   - id: 9
     description: >
-      Update CONVENTIONS.md File Organization to list config.js, and update AGENTS.md
-      §Repository knowledge which currently states all logic lives in server.js.
-    verify: "grep -q 'config.js' CONVENTIONS.md && ! grep -q 'All logic in .server.js.' AGENTS.md"
+      Add config.js to CONVENTIONS.md File Organization and state which module owns what:
+      config.js owns all configuration parsing, server.js owns HTTP handling. The AGENTS.md
+      §Repository knowledge line and the two config invariant bullets were already corrected
+      in the task 1 doc follow-up, so do not redo them; the AGENTS.md check below is a
+      regression guard, not new work.
+    verify: "grep -q 'config.js' CONVENTIONS.md && node -e \"const s=require('fs').readFileSync('AGENTS.md','utf8'); if(/All logic in .server.js./.test(s)){console.error('AGENTS.md still claims all logic in server.js');process.exit(1);} console.log('module split documented in CONVENTIONS.md and AGENTS.md');\""
     risk: P1
     security: none
     status: failing

@@ -82,7 +82,7 @@ Example — destructive op:
 
 ## Part 2 — Repository knowledge
 
-Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. All logic in `server.js` (~294 lines); tests in `server.test.js` (~705 lines). No lint/typecheck/formatter config exists.
+Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `server.js` (~249 lines), configuration parsing in `config.js` (~52 lines); tests in `server.test.js` (~705 lines). No lint/typecheck/formatter config exists.
 
 ### Commands
 
@@ -107,14 +107,14 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. All logic in `se
   Sites as of 2026-09-30: `README.md:9` badge `tests-34%20passing`, `README.md:86` tip, `AGENTS.md:89` `npm test` bullet, `CONVENTIONS.md:17`, `specs/README.md:19`, `specs/tech-architecture/tech-stack.md:129`, `specs/tech-architecture/TEST_PLAN_LATEST.md:44,294,351`, `specs/product/VISION_LATEST.yaml:20`. `plans/*.md` hold historical per-plan numbers — not living docs.
   `docs/research/config-invariant-guard-tests.md` is a dated historical note — do **not** update it.
 
-### server.js invariants (tests assert these)
+### Proxy invariants (tests assert these)
 
 - `duplex: "half"` required when request body is stream and response is read — omitting throws `ERR_STREAM_DUPLICATE_STREAM_OUTPUT`
 - Multi-value `set-cookie` must go through `upstream.headers.getSetCookie()`; iterating `upstream.headers` merges duplicates with `", "` and corrupts cookies
 - `STRIPPED_HEADERS` intentionally includes non-hop-by-hop headers (`host`, `content-length`). `content-length` stripped during header copying, selectively restored for pass-through responses and HEAD so clients get correct length; see comment above `STRIPPED_HEADERS` and restoration block in proxy handler
 - `RESPONSE_STRIPPED_HEADERS` adds `content-encoding` — fetch auto-decompresses upstream response bodies, forwarding that header would misrepresent returned bytes. Client request bodies not decompressed; their `content-encoding` must pass through untouched
-- `validateConfig`: `NVIDIA_BASE_URL` problems fatal at startup (exit 1). Missing `NVIDIA_API_KEY`/`PROXY_AUTH_TOKEN` → runtime 503, not crash. `unconfigured` flag uses `?.trim()` — whitespace-only counts as missing
-- `readSeconds` env parsing: null/empty/whitespace → fallback; non-finite or negative → fallback; `0` disables timeout
+- `config.js` `parseConfig`: `NVIDIA_BASE_URL` problems fatal at startup (exit 1). Missing `NVIDIA_API_KEY`/`PROXY_AUTH_TOKEN` → runtime 503, not crash. `unconfigured` flag uses `?.trim()` — whitespace-only counts as missing
+- `config.js` `readSeconds` env parsing: null/empty/whitespace → fallback; non-finite or negative → fallback; `0` disables timeout. Only the two timeout variables use this leniency; newer operational variables parse strictly — see `specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md`
 - Auth: SHA-256 digest + `timingSafeEqual` — never compare raw bytes (length-mismatch throw + timing leak)
 - Path mapping: incoming `/v1/*` path + query forwarded verbatim onto base origin; base's own `/v1` suffix ignored. Bare `/v1` or `/v1/` → 404. See server.test.js "path mapping" tests
 - Error responses never leak internals (DNS names, URLs): upstream failures → clean `502 { error: "Bad gateway" }`
