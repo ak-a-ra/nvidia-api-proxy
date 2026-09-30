@@ -82,11 +82,11 @@ Example — destructive op:
 
 ## Part 2 — Repository knowledge
 
-Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `server.js` (~249 lines), configuration parsing in `config.js` (~52 lines); tests in `server.test.js` (~705 lines). No lint/typecheck/formatter config exists.
+Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `server.js` (~249 lines), configuration parsing in `config.js` (~265 lines); tests in `server.test.js` (~1408 lines). No lint/typecheck/formatter config exists.
 
 ### Commands
 
-- `npm test` — full suite (56 tests, Node built-in `node --test` runner, no deps to install)
+- `npm test` — full suite (72 tests, Node built-in `node --test` runner, no deps to install)
 - `node --test --test-name-pattern "SIGTERM"` — run single test by name (needs Node ≥ 20)
 - `npm start` — requires `NVIDIA_BASE_URL` (exits code 1 if missing) plus `NVIDIA_API_KEY` and `PROXY_AUTH_TOKEN` (missing ones → 503 responses, not a crash)
 - No CI: tests only run when run locally — run `npm test` before pushing
@@ -103,8 +103,8 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `s
 - In test helpers, `null` = "leave unset" sentinel; `undefined` collides with destructuring defaults
 - Each test gets stub upstream HTTP server; cleanups register via `t.after` (LIFO: proxy child killed before stub closed)
 - Stub upstream modes: `sse`, `stall`, `slowfinish`, `silent`, `activelong`, `midabort`, `abortable`
-- Test count synced in **every** living doc that states one (currently 56) — grep, never trust this list or its line numbers: `grep -rnE 'tests(-| )?[0-9]{2}|[0-9]{2}[ -]tests?' --include='*.md' --include='*.yaml' .`
-  Sites as of 2026-09-30: `README.md:9` badge `tests-56%20passing`, `README.md:86` tip, `AGENTS.md:89` `npm test` bullet, `CONVENTIONS.md:17`, `specs/README.md:19`, `specs/tech-architecture/tech-stack.md:129`, `specs/tech-architecture/TEST_PLAN_LATEST.md:44,294,351`, `specs/product/VISION_LATEST.yaml:20`, `specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md:336`. `plans/*.md` hold historical per-plan numbers — not living docs.
+- Test count synced in **every** living doc that states one (currently 72) — grep, never trust this list or its line numbers: `grep -rnE 'tests(-| )?[0-9]{2}|[0-9]{2}[ -]tests?' --include='*.md' --include='*.yaml' .`
+  Sites as of 2026-09-30: `README.md:9` badge `tests-72%20passing`, `README.md:86` tip, `AGENTS.md:89` `npm test` bullet, `CONVENTIONS.md:17`, `specs/README.md:19`, `specs/tech-architecture/tech-stack.md:129`, `specs/tech-architecture/TEST_PLAN_LATEST.md:44,294,351`, `specs/product/VISION_LATEST.yaml:20`, `specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md:336`. `plans/*.md` hold historical per-plan numbers — not living docs.
   `docs/research/config-invariant-guard-tests.md` is a dated historical note — do **not** update it.
 
 ### Proxy invariants (tests assert these)
