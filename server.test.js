@@ -1440,28 +1440,31 @@ describe("buffered body ceiling and per-model limits", () => {
   // a stack dump quoting the source line, which names the variable and the rule
   // by accident. So nothing here may assert the variable name alone — the
   // interpolated field path is the assertion the dump cannot fake, and the
-  // stack-dump and length checks pin both the crash and the flood.
-  test("PROXY_MODEL_LIMITS_JSON with a deeply nested non-number budget exits 1 with a bounded one-line message, not a crash", async () => {
-    for (const depth of [2000, 7000]) {
-      const nested = `{"a":${'{"a":'.repeat(depth - 1)}1${"}".repeat(depth - 1)}}`;
-      const { code, stderr } = await runProxyOnce({
-        ...BASE_ENV,
-        PROXY_MODEL_LIMITS_JSON: `{"gpt":{"rpm":${nested}}}`,
-      });
-      assert.equal(code, 1, `expected exit 1 at nesting depth ${depth}`);
+  // stack-dump and length checks pin both the crash and the flood. The long
+  // string row pins the same bound on the other branch: a primitive is echoed,
+  // but not in full.
+  test("PROXY_MODEL_LIMITS_JSON with a pathological budget value exits 1 with a bounded one-line message, not a crash", async () => {
+    const nested = (depth) => `{"a":${'{"a":'.repeat(depth - 1)}1${"}".repeat(depth - 1)}}`;
+    for (const [label, doc, shown] of [
+      ["2,000 levels of nesting", `{"gpt":{"rpm":${nested(2000)}}}`, "an object"],
+      ["7,000 levels of nesting", `{"gpt":{"rpm":${nested(7000)}}}`, "an object"],
+      ["a 5,000-character string value", `{"gpt":{"rpm":"${"x".repeat(5000)}"}}`, "…"],
+    ]) {
+      const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_MODEL_LIMITS_JSON: doc });
+      assert.equal(code, 1, `expected exit 1 for ${label}`);
       assert.ok(
         stderr.includes(`${NAME}["gpt"].rpm must be a positive integer`),
-        `stderr should carry the interpolated field path at depth ${depth}: ${JSON.stringify(stderr)}`
+        `stderr should carry the interpolated field path for ${label}: ${JSON.stringify(stderr)}`
       );
       assert.ok(
-        stderr.includes("an object"),
-        `stderr should name the value's type instead of echoing it at depth ${depth}: ${JSON.stringify(stderr)}`
+        stderr.includes(shown),
+        `stderr should report ${shown} for ${label}: ${JSON.stringify(stderr)}`
       );
       for (const marker of ["RangeError", "Maximum call stack size exceeded", "at JSON.stringify", "${model}"]) {
-        assert.ok(!stderr.includes(marker), `stderr must be a message, not a stack dump (${marker}) at depth ${depth}: ${JSON.stringify(stderr)}`);
+        assert.ok(!stderr.includes(marker), `stderr must be a message, not a stack dump (${marker}) for ${label}: ${JSON.stringify(stderr)}`);
       }
-      assert.equal(stderr.trim().split("\n").length, 1, `stderr must stay on one line at depth ${depth}`);
-      assert.ok(stderr.length < 300, `stderr must stay short at depth ${depth}, got ${stderr.length} bytes`);
+      assert.equal(stderr.trim().split("\n").length, 1, `stderr must stay on one line for ${label}`);
+      assert.ok(stderr.length < 300, `stderr must stay short for ${label}, got ${stderr.length} bytes`);
     }
   });
 
