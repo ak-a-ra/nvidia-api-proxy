@@ -90,6 +90,27 @@ decisions:
       read into one limits object so no caller can read three defaults beside a half-configured
       concurrency ceiling; maxConcurrentRequests is the only nullable member. Reversal is one
       guard plus the test that pins it.
+  - decision: Task 5 per-model limits reject the whole value, and reject entries that carry no budget
+    rationale: >-
+      Decided 2026-09-30, for e04s01 task 5, before dispatch. The story enumerates five fatal
+      shapes (bad JSON, non-object root, empty model key, non-object entry, invalid rpm/tpm) and
+      twice states the rule the other two derive from: a silently dropped model limit is a budget
+      that appears to exist and does not, and a partially applied value fails open. So an entry
+      supplying neither rpm nor tpm is fatal, and so is an unknown key inside an entry: a
+      misspelled "rps" would otherwise vanish and leave the operator believing the model is
+      capped. A model key that is not equal to its own trimmed form is fatal for the same reason,
+      since it can never match a model ID; the empty-object root is accepted, because zero models
+      is a well-formed statement that no per-model budget exists. The value is one rejection, not a
+      per-row report, so no invalid entry can be adopted alongside a valid one. PROXY_MAX_BUFFERED_BODY_BYTES
+      joins the existing limits object as maxBufferedBodyBytes, since it is a ceiling like
+      maxQueueSize, and takes the plain positive-integer rule with 0 fatal: a zero-byte buffer
+      rejects every request body. Per-model limits become a new top-level modelLimits field,
+      parallel to rateLimit and separate from limits, which holds only scalar ceilings. The
+      per-model numbers reuse readPositiveInteger after a typeof check, because JSON.parse has
+      already destroyed the textual evidence the digits-only rule inspects: 1e3 is valid JSON and
+      yields 1000, so the scientific-notation rejection is a property of env scalars only. The
+      typeof check has to come first or a quoted "60" would pass, since String("60") is "60".
+      Reversal is one guard plus the tests that pin it.
 metrics:
   story_start: 2026-09-30T00:00:00Z
 ```
