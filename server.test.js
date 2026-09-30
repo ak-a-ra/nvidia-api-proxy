@@ -955,18 +955,24 @@ describe("operational limit config", () => {
     PROXY_AUTH_TOKEN: "t",
   };
 
+  // Each variable paired with the rule its stderr has to state. The message is
+  // the only thing an operator reads, so it is pinned: "non-negative integer"
+  // on the ceiling reads as if 0 were a usable limit, when 0 is the documented
+  // disable value.
   const LIMIT_VARIABLES = [
-    "PROXY_MAX_CONCURRENT_REQUESTS",
-    "PROXY_MAX_QUEUE_SIZE",
-    "PROXY_QUEUE_TIMEOUT_SECONDS",
-    "PROXY_SAFETY_MARGIN_PCT",
+    ["PROXY_MAX_CONCURRENT_REQUESTS", "a positive integer (0 disables)"],
+    ["PROXY_MAX_QUEUE_SIZE", "a positive integer"],
+    ["PROXY_QUEUE_TIMEOUT_SECONDS", "a positive integer"],
+    ["PROXY_SAFETY_MARGIN_PCT", "an integer between 0 and 50"],
   ];
 
   // Non-blank values that are not a safe integer in plain decimal digits, so
   // every one of the four variables must reject them. 2^53+1 and the 30-digit
   // run are the safe-integer bound; the rest are the shapes Number() would
-  // accept or reinterpret. `0` is absent here because it is fatal for only
-  // two of the four — see the zero test below.
+  // accept or reinterpret. `0` is absent here because it is a legal value for
+  // two of the four, not an invalid one: it disables the ceiling and is the
+  // low end of the margin's 0-50 range (both pinned below), and it is fatal
+  // only for the queue size and the queue timeout (see the zero test).
   const INVALID_VALUES = [
     ["negative", "-1"],
     ["fraction", "1.5"],
@@ -980,8 +986,18 @@ describe("operational limit config", () => {
     ["30-digit run", "1".repeat(30)],
   ];
 
+  // withProxy merges proxyEnv over process.env, so passing nothing would pin
+  // the author's shell rather than absence. undefined drops the key from the
+  // child's env entirely, which is what makes this the absent case.
   test("PROXY_MAX_CONCURRENT_REQUESTS, PROXY_MAX_QUEUE_SIZE, PROXY_QUEUE_TIMEOUT_SECONDS and PROXY_SAFETY_MARGIN_PCT all absent start and serve /health", async (t) => {
-    const { proxy } = await withProxy(t, {});
+    const { proxy } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: undefined,
+        PROXY_MAX_QUEUE_SIZE: undefined,
+        PROXY_QUEUE_TIMEOUT_SECONDS: undefined,
+        PROXY_SAFETY_MARGIN_PCT: undefined,
+      },
+    });
     const res = await proxiedFetch(proxy.port, "/health");
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), { status: "ok" });
@@ -1036,7 +1052,10 @@ describe("operational limit config", () => {
     assert.deepEqual(await res.json(), { status: "ok" });
   });
 
-  test("PROXY_MAX_CONCURRENT_REQUESTS blank (spaces or tab) starts, the same disable path as 0", async (t) => {
+  // Blank is what an unset variable looks like, so the blank case has to start
+  // too. Whether it reaches the same internal state as 0 is not observable
+  // through this harness, and no test claims it is.
+  test("PROXY_MAX_CONCURRENT_REQUESTS blank (spaces or tab) starts and serves /health", async (t) => {
     for (const blank of ["", "   ", " \t "]) {
       const { proxy } = await withProxy(t, {
         proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: blank },
@@ -1046,14 +1065,14 @@ describe("operational limit config", () => {
     }
   });
 
-  test("each of PROXY_MAX_CONCURRENT_REQUESTS, PROXY_MAX_QUEUE_SIZE, PROXY_QUEUE_TIMEOUT_SECONDS and PROXY_SAFETY_MARGIN_PCT rejects a non-blank invalid value and names itself", async () => {
-    for (const name of LIMIT_VARIABLES) {
+  test("each of PROXY_MAX_CONCURRENT_REQUESTS, PROXY_MAX_QUEUE_SIZE, PROXY_QUEUE_TIMEOUT_SECONDS and PROXY_SAFETY_MARGIN_PCT rejects a non-blank invalid value, names itself and states its rule", async () => {
+    for (const [name, rule] of LIMIT_VARIABLES) {
       for (const [label, value] of INVALID_VALUES) {
         const { code, stderr } = await runProxyOnce({ ...BASE_ENV, [name]: value });
         assert.equal(code, 1, `expected exit 1 for ${name} ${label} (${value})`);
         assert.ok(
-          stderr.includes(name),
-          `stderr should name ${name} for ${label}: ${stderr}`
+          stderr.includes(`${name} must be ${rule}`),
+          `stderr should state ${name}'s rule for ${label}: ${stderr}`
         );
       }
     }

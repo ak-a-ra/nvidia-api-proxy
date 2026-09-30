@@ -87,7 +87,10 @@ function readLimits(env) {
   const hasQueueTimeout = Boolean(rawQueueTimeout?.trim());
   const hasMargin = Boolean(rawMargin?.trim());
   const concurrency = hasConcurrency
-    ? readPositiveInteger("PROXY_MAX_CONCURRENT_REQUESTS", rawConcurrency, { min: 0 })
+    ? readPositiveInteger("PROXY_MAX_CONCURRENT_REQUESTS", rawConcurrency, {
+        min: 0,
+        zeroDisables: true,
+      })
     : null;
   return {
     // null is the only nullable member: absent, blank, or 0 all disable.
@@ -117,21 +120,28 @@ function readLimits(env) {
 // reuse this one guard instead of a near-copy that could drift. The defaults
 // reproduce the original positive-integer rule exactly, so the rate pair is
 // unaffected.
-function readPositiveInteger(name, raw, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
+function readPositiveInteger(
+  name,
+  raw,
+  { min = 1, max = Number.MAX_SAFE_INTEGER, zeroDisables = false } = {}
+) {
   const trimmed = raw.trim();
   const value = Number(trimmed);
   if (!/^[0-9]+$/.test(trimmed) || !Number.isSafeInteger(value) || value < min || value > max) {
-    console.error(`${name} must be ${integerRule(min, max)}, got: ${trimmed}`);
+    console.error(`${name} must be ${integerRule(min, max, zeroDisables)}, got: ${trimmed}`);
     process.exit(1);
   }
   return value;
 }
 
 // The rule the guard enforced, phrased for stderr: an operator reading only the
-// message has to know which end of the range was violated.
-function integerRule(min, max) {
+// message has to know which end of the range was violated. zeroDisables gets
+// its own wording because 0 there is a disable, not a limit of zero, and the
+// generic "non-negative integer" reads as if 0 were a usable value.
+function integerRule(min, max, zeroDisables) {
   if (max !== Number.MAX_SAFE_INTEGER) return `an integer between ${min} and ${max}`;
-  return min === 1 ? "a positive integer" : "a non-negative integer";
+  if (min === 1) return "a positive integer";
+  return zeroDisables ? "a positive integer (0 disables)" : "a non-negative integer";
 }
 
 // Upstream timeout windows (seconds). CONNECT bounds the pre-response phase:
