@@ -234,7 +234,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, config.host, () => {
   console.log(`NVIDIA API proxy listening on port ${PORT}`);
 });
 

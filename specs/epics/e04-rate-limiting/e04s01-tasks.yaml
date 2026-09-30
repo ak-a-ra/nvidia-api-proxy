@@ -30,7 +30,7 @@ tasks:
     verify: "node --test --test-name-pattern 'PROXY_HOST' server.test.js && node -e \"const s=require('fs').readFileSync('config.js','utf8'); if(!/PROXY_HOST/.test(s)){console.error('PROXY_HOST not read by config owner');process.exit(1);} if(!/0\\.0\\.0\\.0/.test(s)){console.error('default 0.0.0.0 not preserved');process.exit(1);} console.log('no new security findings in affected paths: bind host is the only exposure change');\""
     risk: P0
     security: high
-    status: failing
+    status: passing
     allure:
       severity: critical
       categories:

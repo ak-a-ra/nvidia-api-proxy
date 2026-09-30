@@ -110,7 +110,8 @@ function startProxyServer(baseURL, key, proxyToken, extraEnv = {}) {
     const init = `
       import server from ${JSON.stringify(SERVER_PATH)};
       server.on("listening", () => {
-        process.send({ port: server.address().port });
+        const bound = server.address();
+        process.send({ port: bound.port, address: bound.address });
       });
       server.on("error", (e) => process.send({ error: e.message }));
     `;
@@ -125,7 +126,7 @@ function startProxyServer(baseURL, key, proxyToken, extraEnv = {}) {
 
     child.on("message", (msg) => {
       if (msg.error) reject(new Error(msg.error));
-      else resolve({ child, port: msg.port });
+      else resolve({ child, port: msg.port, address: msg.address });
     });
     child.on("error", reject);
     child.on("exit", (code) => {
@@ -701,5 +702,67 @@ describe("proxy", () => {
     assert.deepEqual(receivedRequests[0].setCookie, [
       "sid=abc; Path=/, theme=dark; Path=/",
     ]);
+  });
+});
+
+// Bind address is config, not a literal: the bound address is asserted from
+// server.address() in the child (reported over IPC), never by guessing which
+// non-loopback address this host happens to have.
+describe("bind host", () => {
+  test("PROXY_HOST=127.0.0.1 binds loopback and serves /health", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_HOST: "127.0.0.1" },
+    });
+    assert.equal(proxy.address, "127.0.0.1");
+    const res = await proxiedFetch(proxy.port, "/health");
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { status: "ok" });
+  });
+
+  // Default-path regression guard: unset, empty, and whitespace-only all keep
+  // the historical wildcard bind that render.yaml and the live deploy assume.
+  test("PROXY_HOST unset, empty, or whitespace-only binds 0.0.0.0", async (t) => {
+    for (const proxyEnv of [{}, { PROXY_HOST: "" }, { PROXY_HOST: "   " }]) {
+      const { proxy } = await withProxy(t, { proxyEnv });
+      assert.equal(
+        proxy.address,
+        "0.0.0.0",
+        `expected the 0.0.0.0 default for ${JSON.stringify(proxyEnv)}`
+      );
+    }
+  });
+
+  // A non-wildcard bind changes nothing else: header forwarding, credential
+  // swap, path mapping, and /health must behave exactly as on the default.
+  test("PROXY_HOST=127.0.0.1 leaves header forwarding, credential swap, path mapping, and /health unchanged", async (t) => {
+    const gzipped = zlib.gzipSync(Buffer.from(JSON.stringify({ model: "nemotron" })));
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: { PROXY_HOST: "127.0.0.1" },
+      key: "sk-test",
+      token: "pt-secret",
+      body: "{}",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions?stream=true", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer pt-secret",
+        "content-encoding": "gzip",
+        "content-type": "application/json",
+      },
+      body: gzipped,
+    });
+    assert.equal(res.status, 200);
+    const req = receivedRequests[0];
+    assert.equal(req.contentEncoding, "gzip", "request headers forwarded");
+    assert.deepEqual(req.rawBody, gzipped, "request body forwarded byte-identical");
+    assert.equal(req.authorization, "Bearer sk-test", "client token swapped upstream");
+    assert.equal(
+      req.path,
+      "/v1/chat/completions?stream=true",
+      "path and query forwarded verbatim"
+    );
+    const health = await proxiedFetch(proxy.port, "/health");
+    assert.equal(health.status, 200);
+    assert.deepEqual(await health.json(), { status: "ok" });
   });
 });

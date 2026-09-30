@@ -126,7 +126,7 @@ SIGTERM handler:
 
 ## Testing
 
-- **Test Count**: 34 tests
+- **Test Count**: 37 tests
 - **Location**: `server.test.js`
 - **Runner**: `node --test` (integration tests, no coverage instrumentation/thresholds)
 - **Pattern**: Process-level integration tests with local HTTP stubs

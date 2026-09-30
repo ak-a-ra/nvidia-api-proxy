@@ -22,8 +22,16 @@ export function parseConfig(env) {
     console.error(`NVIDIA_BASE_URL is not a valid URL: ${rawBase}`);
     process.exit(1);
   }
+  // Bind address, handed straight to server.listen: no URL validation, no DNS
+  // resolution, no allowlist. listen() already fails loudly on an address it
+  // cannot bind, and rejecting unknown values here would only turn a working
+  // deploy into a startup crash. Whitespace-only counts as unset (same
+  // ?.trim() convention as the credentials); anything else is passed through
+  // verbatim, untrimmed, so no value is silently rewritten.
+  const rawHost = env.PROXY_HOST;
   return {
     baseURL: rawBase,
+    host: rawHost?.trim() ? rawHost : "0.0.0.0",
     apiKey: env.NVIDIA_API_KEY,
     proxyToken: env.PROXY_AUTH_TOKEN,
     unconfigured: !env.NVIDIA_API_KEY?.trim() || !env.PROXY_AUTH_TOKEN?.trim(),
