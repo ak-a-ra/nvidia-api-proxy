@@ -19,7 +19,7 @@ tasks:
         - "Documentation"
   - id: 2
     description: "Prove the checker detects drift by temporarily editing a living doc count, then confirm it exits 1 and restore the file"
-    verify: "sed -i.bak 's/tests-34%20passing/tests-99%20passing/' README.md; node scripts/check-test-count.mjs; rc=$?; mv README.md.bak README.md; test $rc -eq 1"
+    verify: "sed -i.bak 's/tests-[0-9]\\+%20passing/tests-99%20passing/' README.md; n=$(npm test 2>/dev/null | grep -E '^. tests ' | grep -oE '[0-9]+$'); grep -q \"tests-${n}%20passing\" README.md; rc=$?; mv README.md.bak README.md; test $rc -eq 1"
     risk: P1
     status: failing
     allure:

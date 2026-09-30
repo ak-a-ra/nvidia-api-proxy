@@ -95,7 +95,8 @@ const client = new OpenAI({
 | `NVIDIA_API_KEY`    | yes      | Real NVIDIA key, sent upstream as `Bearer <key>`              |
 | `PROXY_AUTH_TOKEN`  | yes      | Token clients must send as `Authorization: Bearer <token>`    |
 | `NVIDIA_BASE_URL`   | yes      | Upstream base URL, e.g. `https://integrate.api.nvidia.com/v1` |
-| `PORT`              | no       | Listen port (default `10000`, binds `0.0.0.0`)                |
+| `PORT`              | no       | Listen port (default `10000`)                                 |
+| `PROXY_HOST`        | no       | Bind address (default `0.0.0.0`; use `127.0.0.1` to restrict to loopback) |
 | `UPSTREAM_CONNECT_TIMEOUT_SECONDS` | no | Seconds to wait for upstream response headers (default `30`, `0` disables) |
 | `UPSTREAM_IDLE_TIMEOUT_SECONDS`    | no | Seconds a response stream may stay silent before it is cut (default `120`, `0` disables; resets on every chunk) |
 
