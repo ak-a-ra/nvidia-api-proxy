@@ -1,0 +1,34 @@
+# LOG
+
+Running log of work on `epic-14-config-owner` (issue #14, story e04s01). Live working agreement, not a changelog.
+
+- Read `LOG.md` at the start of any task on this branch, before touching code.
+- At the end of each task, append exactly three lines: one to `done`, one to `decided`, one to `next`.
+- Never rewrite or delete earlier entries. Append only. History is the point.
+- One line per entry, newest at the bottom of its section.
+
+## done
+
+One line per landed commit. Check any SHA against `git log`.
+
+- `e801016` docs(plan): release index and epic capsules for #14: `specs/release-plan.yaml`, four epic capsules, `specs/execution-status.yaml`, `specs/state.yaml`; e04s02-e04s09 left `blocked` with no spec.
+- `947c199` refactor(config): configuration parsing extracted from `server.js` into root-level `config.js` (52 lines); `server.js` down to 249 lines; config shape `baseURL`/`apiKey`/`proxyToken`/`unconfigured` and the `readSeconds` lenient fallback preserved, so no existing test changed; e04s01 task 1 -> `passing`.
+- `f3d20de` docs: `AGENTS.md` ownership correction after the extraction: the Repository knowledge line now describes two modules instead of "all logic in server.js", the two config invariant bullets name `config.js` `parseConfig` and `readSeconds`, and task 9 is rescoped to `CONVENTIONS.md` with the `AGENTS.md` clause kept as a regression guard; no runtime change, `npm test` stays 34/34.
+
+## decided
+
+One line per decision recorded in `specs/state.yaml`.
+
+- Plan only the unblocked slice of the rate limiting epic: #14-#22 is a strict linear blocked-by chain, so capsules for blocked slices would imply work that cannot start and go stale before it is reachable.
+- Use the issue #13 body as the elaborate-spec output: no elaborate-spec run ever happened (`plan: complete: false`), and the 544-line body with 150 numbered user stories is more detailed than elaborate-spec would produce.
+- Epic IDs follow capsule directory names, not WSJF rank; WSJF order lives only in `release-plan.yaml` so cross-references stay checkable.
+- Hand-sync `specs/execution-status.yaml`: `scripts/sync-status-from-epics.sh` (likewise `scripts/validate-specs-yaml.sh` and `docs/countable-story-format.md`) does not exist in this repository, so the 20-section story format was reconstructed from the section anchors other skills cite.
+- e04s01 extracts `config.js` only; the deep-module split (limiter, queue, usage reconciliation) belongs to e04s02-e04s09 and is deferred, leaving `server.js` with the HTTP logic.
+- e04s01 executes through a subagent per task plus a reviewer subagent, per the `AGENTS.md` orchestrator role and the task-brief flow in `plans/README.md`; the bigpowers in-context chain does not apply to implementation on this branch.
+
+## next
+
+One line per known upcoming step, oldest first.
+
+- e04s01 task 2: add `PROXY_HOST` to the config owner with default `0.0.0.0` and move the hardcoded `server.listen(PORT, "0.0.0.0", ...)` (`server.js:237`) onto it, with a test that `PROXY_HOST=127.0.0.1` binds loopback; first change on this branch to what the proxy exposes on the network, so the task carries a security review.
+- e04s01 tasks 3-12 stay `failing` until their own verify command exits 0, and `specs/execution-status.yaml` keeps the story at `failing` for as long as the story is incomplete.
