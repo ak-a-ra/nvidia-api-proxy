@@ -7,7 +7,7 @@
 ```yaml
 vcs:
   kind: git
-  commit: 6639128
+  commit: cbf4f8f
   branch: epic-14-config-owner
   worktree: ../epic-14-config-owner
 workflow_mode: solo-git
@@ -25,8 +25,9 @@ handoff:
     e04 is only unblocked at its first slice e04s01 (#14); e04s02-e04s09 are blocked
     with no capsule until their blocker lands. Story specs and runnable verify commands
     exist for e01s01, e02s01, e03s01, e04s01 only. e04s01 tasks 1 (extract
-    config.js) and 2 (PROXY_HOST) are at status: passing; tasks 3-12 stay
-    failing until their own verify command exits 0, so the story remains failing.
+    config.js), 2 (PROXY_HOST) and 3 (the PROXY_RPM/PROXY_TPM rate pair) are
+    at status: passing; tasks 4-12 stay failing until their own
+    verify command exits 0, so the story remains failing.
     Implementation runs
     through one implementer subagent per task plus a reviewer subagent, not in
     this context. Running work log lives in LOG.md at the project root.
