@@ -34,6 +34,10 @@ export function parseConfig(env) {
     host: rawHost?.trim() ? rawHost : "0.0.0.0",
     rateLimit: readRateLimit(env),
     limits: readLimits(env),
+    // Its own field, parallel to rateLimit: limits holds scalar ceilings, this
+    // holds a map of budgets. A caller must not be able to read a per-model
+    // budget map beside a half-configured global rate pair.
+    modelLimits: readModelLimits(env),
     apiKey: env.NVIDIA_API_KEY,
     proxyToken: env.PROXY_AUTH_TOKEN,
     unconfigured: !env.NVIDIA_API_KEY?.trim() || !env.PROXY_AUTH_TOKEN?.trim(),
@@ -79,6 +83,7 @@ function readLimits(env) {
   const rawQueueSize = env.PROXY_MAX_QUEUE_SIZE;
   const rawQueueTimeout = env.PROXY_QUEUE_TIMEOUT_SECONDS;
   const rawMargin = env.PROXY_SAFETY_MARGIN_PCT;
+  const rawMaxBodyBytes = env.PROXY_MAX_BUFFERED_BODY_BYTES;
   // Blank check before any numeric parsing: Number("  ") is 0, so a
   // whitespace-only value that reached the numeric guard would read as a
   // supplied value instead of an absent one.
@@ -86,6 +91,7 @@ function readLimits(env) {
   const hasQueueSize = Boolean(rawQueueSize?.trim());
   const hasQueueTimeout = Boolean(rawQueueTimeout?.trim());
   const hasMargin = Boolean(rawMargin?.trim());
+  const hasMaxBodyBytes = Boolean(rawMaxBodyBytes?.trim());
   const concurrency = hasConcurrency
     ? readPositiveInteger("PROXY_MAX_CONCURRENT_REQUESTS", rawConcurrency, {
         min: 0,
@@ -106,7 +112,100 @@ function readLimits(env) {
     safetyMarginPct: hasMargin
       ? readPositiveInteger("PROXY_SAFETY_MARGIN_PCT", rawMargin, { min: 0, max: 50 })
       : 5,
+    // 8 MiB, the plain positive-integer rule like every other ceiling here.
+    // 0 is fatal, not a disable: a zero-byte buffer rejects every request body,
+    // a limit that appears to exist and does not.
+    maxBufferedBodyBytes: hasMaxBodyBytes
+      ? readPositiveInteger("PROXY_MAX_BUFFERED_BODY_BYTES", rawMaxBodyBytes)
+      : 8388608,
   };
+}
+
+// Per-model budgets, keyed by exact case-sensitive model ID. One rejection, not
+// a per-row report: the first malformed entry ends the process, so no invalid
+// entry can be adopted alongside a valid one. A partially applied value fails
+// open, and a silently dropped model limit is a budget that appears to exist
+// and does not — hence the empty entry and the unknown-key checks below, which
+// the story's enumerated list does not spell out. Validated and stored only:
+// enforcement is a later slice.
+function readModelLimits(env) {
+  const raw = env.PROXY_MODEL_LIMITS_JSON;
+  // Blank check before any JSON.parse: JSON.parse("  ") throws, so a
+  // whitespace-only value that reached the parser would crash startup. Blank
+  // means unset, the same convention every other group uses.
+  if (!raw?.trim()) return null;
+  // Only the parse failure is caught, and only to name the variable: Node's
+  // uncaught SyntaxError names a position the operator can act on but not the
+  // setting that produced it. The catch is never empty and never swallows —
+  // the exit below is unconditional, so a malformed document still fails closed.
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    fatal("PROXY_MODEL_LIMITS_JSON", `is not valid JSON: ${error.message}`);
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    fatal("PROXY_MODEL_LIMITS_JSON", `must be a JSON object, got: ${typeName(parsed)}`);
+  }
+  // Null prototype: a model ID is operator-supplied text, and on a normal
+  // object a key like "__proto__" would be swallowed by the prototype setter
+  // (or shadow Object.prototype for a later slice's lookup) — an entry that
+  // silently disappears. The map still stores every key byte for byte.
+  const limits = Object.create(null);
+  for (const [model, entry] of Object.entries(parsed)) {
+    // Keys are stored exactly as written, never trimmed, lowercased, or
+    // otherwise normalized. A key that can never match a model ID is a budget
+    // that appears to exist and does not, so both an empty key and a padded one
+    // are fatal rather than silently repaired.
+    if (!model.trim()) {
+      fatal("PROXY_MODEL_LIMITS_JSON", "has a blank model key");
+    }
+    if (model !== model.trim()) {
+      fatal("PROXY_MODEL_LIMITS_JSON", `model key "${model}" has surrounding spaces`);
+    }
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+      fatal(`PROXY_MODEL_LIMITS_JSON["${model}"]`, `must be a JSON object, got: ${typeName(entry)}`);
+    }
+    // An entry has to supply a budget and may not carry a field nobody reads:
+    // "rps" would vanish and leave the operator believing the model is capped.
+    const fields = Object.keys(entry);
+    if (fields.length === 0) {
+      fatal(`PROXY_MODEL_LIMITS_JSON["${model}"]`, "must supply rpm or tpm, got: an empty object");
+    }
+    const budget = {};
+    for (const field of fields) {
+      if (field !== "rpm" && field !== "tpm") {
+        fatal(`PROXY_MODEL_LIMITS_JSON["${model}"]`, `has an unknown field: ${field} (only rpm and tpm are read)`);
+      }
+      const value = entry[field];
+      // Type first, then the one integer guard. JSON.parse has already turned
+      // the operator's text into a number, so String() below cannot reintroduce
+      // a coercion problem — but the typeof check has to come first or a quoted
+      // "60" would pass, because String("60") is "60". The guard's
+      // Number.isSafeInteger then rejects 1e30. Honest asymmetry: scientific
+      // notation is rejected for env scalars only, because JSON's numeric
+      // grammar accepts 1e3 and yields 1000, so by the time the value exists
+      // there is no textual evidence left of what was written.
+      if (typeof value !== "number") {
+        fatal(`PROXY_MODEL_LIMITS_JSON["${model}"].${field}`, `must be a positive integer, got: ${JSON.stringify(value)}`);
+      }
+      budget[field] = readPositiveInteger(`PROXY_MODEL_LIMITS_JSON["${model}"].${field}`, String(value));
+    }
+    limits[model] = budget;
+  }
+  return limits;
+}
+
+// What the offending value is, in the words an operator reading stderr needs:
+// its type rather than its text, because an entry can be an arbitrarily large
+// document. The key and field are already in the name this is appended to.
+function typeName(value) {
+  return Array.isArray(value) ? "an array" : value === null ? "null" : `a ${typeof value}`;
+}
+
+function fatal(name, problem) {
+  console.error(`${name} ${problem}`);
+  process.exit(1);
 }
 
 // Decimal digits only, never Number() coercion. Number("1e3") is 1000 and
