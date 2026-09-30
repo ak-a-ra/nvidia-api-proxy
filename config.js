@@ -155,13 +155,21 @@ function readModelLimits(env) {
   for (const [model, entry] of Object.entries(parsed)) {
     // Keys are stored exactly as written, never trimmed, lowercased, or
     // otherwise normalized. A key that can never match a model ID is a budget
-    // that appears to exist and does not, so both an empty key and a padded one
-    // are fatal rather than silently repaired.
+    // that appears to exist and does not, so an empty key, a padded one, and one
+    // carrying a control character are all fatal rather than silently repaired.
     if (!model.trim()) {
       fatal("PROXY_MODEL_LIMITS_JSON", "has a blank model key");
     }
     if (model !== model.trim()) {
-      fatal("PROXY_MODEL_LIMITS_JSON", `model key "${model}" has surrounding spaces`);
+      fatal("PROXY_MODEL_LIMITS_JSON", `model key ${describeKey(model)} has surrounding spaces`);
+    }
+    // The offending byte is named in code-point form, and describeKey prints
+    // the key with it escaped, so the message stays on one line and carries
+    // nothing a terminal would interpret.
+    const control = CONTROL_CHAR.exec(model);
+    if (control) {
+      const point = control[0].codePointAt(0).toString(16).toUpperCase().padStart(4, "0");
+      fatal("PROXY_MODEL_LIMITS_JSON", `model key ${describeKey(model)} contains a control character: U+${point}`);
     }
     if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
       fatal(`PROXY_MODEL_LIMITS_JSON["${model}"]`, `must be a JSON object, got: ${typeName(entry)}`);
@@ -187,7 +195,7 @@ function readModelLimits(env) {
       // grammar accepts 1e3 and yields 1000, so by the time the value exists
       // there is no textual evidence left of what was written.
       if (typeof value !== "number") {
-        fatal(`PROXY_MODEL_LIMITS_JSON["${model}"].${field}`, `must be a positive integer, got: ${JSON.stringify(value)}`);
+        fatal(`PROXY_MODEL_LIMITS_JSON["${model}"].${field}`, `must be a positive integer, got: ${describeValue(value)}`);
       }
       budget[field] = readPositiveInteger(`PROXY_MODEL_LIMITS_JSON["${model}"].${field}`, String(value));
     }
@@ -200,7 +208,37 @@ function readModelLimits(env) {
 // its type rather than its text, because an entry can be an arbitrarily large
 // document. The key and field are already in the name this is appended to.
 function typeName(value) {
-  return Array.isArray(value) ? "an array" : value === null ? "null" : `a ${typeof value}`;
+  if (Array.isArray(value)) return "an array";
+  if (value === null) return "null";
+  if (typeof value === "object") return "an object";
+  return `a ${typeof value}`;
+}
+
+// C0 and DEL. No model ID contains one, so a key that carries one can never
+// match, exactly like the padded key above it.
+const CONTROL_CHAR = /[\u0000-\u001f\u007f]/;
+
+// The value's shape in a message, never its text. The offending value can be a
+// 42 KB subtree and JSON.stringify recurses into it without bound, so deep
+// nesting used to throw RangeError inside the fatal path — the message meant to
+// explain the rejection was what crashed. Primitives still echo their text,
+// bounded so one long value cannot fill a terminal, and JSON.stringify escapes
+// control characters so a string cannot break the line either.
+function describeValue(value) {
+  if (value !== null && typeof value === "object") return typeName(value);
+  const text = String(JSON.stringify(value));
+  return text.length > 60 ? `${text.slice(0, 60)}…` : text;
+}
+
+// A key as it may be printed. JSON.stringify escapes the C0 range but leaves
+// DEL raw, so escape that too: the message names the key so the operator can
+// find it in the document, and never carries a byte that could garble a
+// terminal or break the line.
+function describeKey(key) {
+  return JSON.stringify(key).replace(
+    CONTROL_CHAR,
+    (char) => `\\u${char.codePointAt(0).toString(16).padStart(4, "0")}`
+  );
 }
 
 function fatal(name, problem) {
