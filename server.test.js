@@ -938,3 +938,174 @@ describe("rate budget config", () => {
     }
   });
 });
+
+// The four operational limit variables. Nothing acts on them in this story —
+// the assertions are about startup: which configurations come up, which crash,
+// and what stderr says. Both harness seams already existed: runProxyOnce for
+// the fatal cases (with a valid base URL and credentials, so an exit 1 proves
+// the limit and not a missing NVIDIA_BASE_URL) and withProxy for the ones that
+// must start.
+describe("operational limit config", () => {
+  // Fatal cases inherit process.env, so a valid upstream base and both
+  // credentials are passed explicitly: without them the child would exit 1
+  // for an unrelated reason and the assertion would prove nothing.
+  const BASE_ENV = {
+    NVIDIA_BASE_URL: "https://example.com/v1",
+    NVIDIA_API_KEY: "k",
+    PROXY_AUTH_TOKEN: "t",
+  };
+
+  const LIMIT_VARIABLES = [
+    "PROXY_MAX_CONCURRENT_REQUESTS",
+    "PROXY_MAX_QUEUE_SIZE",
+    "PROXY_QUEUE_TIMEOUT_SECONDS",
+    "PROXY_SAFETY_MARGIN_PCT",
+  ];
+
+  // Non-blank values that are not a safe integer in plain decimal digits, so
+  // every one of the four variables must reject them. 2^53+1 and the 30-digit
+  // run are the safe-integer bound; the rest are the shapes Number() would
+  // accept or reinterpret. `0` is absent here because it is fatal for only
+  // two of the four — see the zero test below.
+  const INVALID_VALUES = [
+    ["negative", "-1"],
+    ["fraction", "1.5"],
+    ["non-numeric", "abc"],
+    ["unsafe integer", "9007199254740993"],
+    ["scientific", "1e3"],
+    ["hex", "0x10"],
+    ["explicitly signed", "+5"],
+    ["leading-dot fraction", ".5"],
+    ["digit separator", "1_000"],
+    ["30-digit run", "1".repeat(30)],
+  ];
+
+  test("PROXY_MAX_CONCURRENT_REQUESTS, PROXY_MAX_QUEUE_SIZE, PROXY_QUEUE_TIMEOUT_SECONDS and PROXY_SAFETY_MARGIN_PCT all absent start and serve /health", async (t) => {
+    const { proxy } = await withProxy(t, {});
+    const res = await proxiedFetch(proxy.port, "/health");
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { status: "ok" });
+  });
+
+  // Number("  ") is 0, so a blank value that reached the numeric guard would
+  // read as a supplied value instead of an absent one — for the defaulted
+  // variables a silently zeroed ceiling instead of the documented default.
+  test("PROXY_MAX_CONCURRENT_REQUESTS, PROXY_MAX_QUEUE_SIZE, PROXY_QUEUE_TIMEOUT_SECONDS and PROXY_SAFETY_MARGIN_PCT blank start and serve /health", async (t) => {
+    for (const blank of ["", "   ", " \t "]) {
+      const proxyEnv = {
+        PROXY_MAX_CONCURRENT_REQUESTS: blank,
+        PROXY_MAX_QUEUE_SIZE: blank,
+        PROXY_QUEUE_TIMEOUT_SECONDS: blank,
+        PROXY_SAFETY_MARGIN_PCT: blank,
+      };
+      const { proxy } = await withProxy(t, { proxyEnv });
+      const res = await proxiedFetch(proxy.port, "/health");
+      assert.equal(res.status, 200, `expected a successful start for ${JSON.stringify(proxyEnv)}`);
+    }
+  });
+
+  test("PROXY_MAX_CONCURRENT_REQUESTS, PROXY_MAX_QUEUE_SIZE, PROXY_QUEUE_TIMEOUT_SECONDS and PROXY_SAFETY_MARGIN_PCT at their boundary values start and serve /health", async (t) => {
+    for (const proxyEnv of [
+      {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "1",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "1",
+        PROXY_SAFETY_MARGIN_PCT: "0",
+      },
+      {
+        PROXY_MAX_CONCURRENT_REQUESTS: "64",
+        PROXY_MAX_QUEUE_SIZE: "32",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "30",
+        PROXY_SAFETY_MARGIN_PCT: "50",
+      },
+    ]) {
+      const { proxy } = await withProxy(t, { proxyEnv });
+      const res = await proxiedFetch(proxy.port, "/health");
+      assert.equal(res.status, 200, `expected a successful start for ${JSON.stringify(proxyEnv)}`);
+    }
+  });
+
+  // The one documented zero-disables case. Pinned, not assumed: a later slice
+  // that makes 0 fatal would silently turn a running deploy into a crash loop.
+  test("PROXY_MAX_CONCURRENT_REQUESTS=0 starts and serves /health (zero disables the ceiling)", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: "0" },
+    });
+    const res = await proxiedFetch(proxy.port, "/health");
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { status: "ok" });
+  });
+
+  test("PROXY_MAX_CONCURRENT_REQUESTS blank (spaces or tab) starts, the same disable path as 0", async (t) => {
+    for (const blank of ["", "   ", " \t "]) {
+      const { proxy } = await withProxy(t, {
+        proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: blank },
+      });
+      const res = await proxiedFetch(proxy.port, "/health");
+      assert.equal(res.status, 200, `expected a successful start for ${JSON.stringify(blank)}`);
+    }
+  });
+
+  test("each of PROXY_MAX_CONCURRENT_REQUESTS, PROXY_MAX_QUEUE_SIZE, PROXY_QUEUE_TIMEOUT_SECONDS and PROXY_SAFETY_MARGIN_PCT rejects a non-blank invalid value and names itself", async () => {
+    for (const name of LIMIT_VARIABLES) {
+      for (const [label, value] of INVALID_VALUES) {
+        const { code, stderr } = await runProxyOnce({ ...BASE_ENV, [name]: value });
+        assert.equal(code, 1, `expected exit 1 for ${name} ${label} (${value})`);
+        assert.ok(
+          stderr.includes(name),
+          `stderr should name ${name} for ${label}: ${stderr}`
+        );
+      }
+    }
+  });
+
+  // Only the concurrency ceiling has the zero-disables carve-out. A zero queue
+  // size or a zero-second wait turns queueing into immediate rejection — a
+  // limit that appears to exist and does not.
+  test("PROXY_MAX_QUEUE_SIZE and PROXY_QUEUE_TIMEOUT_SECONDS reject 0", async () => {
+    for (const name of ["PROXY_MAX_QUEUE_SIZE", "PROXY_QUEUE_TIMEOUT_SECONDS"]) {
+      const { code, stderr } = await runProxyOnce({ ...BASE_ENV, [name]: "0" });
+      assert.equal(code, 1, `expected exit 1 for ${name}=0`);
+      assert.ok(stderr.includes(name), `stderr should name ${name}: ${stderr}`);
+    }
+  });
+
+  // 51 is the story's named fatal case; -1 comes from the generic rule, so
+  // both ends of the range are pinned: 0 and 50 start (test above), 51 and -1
+  // do not.
+  test("PROXY_SAFETY_MARGIN_PCT outside 0-50 exits 1 naming PROXY_SAFETY_MARGIN_PCT", async () => {
+    for (const [label, value] of [["51", "51"], ["negative", "-1"], ["100", "100"]]) {
+      const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_SAFETY_MARGIN_PCT: value });
+      assert.equal(code, 1, `expected exit 1 for PROXY_SAFETY_MARGIN_PCT ${label} (${value})`);
+      assert.ok(
+        stderr.includes("PROXY_SAFETY_MARGIN_PCT"),
+        `stderr should name PROXY_SAFETY_MARGIN_PCT for ${label}: ${stderr}`
+      );
+    }
+  });
+
+  // This story validates and stores the limits; it does not enforce them. A
+  // one-slot ceiling over a one-deep queue must still pass a request through,
+  // so a later slice that starts acting on them has to change this test
+  // deliberately.
+  test("PROXY_MAX_CONCURRENT_REQUESTS=1 over a one-slot queue still proxies normally (values validated, not applied)", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "1",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "1",
+      },
+      body: "{}",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer pt",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ model: "nemotron" }),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(receivedRequests.length, 1);
+  });
+});

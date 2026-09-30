@@ -33,6 +33,7 @@ export function parseConfig(env) {
     baseURL: rawBase,
     host: rawHost?.trim() ? rawHost : "0.0.0.0",
     rateLimit: readRateLimit(env),
+    limits: readLimits(env),
     apiKey: env.NVIDIA_API_KEY,
     proxyToken: env.PROXY_AUTH_TOKEN,
     unconfigured: !env.NVIDIA_API_KEY?.trim() || !env.PROXY_AUTH_TOKEN?.trim(),
@@ -66,20 +67,71 @@ function readRateLimit(env) {
   };
 }
 
+// Operational ceilings, one object: a caller must not be able to read three
+// defaults beside a half-configured concurrency ceiling. Validated and stored
+// only — admission control, queueing, and budget enforcement are later slices.
+// `0` is a meaningful value for PROXY_MAX_CONCURRENT_REQUESTS alone, where it
+// disables the ceiling; a zero queue size or a zero-second wait would turn
+// queueing into immediate rejection, a limit that appears to exist and does
+// not.
+function readLimits(env) {
+  const rawConcurrency = env.PROXY_MAX_CONCURRENT_REQUESTS;
+  const rawQueueSize = env.PROXY_MAX_QUEUE_SIZE;
+  const rawQueueTimeout = env.PROXY_QUEUE_TIMEOUT_SECONDS;
+  const rawMargin = env.PROXY_SAFETY_MARGIN_PCT;
+  // Blank check before any numeric parsing: Number("  ") is 0, so a
+  // whitespace-only value that reached the numeric guard would read as a
+  // supplied value instead of an absent one.
+  const hasConcurrency = Boolean(rawConcurrency?.trim());
+  const hasQueueSize = Boolean(rawQueueSize?.trim());
+  const hasQueueTimeout = Boolean(rawQueueTimeout?.trim());
+  const hasMargin = Boolean(rawMargin?.trim());
+  const concurrency = hasConcurrency
+    ? readPositiveInteger("PROXY_MAX_CONCURRENT_REQUESTS", rawConcurrency, { min: 0 })
+    : null;
+  return {
+    // null is the only nullable member: absent, blank, or 0 all disable.
+    maxConcurrentRequests: concurrency === 0 ? null : concurrency,
+    maxQueueSize: hasQueueSize
+      ? readPositiveInteger("PROXY_MAX_QUEUE_SIZE", rawQueueSize)
+      : 32,
+    queueTimeoutSeconds: hasQueueTimeout
+      ? readPositiveInteger("PROXY_QUEUE_TIMEOUT_SECONDS", rawQueueTimeout)
+      : 30,
+    // 0 is a valid margin (no headroom reserved); 51 is a quarter of the
+    // budget, which the story names as the fatal end of the range.
+    safetyMarginPct: hasMargin
+      ? readPositiveInteger("PROXY_SAFETY_MARGIN_PCT", rawMargin, { min: 0, max: 50 })
+      : 5,
+  };
+}
+
 // Decimal digits only, never Number() coercion. Number("1e3") is 1000 and
 // Number("0x10") is 16, so a coercive check silently reinterprets a ceiling the
 // operator wrote — the failure this story names. These are budgets: an operator
 // who wants 1000 gets 1000, one who typed 1e3 gets a loud startup crash that is
 // one keystroke from correct. Reverse this by loosening the guard and the test
 // that pins it.
-function readPositiveInteger(name, raw) {
+// min/max exist so the two variables whose story rules differ — the
+// concurrency ceiling, where 0 disables, and the margin, which is 0-50 —
+// reuse this one guard instead of a near-copy that could drift. The defaults
+// reproduce the original positive-integer rule exactly, so the rate pair is
+// unaffected.
+function readPositiveInteger(name, raw, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
   const trimmed = raw.trim();
   const value = Number(trimmed);
-  if (!/^[0-9]+$/.test(trimmed) || !Number.isSafeInteger(value) || value <= 0) {
-    console.error(`${name} must be a positive integer, got: ${trimmed}`);
+  if (!/^[0-9]+$/.test(trimmed) || !Number.isSafeInteger(value) || value < min || value > max) {
+    console.error(`${name} must be ${integerRule(min, max)}, got: ${trimmed}`);
     process.exit(1);
   }
   return value;
+}
+
+// The rule the guard enforced, phrased for stderr: an operator reading only the
+// message has to know which end of the range was violated.
+function integerRule(min, max) {
+  if (max !== Number.MAX_SAFE_INTEGER) return `an integer between ${min} and ${max}`;
+  return min === 1 ? "a positive integer" : "a non-negative integer";
 }
 
 // Upstream timeout windows (seconds). CONNECT bounds the pre-response phase:

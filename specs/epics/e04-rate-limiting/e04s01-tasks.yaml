@@ -58,7 +58,7 @@ tasks:
     verify: "out=$(node --test --test-reporter=tap --test-name-pattern 'PROXY_MAX_CONCURRENT|PROXY_MAX_QUEUE|PROXY_QUEUE_TIMEOUT|PROXY_SAFETY_MARGIN' server.test.js 2>&1); rc=$?; test $rc -eq 0 && t=$(printf '%s\\n' \"$out\" | grep -cE '^[[:space:]]*ok [0-9]+ - ') && test \"$t\" -ge 1 && node -e \"const s=require('fs').readFileSync('config.js','utf8'); for (const v of ['PROXY_MAX_CONCURRENT_REQUESTS','PROXY_MAX_QUEUE_SIZE','PROXY_QUEUE_TIMEOUT_SECONDS','PROXY_SAFETY_MARGIN_PCT']) if(!s.includes(v)){console.error('missing '+v);process.exit(1);} console.log('no new security findings in affected paths: limits validated, not applied');\""
     risk: P0
     security: medium
-    status: failing
+    status: passing
     allure:
       severity: critical
       categories:
