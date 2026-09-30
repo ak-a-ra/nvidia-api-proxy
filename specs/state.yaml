@@ -76,6 +76,19 @@ decisions:
       integer greater than zero; everything else is fatal at startup. Fail closed,
       and typing 1000 instead of 1e3 is the cheaper mistake. Reversal is one guard
       and one pinned test.
+  - decision: Task 4 limit variables are strict positive integers, and the margin is the only ranged one
+    rationale: >-
+      Decided 2026-09-30, for e04s01 task 4, before dispatch. The story table gives
+      PROXY_MAX_CONCURRENT_REQUESTS an explicit "absent/blank/0 disables" carve-out and gives
+      PROXY_MAX_QUEUE_SIZE, PROXY_QUEUE_TIMEOUT_SECONDS and PROXY_SAFETY_MARGIN_PCT none, so 0
+      is fatal for the three. PROXY_SAFETY_MARGIN_PCT is an integer 0-50 inclusive, because the
+      Gherkin scenario names 51 as the fatal case and 0 as valid. PROXY_QUEUE_TIMEOUT_SECONDS
+      keeps the decimal-digits-only guard from task 3 rather than the lenient readSeconds
+      fallback: it is a new operational variable, not one of the two existing timeout variables,
+      and 0 seconds of queue wait silently turns queueing into immediate rejection. All four
+      read into one limits object so no caller can read three defaults beside a half-configured
+      concurrency ceiling; maxConcurrentRequests is the only nullable member. Reversal is one
+      guard plus the test that pins it.
 metrics:
   story_start: 2026-09-30T00:00:00Z
 ```
