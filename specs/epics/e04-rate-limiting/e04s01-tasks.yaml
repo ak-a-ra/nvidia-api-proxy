@@ -71,7 +71,7 @@ tasks:
     verify: "out=$(node --test --test-reporter=tap --test-name-pattern 'PROXY_MODEL_LIMITS_JSON|PROXY_MAX_BUFFERED_BODY_BYTES' server.test.js 2>&1); rc=$?; test $rc -eq 0 && t=$(printf '%s\\n' \"$out\" | grep -cE '^[[:space:]]*ok [0-9]+ - ') && test \"$t\" -ge 1 && node -e \"const s=require('fs').readFileSync('config.js','utf8'); if(!/PROXY_MODEL_LIMITS_JSON/.test(s)){console.error('model limits not validated');process.exit(1);} if(/catch\\s*\\{\\s*\\}/.test(s)){console.error('silent catch: malformed model limits must be fatal, not swallowed');process.exit(1);} console.log('no new security findings in affected paths: model limits fail closed');\""
     risk: P0
     security: medium
-    status: failing
+    status: passing
     allure:
       severity: critical
       categories:
@@ -110,6 +110,10 @@ tasks:
       model vanishes silently. The ADR must name that fail-open as accepted, not as an oversight,
       because it is the one case where a valid document produces a stored map that does not
       match what the operator wrote.
+      Task 5's review round adds two more. A model key carrying a C0 or DEL control
+      character is a fatal shape named by its byte, U+XXXX, not stored and echoed; and a
+      fatal message able to crash its own path must be re-proved by test rather than
+      re-read, because reading it is what missed the RangeError inside describeValue.
     verify: "test -f docs/adr/0002-config-operational-fail-fast.md && grep -q 'degrade' docs/adr/0002-config-operational-fail-fast.md && grep -q '0001' docs/adr/0002-config-operational-fail-fast.md"
     risk: P1
     security: none
