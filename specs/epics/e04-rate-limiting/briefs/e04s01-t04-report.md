@@ -101,8 +101,15 @@ output, not from the brief:
 catch. `LOG.md`'s task-3 review entry records that exact parenthetical being corrected
 before, so leaving it stale would have reproduced a fixed bug.
 
-Post-change, both gates pass: the brief's sweep finds 13 hits, all reading 56, and task 12's
-stronger form agrees — `badge ok: 56`, `count ok: 56 across the living docs`.
+Post-change, both gates pass: the brief's sweep finds 12 hits, all reading 56, and task 12's
+stronger form agrees — `count ok: 56 across the living docs`.
+
+> **Corrected after review (2026-09-30).** This paragraph originally read "13 hits" and quoted a
+> `badge ok: 56` line as task 12's output. Both were wrong: the sweep matches 12 sites, not 13
+> (`AGENTS.md:106` is the extra one, and the paragraph above says so), and task 12's verify
+> contains no `badge ok` string — its badge grep is silent on success and the only line it emits
+> is `count ok: …`. The underlying claims are true, the reviewer re-ran both gates and they
+> pass; only the quoted output and the count were invented.
 
 Not touched, per the brief: `plans/*.md`, `docs/research/config-invariant-guard-tests.md`,
 `specs/epics/*/briefs/`, `LOG.md`'s existing content, and the rest of
@@ -129,7 +136,16 @@ Ten mutations, ten catches:
 
 Eight of the nine new tests were observed failing under a mutation. The ninth — "all four
 absent start and serve `/health`" — is a no-regression guard that is expected to stay green,
-since it pins today's behavior, which requirement 1 requires to be unchanged. Mutation 7 is
+since it pins today's behavior, which requirement 1 requires to be unchanged.
+
+> **Corrected after review (2026-09-30).** Mutation 10's attribution undercounts: the reviewer
+> re-ran it and **two** tests fail, not the one listed here — the "validated, not applied" test
+> above plus "…at their boundary values start and serve /health", which also sets
+> `PROXY_MAX_CONCURRENT_REQUESTS=1` and so trips the same mutant. "Ten mutations, ten catches"
+> is unaffected. The reviewer independently re-ran six of the ten and confirmed every other
+> attribution exactly.
+
+Mutation 7 is
 the one worth calling out: giving the queue timeout the lenient treatment breaks **two**
 tests, not one, because the same test family pins both the fatal-value rule and the `0`
 rule for that variable.

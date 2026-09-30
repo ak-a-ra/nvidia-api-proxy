@@ -99,7 +99,11 @@ tasks:
       Write docs/adr/0002 recording the extended fail-fast vs degrade configuration regime:
       operational variables fail fast, credentials still degrade. State explicitly that the
       credential regime from ADR 0001 is unchanged and that readSeconds leniency is preserved
-      for the two existing timeout variables.
+      for the two existing timeout variables. The ADR must also record the coverage gap task 4
+      left open: the stored defaults 32 / 30 / 5 and the null that disables the concurrency
+      ceiling are reviewed by eye and not by test, because the black-box child-process harness
+      cannot observe the config object and this story forbids a second seam. The same holds for
+      the rateLimit shape from task 3 and for every config field a later task adds.
     verify: "test -f docs/adr/0002-config-operational-fail-fast.md && grep -q 'degrade' docs/adr/0002-config-operational-fail-fast.md && grep -q '0001' docs/adr/0002-config-operational-fail-fast.md"
     risk: P1
     security: none
@@ -112,7 +116,11 @@ tasks:
     description: >
       Add the six new domain terms (Admission control, Queue, Rate budget, Per-model budget,
       Safety margin, Usage reconciliation) to CONTEXT.md glossary, and add the nine new
-      variables to the startup configuration table in specs/tech-architecture/tech-stack.md.
+      variables to the startup configuration table in specs/tech-architecture/tech-stack.md,
+      and add the same variables to the README.md environment-variable table and its
+      copy-paste configuration block. README is the only operator-facing document in the repo and
+      no other task owns its table, so until this task runs a configured limit is undiscoverable
+      there and is silently ignored, which is the failure this story exists to prevent.
     verify: "grep -q 'Admission control' CONTEXT.md && grep -q 'Per-model budget' CONTEXT.md && grep -q 'PROXY_MODEL_LIMITS_JSON' specs/tech-architecture/tech-stack.md"
     risk: P1
     security: none
