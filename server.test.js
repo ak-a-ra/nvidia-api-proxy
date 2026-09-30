@@ -292,6 +292,36 @@ describe("proxy", () => {
     assert.equal(receivedRequests.length, 0);
   });
 
+  // Non-leak invariant, token side: auth is checked before the unconfigured
+  // flag regardless of which credential is missing. A proxy whose only
+  // problem is an absent PROXY_AUTH_TOKEN must answer 401 on /v1/*, never
+  // 503 — and must reject before contacting the upstream.
+  test("unauthenticated request gets 401 (not 503) when only the proxy token is missing", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, { token: null });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer whatever" },
+    });
+    assert.equal(res.status, 401);
+    assert.deepEqual(await res.json(), { error: "Unauthorized" });
+    assert.equal(receivedRequests.length, 0);
+  });
+
+  // Whitespace-only credentials count as missing (server.js uses .trim());
+  // the API-key side is pinned by the tests above passing key: " ". Pin the
+  // token side: a whitespace token behaves like an absent one.
+  test("whitespace-only proxy token counts as missing (401 + health 503)", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, { token: "   " });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer whatever" },
+    });
+    assert.equal(res.status, 401);
+    assert.equal(receivedRequests.length, 0);
+
+    const health = await proxiedFetch(proxy.port, "/health");
+    assert.equal(health.status, 503);
+    assert.deepEqual(await health.json(), { status: "unconfigured" });
+  });
+
   // Degraded responses must be generic: the 503 body may not name the
   // missing credential, so its content is pinned here.
   test("proxied request on unconfigured proxy returns generic 503 body", async (t) => {

@@ -121,8 +121,10 @@ Enforced by tests in `server.test.js`:
 * `proxied request on unconfigured proxy returns generic 503 body` — pins the generic 503 body.
 
 Whitespace-only credentials counting as missing is pinned on the API-key side by the two tests
-above (they pass `" "` as the key). The token side of `.trim()` is not covered by a dedicated
-test.
+above (they pass `" "` as the key) and on the token side by
+`whitespace-only proxy token counts as missing (401 + health 503)`, while the token side of the
+auth-before-unconfigured ordering is pinned by
+`unauthenticated request gets 401 (not 503) when only the proxy token is missing`.
 
 Rationale and test design documented in
 [`docs/research/config-invariant-guard-tests.md`](../research/config-invariant-guard-tests.md).
