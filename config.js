@@ -32,10 +32,54 @@ export function parseConfig(env) {
   return {
     baseURL: rawBase,
     host: rawHost?.trim() ? rawHost : "0.0.0.0",
+    rateLimit: readRateLimit(env),
     apiKey: env.NVIDIA_API_KEY,
     proxyToken: env.PROXY_AUTH_TOKEN,
     unconfigured: !env.NVIDIA_API_KEY?.trim() || !env.PROXY_AUTH_TOKEN?.trim(),
   };
+}
+
+// Rate budget pair. One field, not two: a caller must not be able to read one
+// half of a pair that was never completed. Both absent or blank means rate
+// limiting is disabled (identical to a build without it); exactly one non-blank
+// is fatal, because half a budget is a budget that appears to exist and does
+// not. The values are stored, not enforced — enforcement is a later slice.
+function readRateLimit(env) {
+  const rawRpm = env.PROXY_RPM;
+  const rawTpm = env.PROXY_TPM;
+  // Blank check before any numeric parsing: Number("  ") is 0, so a
+  // whitespace-only value that reached the numeric guard would read as a
+  // supplied value instead of an absent one.
+  const hasRpm = Boolean(rawRpm?.trim());
+  const hasTpm = Boolean(rawTpm?.trim());
+  if (hasRpm !== hasTpm) {
+    const missing = hasRpm ? "PROXY_TPM" : "PROXY_RPM";
+    // Both names in the message: an operator reading only the message has to
+    // know which pair is incomplete, not just which half they set.
+    console.error(`PROXY_RPM and PROXY_TPM must be set together: ${missing} is missing`);
+    process.exit(1);
+  }
+  if (!hasRpm) return null;
+  return {
+    rpm: readPositiveInteger("PROXY_RPM", rawRpm),
+    tpm: readPositiveInteger("PROXY_TPM", rawTpm),
+  };
+}
+
+// Decimal digits only, never Number() coercion. Number("1e3") is 1000 and
+// Number("0x10") is 16, so a coercive check silently reinterprets a ceiling the
+// operator wrote — the failure this story names. These are budgets: an operator
+// who wants 1000 gets 1000, one who typed 1e3 gets a loud startup crash that is
+// one keystroke from correct. Reverse this by loosening the guard and the test
+// that pins it.
+function readPositiveInteger(name, raw) {
+  const trimmed = raw.trim();
+  const value = Number(trimmed);
+  if (!/^[0-9]+$/.test(trimmed) || !Number.isSafeInteger(value) || value <= 0) {
+    console.error(`${name} must be a positive integer, got: ${trimmed}`);
+    process.exit(1);
+  }
+  return value;
 }
 
 // Upstream timeout windows (seconds). CONNECT bounds the pre-response phase:

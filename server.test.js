@@ -742,6 +742,7 @@ describe("bind host", () => {
       token: "pt-secret",
       body: "{}",
     });
+    assert.equal(proxy.address, "127.0.0.1");
     const res = await proxiedFetch(proxy.port, "/v1/chat/completions?stream=true", {
       method: "POST",
       headers: {
@@ -764,5 +765,176 @@ describe("bind host", () => {
     const health = await proxiedFetch(proxy.port, "/health");
     assert.equal(health.status, 200);
     assert.deepEqual(await health.json(), { status: "ok" });
+  });
+});
+
+// PROXY_RPM and PROXY_TPM are a mandatory pair. Nothing acts on the values in
+// this story — the assertions are about startup: which configurations come up,
+// which crash, and what stderr says. Both seams already existed: runProxyOnce
+// for the fatal cases (with a valid base URL and credentials, so an exit 1
+// proves the rate pair and not a missing NVIDIA_BASE_URL) and withProxy for
+// the configurations that must start.
+describe("rate budget config", () => {
+  // Fatal cases inherit process.env, so a valid upstream base and both
+  // credentials are passed explicitly: without them the child would exit 1
+  // for an unrelated reason and the assertion would prove nothing.
+  const BASE_ENV = {
+    NVIDIA_BASE_URL: "https://example.com/v1",
+    NVIDIA_API_KEY: "k",
+    PROXY_AUTH_TOKEN: "t",
+  };
+
+  // Values that are non-blank but not a positive safe integer written in plain
+  // decimal digits. 2^53+1 and the 30-digit run are the safe-integer bound;
+  // the rest are the shapes Number() would happily accept or reinterpret.
+  const INVALID_VALUES = [
+    ["zero", "0"],
+    ["negative", "-1"],
+    ["fraction", "1.5"],
+    ["non-numeric", "abc"],
+    ["unsafe integer", "9007199254740993"],
+    ["30-digit run", "1".repeat(30)],
+  ];
+
+  test("PROXY_RPM and PROXY_TPM both absent leaves rate limiting disabled", async (t) => {
+    const { proxy } = await withProxy(t, {});
+    const res = await proxiedFetch(proxy.port, "/health");
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { status: "ok" });
+  });
+
+  // Number("  ") is 0, so a whitespace-only value that reaches numeric parsing
+  // looks like a supplied value instead of an absent one — a budget that
+  // appears to exist and does not. Blank must mean absent.
+  test("PROXY_RPM and PROXY_TPM blank (empty or whitespace-only) start with rate limiting disabled", async (t) => {
+    for (const proxyEnv of [
+      { PROXY_RPM: "", PROXY_TPM: "" },
+      { PROXY_RPM: "   ", PROXY_TPM: "   " },
+      { PROXY_RPM: " \t ", PROXY_TPM: "" },
+    ]) {
+      const { proxy } = await withProxy(t, { proxyEnv });
+      const res = await proxiedFetch(proxy.port, "/health");
+      assert.equal(res.status, 200, `expected a successful start for ${JSON.stringify(proxyEnv)}`);
+    }
+  });
+
+  test("PROXY_RPM and PROXY_TPM both valid start and serve /health", async (t) => {
+    for (const proxyEnv of [
+      { PROXY_RPM: "60", PROXY_TPM: "100000" },
+      { PROXY_RPM: "1", PROXY_TPM: "1" },
+      { PROXY_RPM: " 60 ", PROXY_TPM: " 100000 " },
+    ]) {
+      const { proxy } = await withProxy(t, { proxyEnv });
+      const res = await proxiedFetch(proxy.port, "/health");
+      assert.equal(res.status, 200, `expected a successful start for ${JSON.stringify(proxyEnv)}`);
+    }
+  });
+
+  // This story validates and stores the pair; it does not enforce it. A tiny
+  // budget must still pass a request through, so a later slice that starts
+  // acting on it has to change this test deliberately.
+  test("PROXY_RPM and PROXY_TPM set to a tiny budget still proxy normally (values validated, not applied)", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "1", PROXY_TPM: "1" },
+      body: "{}",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer pt",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ model: "nemotron" }),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(receivedRequests.length, 1);
+  });
+
+  test("PROXY_RPM set with PROXY_TPM absent exits 1 naming both variables", async () => {
+    const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_RPM: "60" });
+    assert.equal(code, 1);
+    assert.ok(stderr.includes("PROXY_RPM"), `stderr should name PROXY_RPM: ${stderr}`);
+    assert.ok(stderr.includes("PROXY_TPM"), `stderr should name PROXY_TPM: ${stderr}`);
+  });
+
+  test("PROXY_TPM set with PROXY_RPM absent exits 1 naming both variables", async () => {
+    const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_TPM: "100000" });
+    assert.equal(code, 1);
+    assert.ok(stderr.includes("PROXY_RPM"), `stderr should name PROXY_RPM: ${stderr}`);
+    assert.ok(stderr.includes("PROXY_TPM"), `stderr should name PROXY_TPM: ${stderr}`);
+  });
+
+  // Blank is absent, so a blank partner is the "exactly one set" case, not a
+  // valid half-empty pair.
+  test("PROXY_TPM set with PROXY_RPM whitespace-only exits 1 naming both variables", async () => {
+    const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_RPM: "   ", PROXY_TPM: "100000" });
+    assert.equal(code, 1);
+    assert.ok(stderr.includes("PROXY_RPM"), `stderr should name PROXY_RPM: ${stderr}`);
+    assert.ok(stderr.includes("PROXY_TPM"), `stderr should name PROXY_TPM: ${stderr}`);
+  });
+
+  test("PROXY_RPM non-blank but not a positive integer exits 1 naming PROXY_RPM", async () => {
+    for (const [label, value] of INVALID_VALUES) {
+      const { code, stderr } = await runProxyOnce({
+        ...BASE_ENV,
+        PROXY_RPM: value,
+        PROXY_TPM: "100000",
+      });
+      assert.equal(code, 1, `expected exit 1 for PROXY_RPM ${label} (${value})`);
+      assert.ok(
+        stderr.includes("PROXY_RPM"),
+        `stderr should name PROXY_RPM for ${label}: ${stderr}`
+      );
+    }
+  });
+
+  test("PROXY_TPM non-blank but not a positive integer exits 1 naming PROXY_TPM", async () => {
+    for (const [label, value] of INVALID_VALUES) {
+      const { code, stderr } = await runProxyOnce({
+        ...BASE_ENV,
+        PROXY_RPM: "60",
+        PROXY_TPM: value,
+      });
+      assert.equal(code, 1, `expected exit 1 for PROXY_TPM ${label} (${value})`);
+      assert.ok(
+        stderr.includes("PROXY_TPM"),
+        `stderr should name PROXY_TPM for ${label}: ${stderr}`
+      );
+    }
+  });
+
+  // Pinned decision (story §12): decimal digits only, never Number() coercion.
+  // Number("1e3") is 1000 and Number("0x10") is 16, so a permissive check would
+  // silently reinterpret an operator's ceiling. The equivalent literals are
+  // accepted in the same test, so the assertion is about the notation, not the
+  // magnitude. Reversing this is one guard and this one test.
+  test("PROXY_RPM and PROXY_TPM reject 1e3 and 0x10 while accepting the same values in decimal", async (t) => {
+    const NOTATIONS = [
+      ["scientific", "1e3"],
+      ["hex", "0x10"],
+      ["explicitly signed", "+5"],
+      ["leading-dot fraction", ".5"],
+      ["digit separator", "1_000"],
+      ["overflowing exponent", "1e400"],
+    ];
+    for (const [name, partner] of [["PROXY_RPM", "PROXY_TPM"], ["PROXY_TPM", "PROXY_RPM"]]) {
+      for (const [label, value] of NOTATIONS) {
+        const { code, stderr } = await runProxyOnce({
+          ...BASE_ENV,
+          [name]: value,
+          [partner]: "1000",
+        });
+        assert.equal(code, 1, `${name}=${value} (${label}) should be fatal`);
+        assert.ok(stderr.includes(name), `stderr should name ${name} for ${label}: ${stderr}`);
+      }
+    }
+    for (const proxyEnv of [
+      { PROXY_RPM: "1000", PROXY_TPM: "1000" },
+      { PROXY_RPM: "16", PROXY_TPM: "16" },
+    ]) {
+      const { proxy } = await withProxy(t, { proxyEnv });
+      const res = await proxiedFetch(proxy.port, "/health");
+      assert.equal(res.status, 200, `expected a successful start for ${JSON.stringify(proxyEnv)}`);
+    }
   });
 });

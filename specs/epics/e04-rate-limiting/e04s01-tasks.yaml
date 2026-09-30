@@ -44,7 +44,7 @@ tasks:
     verify: "out=$(node --test --test-reporter=tap --test-name-pattern 'PROXY_RPM|PROXY_TPM' server.test.js 2>&1); rc=$?; test $rc -eq 0 && printf '%s\\n' \"$out\" | grep -qE '^[[:space:]]*ok [0-9]+ - .*(PROXY_RPM|PROXY_TPM)' && node -e \"const s=require('fs').readFileSync('config.js','utf8'); if(!/PROXY_RPM/.test(s)||!/PROXY_TPM/.test(s)){console.error('rate pair not both read');process.exit(1);} console.log('no new security findings in affected paths: partial rate policy fails closed');\""
     risk: P0
     security: high
-    status: failing
+    status: passing
     allure:
       severity: critical
       categories:
