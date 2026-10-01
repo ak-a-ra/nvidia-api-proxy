@@ -11,27 +11,28 @@ vcs:
   branch: epic-14-config-owner
   worktree: ../epic-14-config-owner
 workflow_mode: solo-git
-active_flow: build
+active_flow: plan
 active_epic: e04
-active_story: e04s01
+active_story: null
 session_start: 2026-09-23T08:14:23Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: execute-plan
-  source: plan-work
+  next_skill: plan
+  source: issue-15
   note: >-
-    Release plan built from GitHub issue #13 (parent) and slices #14-#22. WSJF order
-    is e01 CI (#12), e02 config guards (#10), e03 logging (#9), e04 rate limiting (#13).
-    e04 is only unblocked at its first slice e04s01 (#14); e04s02-e04s09 are blocked
-    with no capsule until their blocker lands. Story specs and runnable verify commands
-    exist for e01s01, e02s01, e03s01, e04s01 only. e04s01 tasks 1 (extract
-    config.js), 2 (PROXY_HOST), 3 (the PROXY_RPM/PROXY_TPM rate pair) and 4 (the
-    PROXY_MAX_CONCURRENT_REQUESTS/PROXY_MAX_QUEUE_SIZE/PROXY_QUEUE_TIMEOUT_SECONDS/
-    PROXY_SAFETY_MARGIN_PCT limits) are at status: passing; tasks 5-12 stay failing until
-    their own verify command exits 0, so the story remains failing.
-    Implementation runs
-    through one implementer subagent per task plus a reviewer subagent, not in
-    this context. Running work log lives in LOG.md at the project root.
+    e04s01 is complete. All twelve tasks are status: passing, each one observed with its
+    own verify command exiting 0, the suite is 82 tests green in a clean environment, and
+    task 12's count gate reports "count ok: 82 across the living docs". config.js owns
+    every operational variable and server.js is byte-identical to pre-story main.
+    The nine variables this story added are validated at startup and stored, and none of
+    them is enforced yet, which is the point: a later slice applies a limit without
+    inventing its own parsing. Issue #15 (e04s02, admission control with a bounded FIFO
+    queue) is next in the strict linear #14 -> #15 -> #16 -> #17 -> #18 -> #19 -> #20 ->
+    #21 -> #22 chain and is unblocked now that e04s01 passes. It has no story capsule and
+    no task ledger, so planning it is the next flow; its acceptance criteria name exactly
+    the PROXY_MAX_CONCURRENT_REQUESTS, PROXY_MAX_QUEUE_SIZE and PROXY_QUEUE_TIMEOUT_SECONDS
+    variables this story already parses, and it is the first slice to make any stored value
+    observable through behavior rather than through startup acceptance alone.
 decisions:
   - decision: Plan only the unblocked slice of the rate limiting epic
     rationale: >-
@@ -161,6 +162,19 @@ decisions:
       including a manual smoke script, stays polluted. The strip is named rather than
       derived, so an operational variable added later is inherited until it is added to
       CONFIG_ENV_VARS, and that rule is now written into AGENTS.md.
+  - decision: The count gate keeps a story spec in scope, so its stale count is corrected rather than excluded
+    rationale: >-
+      Decided 2026-10-01, for e04s01 task 12. The gate excludes three categories and
+      gives a reason for each: task ledgers, because e01s01 carries a deliberately wrong
+      count as a CI fixture that is not a claim about the suite; briefs and LOG.md,
+      because both are append-only dated records of what a task reported at the time and
+      are never rewritten. A story spec is none of the three. It states requirements a
+      later reader is still expected to check, its section 21 named the suite size as the
+      detector for refactor regression in tasks 1 and 12, and AGENTS.md already listed
+      that exact line among the sites to keep current. Widening the exclusion would have
+      silenced the gate for every future story spec, which is the drift the gate exists
+      to catch, so the number moved to 82 and the verify pattern is unchanged. The gate
+      now covers story specs as it was written, and it is green rather than relaxed.
 metrics:
   story_start: 2026-09-30T00:00:00Z
 ```

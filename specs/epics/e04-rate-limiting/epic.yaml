@@ -2,7 +2,7 @@ id: e04
 title: Rate limiting and admission control
 wsjf: 2.9
 total_bcps: 9
-status: todo
+status: in_progress
 issue: 13
 parent_issue: 13
 # The nine slices are a strict linear blocked-by chain. Only the first is
@@ -12,7 +12,7 @@ stories:
   - id: e04s01
     title: Validated operational config owner and configurable bind host
     bcps: 9
-    status: failing
+    status: passing
     issue: 14
     blocked_by: []
     spec: e04s01-config-owner-and-bind-host.md

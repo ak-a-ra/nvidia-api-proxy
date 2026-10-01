@@ -69,9 +69,9 @@ epics:
       reflects size, not importance. Internally the slices are a strict linear
       blocked-by chain, so this epic cannot be parallelized:
       14 -> 15 -> 16 -> 17 -> 18 -> 19 -> 20 -> 21 -> 22.
-      Only #14 is unblocked; #15-#22 are intentionally left todo with no
-      story capsule until their blocker lands, so the release plan does not
-      imply work that cannot start.
+      Only #14 is planned and it is complete (e04s01); #15 is next, and #15-#22 are
+      intentionally left todo with no story capsule until their blocker lands, so the
+      release plan does not imply work that cannot start.
 
 bugs:
   total: 0
