@@ -13,7 +13,7 @@ be executed by an agent that has never seen this session. Execute in the order b
 | 4 | [04-request-header-array-flattening.md](04-request-header-array-flattening.md) | Robustness | DONE | — |
 | 5 | [05-opt-in-request-logging.md](05-opt-in-request-logging.md) | Observability/DX | TODO | — |
 | 6 | [06-hoist-upstream-base-origin.md](06-hoist-upstream-base-origin.md) | Performance | DONE | — |
-| 7 | [07-disconnect-test-invariants.md](07-disconnect-test-invariants.md) | Tests/CI | DONE | — |
+| 7 | [07-disconnect-test-invariants.md](07-disconnect-test-invariants.md) | Tests/CI | TODO | — |
 
 Landed since the audit: plan 02 (`ec069d8` — guard `server.js:20-27`, test `server.test.js:211`,
 ADR 0001 §1 clause), plan 04 (`63c49f6` revised plan, `dfab41e` fix, `2866f72` count sync), and
@@ -21,8 +21,9 @@ plan 03 (`2b13861` — token-side `.trim()` and missing-token ordering tests, 34
 ADR 0001 §Compliance update), and plan 01 (`1bc34cd` — `.github/workflows/ci.yml` on Node 20/22/24,
 `AGENTS.md` CI bullet).
 
-Tracker: each remaining plan has a GitHub issue — plan 01 → #12, plan 03 → #10, plan 05 → #9.
-Plan 04 → #11, closed by `dfab41e`. `gh issue list` is the live source of truth.
+Tracker: each remaining plan has a GitHub issue — plan 05 → #9, the only one still open. The landed
+plans' issues are closed: plan 01 → #12, closed by `1bc34cd`; plan 03 → #10, closed by `2b13861`;
+plan 04 → #11, closed by `dfab41e`. Plan 07 has no issue. `gh issue list` is the live source of truth.
 
 ## Recommended execution order
 
@@ -58,9 +59,13 @@ original order, then 01.
 - **Verification gates.** From the repo root:
   - full suite: `npm test` (Node built-in runner, no install step needed);
   - single test: `node --test --test-name-pattern "<substring>"` (Node ≥ 20 recommended).
-- CI exists. `.github/workflows/ci.yml` runs `npm test` on Node 20, 22, and 24 on every push to
-  `main` and every pull request, so it — not a local run — is the gate. The workflow ran on its
-  first push and failed on Node 20 and 22 with 34 pass / 2 fail; plan 07 fixes those two tests.
+- CI exists. `.github/workflows/ci.yml` runs `npm test` on Node 20, 22, and 24, and it fires on
+  pushes to `main` and on pull requests — not on pushes to other branches, so a plan branch is not
+  exercised by the workflow until it is pushed and a PR is opened. Running `npm test` locally before
+  finishing a plan is therefore still the only available check at that point. The workflow did run on
+  its first push (plan 01) and failed on Node 20 and 22 with 34 pass / 2 fail, passing 36/36 on
+  Node 24; plan 07's fix for those two tests is staged on its branch and still awaiting its CI-matrix
+  gate.
 
 ## Audit limitations (be aware)
 
