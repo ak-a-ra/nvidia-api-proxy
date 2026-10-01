@@ -1,42 +1,15 @@
 import http from "node:http";
 import { pipeline, Readable } from "node:stream";
 import { createHash, timingSafeEqual } from "node:crypto";
+import {
+  parseConfig,
+  CONNECT_TIMEOUT_SECONDS,
+  IDLE_TIMEOUT_SECONDS,
+} from "./config.js";
 
 const PORT = Number(process.env.PORT || 10000);
 
-// Single source of truth for configuration: one function validates every
-// required variable. NVIDIA_BASE_URL problems are fatal at startup — the
-// proxy must never come up half-configured or doomed. Missing key/token are
-// runtime problems instead: /health and proxied requests report 503 until
-// they are set.
-function validateConfig(env) {
-  const rawBase = env.NVIDIA_BASE_URL;
-  if (!rawBase?.trim()) {
-    console.error("NVIDIA_BASE_URL is required");
-    process.exit(1);
-  }
-  try {
-    const parsed = new URL(rawBase);
-    // Only http(s) can be an upstream: other schemes are structurally
-    // unusable (file: has no origin, data: is inline), so they are a
-    // doomed config — same fatal regime as an unparseable URL.
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      console.error(`NVIDIA_BASE_URL must use http or https, got: ${rawBase}`);
-      process.exit(1);
-    }
-  } catch {
-    console.error(`NVIDIA_BASE_URL is not a valid URL: ${rawBase}`);
-    process.exit(1);
-  }
-  return {
-    baseURL: rawBase,
-    apiKey: env.NVIDIA_API_KEY,
-    proxyToken: env.PROXY_AUTH_TOKEN,
-    unconfigured: !env.NVIDIA_API_KEY?.trim() || !env.PROXY_AUTH_TOKEN?.trim(),
-  };
-}
-
-const config = validateConfig(process.env);
+const config = parseConfig(process.env);
 
 // Compare SHA-256 digests rather than raw bytes: equal-length inputs mean
 // timingSafeEqual never throws on length mismatch, and a throw-vs-compare
@@ -49,25 +22,7 @@ const TOKEN_DIGEST = config.proxyToken
 // here instead of re-parsing the same string on every request.
 const BASE_ORIGIN = new URL(config.baseURL).origin;
 
-// Upstream timeout windows (seconds). CONNECT bounds the pre-response phase:
-// how long the upstream may take to deliver response headers. IDLE bounds the
-// streaming phase: how long the pass-through may go without receiving a byte
-// (the timer resets on every chunk, so long-lived SSE streams are never cut
-// off while they keep producing). Both are env-tunable; 0 disables.
-function readSeconds(name, fallback) {
-  const val = process.env[name];
-  if (!val?.trim()) return fallback;
-  const raw = Number(val);
-  return Number.isFinite(raw) && raw >= 0 ? raw : fallback;
-}
-export const CONNECT_TIMEOUT_SECONDS = readSeconds(
-  "UPSTREAM_CONNECT_TIMEOUT_SECONDS",
-  30
-);
-export const IDLE_TIMEOUT_SECONDS = readSeconds(
-  "UPSTREAM_IDLE_TIMEOUT_SECONDS",
-  120
-);
+export { CONNECT_TIMEOUT_SECONDS, IDLE_TIMEOUT_SECONDS };
 
 // Headers stripped when copying in either direction. Not all of these are
 // hop-by-hop: host is re-derived per upstream call and content-length is
@@ -279,7 +234,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, config.host, () => {
   console.log(`NVIDIA API proxy listening on port ${PORT}`);
 });
 

@@ -1,0 +1,73 @@
+story_id: e03s01
+title: Opt-in request logging via PROXY_LOG_REQUESTS
+status: todo
+bcps: 3
+tasks:
+  - id: 1
+    description: "Parse PROXY_LOG_REQUESTS in validateConfig alongside the existing variables, defaulting to off when unset, blank, '0', or 'false'; do not change any other config regime"
+    verify: "node --test --test-name-pattern 'logging' server.test.js"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Observability"
+        - "Config"
+  - id: 2
+    description: "Emit one JSON line per request (ts, method, path, status, ms) inside the proxy handler, wrapped in try/catch so a stdout failure cannot reach the response path"
+    verify: "node --test --test-name-pattern 'logging' server.test.js"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Observability"
+  - id: 3
+    description: "Log on response close rather than mid-stream so SSE responses are logged at completion and their client-visible bytes stay byte-identical"
+    verify: "node --test --test-name-pattern 'stream' server.test.js"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Observability"
+        - "Streaming"
+  - id: 4
+    description: "Add a test asserting no log line contains the API key, the proxy token, an authorization header value, a request body, or the upstream host:port"
+    verify: "node --test --test-name-pattern 'logging' server.test.js"
+    risk: P0
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Security Review"
+        - "Observability"
+  - id: 5
+    description: "Add a test proving logging is off by default and that enabling it changes no response status, body, or headers"
+    verify: "node --test --test-name-pattern 'logging' server.test.js"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Observability"
+        - "Regression"
+  - id: 6
+    description: "Document PROXY_LOG_REQUESTS in the README env var table and the startup-config table in specs/tech-architecture/tech-stack.md"
+    verify: "grep -q 'PROXY_LOG_REQUESTS' README.md && grep -q 'PROXY_LOG_REQUESTS' specs/tech-architecture/tech-stack.md"
+    risk: P2
+    status: failing
+    allure:
+      severity: normal
+      categories:
+        - "Documentation"
+  - id: 7
+    description: "Full suite green, then sync the new total into every living doc that states a count"
+    verify: "npm test && node scripts/check-test-count.mjs"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Regression"
+        - "Documentation"

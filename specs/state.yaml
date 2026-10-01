@@ -7,14 +7,174 @@
 ```yaml
 vcs:
   kind: git
-  commit: 29ac602d26a713ea2aa9196bb2370cb27be88fbe
+  commit: 63a9698
+  branch: epic-14-config-owner
+  worktree: /data/data/com.termux/files/home/workspace/epic-14-config-owner
 workflow_mode: solo-git
 active_flow: plan
+active_epic: e04
+active_story: null
 session_start: 2026-09-23T08:14:23Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: plan-work
-  source: seed-conventions
+  next_skill: plan
+  source: issue-15
+  note: >-
+    e04s01 is complete. All twelve tasks are status: passing, each one observed with its
+    own verify command exiting 0, the suite is 85 tests green in a clean environment, and
+    task 12's count gate reports "count ok: 85 across the living docs". config.js owns
+    every operational variable and server.js keeps its HTTP handler byte-for-byte.
+    The nine variables this story added are validated at startup and stored, and none of
+    them is enforced yet, which is the point: a later slice applies a limit without
+    inventing its own parsing. Issue #15 (e04s02, admission control with a bounded FIFO
+    queue) is next in the strict linear #14 -> #15 -> #16 -> #17 -> #18 -> #19 -> #20 ->
+    #21 -> #22 chain and is unblocked now that e04s01 passes. It has no story capsule and
+    no task ledger, so planning it is the next flow; its acceptance criteria name exactly
+    the PROXY_MAX_CONCURRENT_REQUESTS, PROXY_MAX_QUEUE_SIZE and PROXY_QUEUE_TIMEOUT_SECONDS
+    variables this story already parses, and it is the first slice to make any stored value
+    observable through behavior rather than through startup acceptance alone.
+decisions:
+  - decision: Plan only the unblocked slice of the rate limiting epic
+    rationale: >-
+      #14 through #22 form a strict linear blocked-by chain. Writing capsules for
+      blocked slices would imply work that cannot start and would go stale before
+      it is reachable.
+  - decision: Use issue #13 body as the elaborate-spec output
+    rationale: >-
+      No elaborate-spec run ever happened; the discover-phase checklist recorded
+      plan: complete: false when the release plan was built. The issue body is a
+      544-line spec with 150 numbered user stories, which is more detailed than
+      elaborate-spec would produce.
+  - decision: Epic IDs follow capsule directory names, not WSJF rank
+    rationale: >-
+      The plan-release skill allows stable IDs with WSJF order expressed only in
+      release-plan.yaml. Matching ID to directory keeps cross-references checkable.
+  - decision: Hand-sync execution-status.yaml
+    rationale: >-
+      scripts/sync-status-from-epics.sh does not exist in this repository, as do
+      scripts/validate-specs-yaml.sh and docs/countable-story-format.md. A 20-section
+      story format was reconstructed from the section anchors other skills cite
+      (1 business narrative, 5 solution, 6 constraints, 17 Gherkin, 18 out of scope).
+  - decision: e04s01 extracts config.js only; the deep-module split is deferred
+    rationale: >-
+      Decided 2026-09-30. Issue #13 user stories 135-138 describe deep internal modules
+      (limiter, queue, reconciliation) distinct from a server entry, but they belong to
+      e04s02-e04s09, not to issue #14. e04s01 lands config.js as the single config owner
+      and leaves server.js holding its HTTP logic. AGENTS.md ("All logic in server.js")
+      and CONVENTIONS.md ("source code in project root") are amended by tasks 9 and 10
+      so the repo documents the split instead of silently diverging from it.
+  - decision: e04s01 executes through a subagent per task, then a reviewer subagent
+    rationale: >-
+      Decided 2026-09-30. Follows the orchestrator role in AGENTS.md and the task-brief
+      flow in plans/README.md. The bigpowers chain assumes in-context execution; the
+      repo convention wins for implementation work on this branch.
+  - decision: Rate limits accept decimal digits only, never Number() coercion
+    rationale: >-
+      Decided 2026-09-30, for e04s01 task 3. Story section 12 requires this story to
+      settle whether scientific notation is accepted instead of leaving it to
+      Number(). Number("1e3") is 1000 and Number("0x10") is 16, so a permissive
+      Number() check silently reinterprets an operator's budget. A supplied
+      PROXY_RPM or PROXY_TPM must match /^[0-9]+$/ after trimming and be a safe
+      integer greater than zero; everything else is fatal at startup. Fail closed,
+      and typing 1000 instead of 1e3 is the cheaper mistake. Reversal is one guard
+      and one pinned test.
+  - decision: Task 4 limit variables are strict positive integers, and the margin is the only ranged one
+    rationale: >-
+      Decided 2026-09-30, for e04s01 task 4, before dispatch. The story table gives
+      PROXY_MAX_CONCURRENT_REQUESTS an explicit "absent/blank/0 disables" carve-out and gives
+      PROXY_MAX_QUEUE_SIZE, PROXY_QUEUE_TIMEOUT_SECONDS and PROXY_SAFETY_MARGIN_PCT none, so 0
+      is fatal for the three. PROXY_SAFETY_MARGIN_PCT is an integer 0-50 inclusive, because the
+      Gherkin scenario names 51 as the fatal case and 0 as valid. PROXY_QUEUE_TIMEOUT_SECONDS
+      keeps the decimal-digits-only guard from task 3 rather than the lenient readSeconds
+      fallback: it is a new operational variable, not one of the two existing timeout variables,
+      and 0 seconds of queue wait silently turns queueing into immediate rejection. All four
+      read into one limits object so no caller can read three defaults beside a half-configured
+      concurrency ceiling; maxConcurrentRequests is the only nullable member. Reversal is one
+      guard plus the test that pins it.
+  - decision: Task 5 per-model limits reject the whole value, and reject entries that carry no budget
+    rationale: >-
+      Decided 2026-09-30, for e04s01 task 5, before dispatch. The story enumerates five fatal
+      shapes (bad JSON, non-object root, empty model key, non-object entry, invalid rpm/tpm) and
+      twice states the rule the other two derive from: a silently dropped model limit is a budget
+      that appears to exist and does not, and a partially applied value fails open. So an entry
+      supplying neither rpm nor tpm is fatal, and so is an unknown key inside an entry: a
+      misspelled "rps" would otherwise vanish and leave the operator believing the model is
+      capped. A model key that is not equal to its own trimmed form is fatal for the same reason,
+      since it can never match a model ID; the empty-object root is accepted, because zero models
+      is a well-formed statement that no per-model budget exists. The value is one rejection, not a
+      per-row report, so no invalid entry can be adopted alongside a valid one. PROXY_MAX_BUFFERED_BODY_BYTES
+      joins the existing limits object as maxBufferedBodyBytes, since it is a ceiling like
+      maxQueueSize, and takes the plain positive-integer rule with 0 fatal: a zero-byte buffer
+      rejects every request body. Per-model limits become a new top-level modelLimits field,
+      parallel to rateLimit and separate from limits, which holds only scalar ceilings. The
+      per-model numbers reuse readPositiveInteger after a typeof check, because JSON.parse has
+      already destroyed the textual evidence the digits-only rule inspects: 1e3 is valid JSON and
+      yields 1000, so the scientific-notation rejection is a property of env scalars only. The
+      typeof check has to come first or a quoted "60" would pass, since String("60") is "60".
+  - decision: Fatal messages name the type of an offending value, never its text
+    rationale: >-
+      Decided 2026-09-30, after the task 5 review, on the orchestrator's authority rather than
+      the brief's. The brief said only "do not echo the whole document", which reads as a size
+      rule; it is a robustness one. The fatal message for a non-number budget value called
+      JSON.stringify on the offending value with no bound, so a 42 KB env var of 7000-deep
+      nesting threw RangeError inside the fatal path: the process still exited 1, but stderr
+      was a raw Node stack dump that never named the variable, which is the opposite of what
+      the operator needs. Below the crash threshold the same expression put 36 KB of the
+      operator's document on one stderr line. Objects and arrays now report their type through
+      the existing typeName helper, and only primitives echo their text. The test for it cannot
+      assert that stderr mentions PROXY_MODEL_LIMITS_JSON: a crash dump quotes the source line,
+      so that assertion passes against the very crash it is meant to catch. It asserts the
+      interpolated field path instead, which the dump renders literally as the model variable,
+      and the absence of a stack dump. A second consequence is recorded in the task 7 ledger
+      row: a fatal message that can itself crash is a path that must be re-proved by test, not
+      by inspection, because inspection is exactly what missed it.
+  - decision: A duplicate top-level model key stays accepted, and the gap is recorded rather than closed
+    rationale: >-
+      Decided 2026-09-30, after the task 5 review found it. PROXY_MODEL_LIMITS_JSON with a
+      duplicated gpt key storing rpm first and tpm second keeps only tpm, so one of the two
+      budgets the operator wrote disappears and the proxy starts silently. That is the same
+      failure class the same commit makes fatal for a misspelled field, so the code is
+      inconsistent with its own stated standard. Closing it in code is neither cheap nor clean:
+      JSON.parse exposes no duplicate-key hook, so detection needs a reviver with per-holder
+      bookkeeping that cannot know its own path, which makes the error message worse than the
+      bug, and a regex over the raw text false-positives on nested keys. RFC 8259 leaves
+      duplicate-name behavior implementation-defined and last-wins is what every JSON parser
+      does, so this is a deliberate accepted gap, recorded in the task 7 ledger row as an
+      accepted fail-open rather than an oversight. A model key containing a C0 control character
+      is closed in the same round, because that one contradicts a rule the code already applies:
+      a padded key is rejected for never matching a model ID, and a control character cannot
+      match one either.
+      Reversal is one guard plus the tests that pin it.
+  - decision: Test hermeticity is owned by the test harness, not by config.js
+    rationale: >-
+      Decided 2026-10-01, for e04s01 task 11. server.test.js spread process.env into
+      every spawned child, so an operator's shell decided the outcome: an exported
+      PROXY_SAFETY_MARGIN_PCT=51 left 15 of 78 passing, an exported PROXY_RPM=5 left
+      11, and an exported PROXY_AUTH_TOKEN turned the 503 credential test into a 200,
+      because null in a test's env table means leave-unset and never remove. Measured,
+      not assumed. The fix strips the variables the proxy reads from the inherited
+      environment inside the harness, then applies the test's own overrides on top.
+      config.js keeps reading its own environment unchanged: a config owner that
+      ignored a variable an operator exported would hide a real deployment mistake,
+      which is the opposite of what the fail-fast regime in ADR 0002 exists for. The
+      snapshot-and-restore alternative was rejected because it protects only the
+      documented npm test invocation: any slice that spawns server.js by another route,
+      including a manual smoke script, stays polluted. The strip is named rather than
+      derived, so an operational variable added later is inherited until it is added to
+      CONFIG_ENV_VARS, and that rule is now written into AGENTS.md.
+  - decision: The count gate keeps a story spec in scope, so its stale count is corrected rather than excluded
+    rationale: >-
+      Decided 2026-10-01, for e04s01 task 12. The gate excludes three categories and
+      gives a reason for each: task ledgers, because e01s01 carries a deliberately wrong
+      count as a CI fixture that is not a claim about the suite; briefs and LOG.md,
+      because both are append-only dated records of what a task reported at the time and
+      are never rewritten. A story spec is none of the three. It states requirements a
+      later reader is still expected to check, its section 21 named the suite size as the
+      detector for refactor regression in tasks 1 and 12, and AGENTS.md already listed
+      that exact line among the sites to keep current. Widening the exclusion would have
+      silenced the gate for every future story spec, which is the drift the gate exists
+      to catch, so the number moved to 82 and the verify pattern is unchanged. The gate
+      now covers story specs as it was written, and it is green rather than relaxed.
 metrics:
-  story_start: 2026-09-23T08:14:23Z
+  story_start: 2026-09-30T00:00:00Z
 ```

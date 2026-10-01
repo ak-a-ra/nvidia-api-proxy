@@ -14,7 +14,12 @@ discover:
     - CONVENTIONS.md
   next: plan
 plan:
-  complete: false
-  artifacts: []
-  next: slice-tasks
+  complete: true
+  artifacts:
+    - specs/release-plan.yaml
+    - specs/epics/e01-ci-workflow/
+    - specs/epics/e02-config-guard-tests/
+    - specs/epics/e03-request-logging/
+    - specs/epics/e04-rate-limiting/
+  next: execute-plan
 ```

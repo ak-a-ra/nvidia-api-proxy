@@ -14,7 +14,7 @@ Zero-dependency Node.js reverse proxy for NVIDIA NIM API. Client apps call the p
 ## Commands
 
 - `npm start` — runs the proxy server
-- `npm test` — runs all 36 tests
+- `npm test` — runs all 85 tests
 - `node --test --test-name-pattern "TEST_NAME"` — run single test by name
 
 ## Defensive Code Categories
@@ -30,9 +30,10 @@ exist in `server.js`.
 
 ## Architecture
 
-- `server.js` — Main reverse proxy logic (~294 lines)
-- `server.test.js` — Test suite (~705 lines)
-- Key modules organized by concern (auth, routing, upstream handling)
+- `server.js` — HTTP handling: server lifecycle, auth, path mapping, upstream fetch and streaming, timeouts, shutdown (~249 lines)
+- `config.js` — Configuration: parsing and validation for every environment variable (~309 lines)
+- `server.test.js` — Test suite (~1798 lines)
+- Modules split by concern; `config.js` imports nothing from `server.js`, so configuration can be read without starting a listener
 
 ## Naming Conventions
 
@@ -46,6 +47,8 @@ exist in `server.js`.
 
 - Source code in project root
 - No `src/` directory
+- `config.js` owns all configuration parsing — every environment variable is read and validated there, and `server.js` keeps no parsing logic
+- `server.js` owns HTTP handling and calls into `config.js` once at startup
 - `render.yaml` for deployment config
 - No `tests/` directory - tests inline in `server.test.js`
 

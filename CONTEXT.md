@@ -34,3 +34,17 @@ and failure details are scrubbed from every locally generated response.
 | Idle window | Maximum silence tolerated inside an active response stream. Resets on every received chunk, so a producing stream is never cut. |
 | Grace period | Bounded interval after a shutdown signal during which in-flight streams may finish; idle connections are dropped immediately. |
 | OpenAI-compatible client | Consumer speaking the OpenAI chat-completions dialect. The proxy's target interoperability surface. |
+| Admission control | Decides whether an authenticated request runs now, must wait, or receives a Local response. Not a budget in itself: the budgets and the concurrency ceiling are the state it decides from. |
+| Queue | The bounded FIFO set of authenticated requests waiting for capacity. Not a retry mechanism: a queued request is forwarded once, unchanged, and never replayed. |
+| Rate budget | A rolling 60-second allowance for requests per minute, or for estimated and reconciled tokens per minute. Not a lifetime cap: the window rolls, so spent allowance returns. |
+| Per-model budget | A rolling 60-second allowance applying only to requests naming an exact configured model ID. Not a fallback: model IDs match case-sensitively, and an omitted field inherits the global allowance rather than denying. |
+| Safety margin | A percentage reduction applied to raw RPM and TPM limits before enforcement. Not a correction of estimated usage: it reserves headroom against the limit, because the estimate itself drifts. |
+| Usage reconciliation | Replacing a request's estimated token cost with valid actual usage reported by the Upstream. Neither guaranteed nor implemented: absent, invalid, or unavailable usage keeps the estimate, and the proxy reconciles nothing today. |
+
+Admission control, Queue, Rate budget, Per-model budget, and Safety margin name limits this
+proxy validates and stores but does not enforce — `PROXY_RPM`, `PROXY_TPM`,
+`PROXY_MAX_CONCURRENT_REQUESTS`, `PROXY_MAX_QUEUE_SIZE`, `PROXY_QUEUE_TIMEOUT_SECONDS`,
+`PROXY_SAFETY_MARGIN_PCT`, `PROXY_MAX_BUFFERED_BODY_BYTES`, and `PROXY_MODEL_LIMITS_JSON` are
+parsed once at startup and nothing reads them afterward. Usage reconciliation has no
+implementation at all. Enforcement arrives in later slices of the rate-limiting epic; the
+configuration regime is recorded in `docs/adr/0002-config-operational-fail-fast.md`.

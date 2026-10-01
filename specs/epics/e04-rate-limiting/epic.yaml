@@ -1,0 +1,91 @@
+id: e04
+title: Rate limiting and admission control
+wsjf: 2.9
+total_bcps: 9
+status: in_progress
+issue: 13
+parent_issue: 13
+# The nine slices are a strict linear blocked-by chain. Only the first is
+# planned; the rest stay todo with no capsule so the plan never implies work
+# that cannot start.
+stories:
+  - id: e04s01
+    title: Validated operational config owner and configurable bind host
+    bcps: 9
+    status: passing
+    issue: 14
+    blocked_by: []
+    spec: e04s01-config-owner-and-bind-host.md
+    tasks: e04s01-tasks.yaml
+
+  - id: e04s02
+    title: Admit and queue work with bounded concurrency
+    bcps: 0
+    status: blocked
+    issue: 15
+    blocked_by: [e04s01]
+    spec: null
+    tasks: null
+
+  - id: e04s03
+    title: Make admission abort-aware and shutdown-safe
+    bcps: 0
+    status: blocked
+    issue: 16
+    blocked_by: [e04s02]
+    spec: null
+    tasks: null
+
+  - id: e04s04
+    title: Enforce global RPM/TPM budgets with safety margin
+    bcps: 0
+    status: blocked
+    issue: 17
+    blocked_by: [e04s03]
+    spec: null
+    tasks: null
+
+  - id: e04s05
+    title: Apply per-model budgets atomically
+    bcps: 0
+    status: blocked
+    issue: 18
+    blocked_by: [e04s04]
+    spec: null
+    tasks: null
+
+  - id: e04s06
+    title: Reconcile SSE usage without breaking streaming
+    bcps: 0
+    status: blocked
+    issue: 19
+    blocked_by: [e04s05]
+    spec: null
+    tasks: null
+
+  - id: e04s07
+    title: Reconcile non-streaming usage and terminal fallbacks
+    bcps: 0
+    status: blocked
+    issue: 20
+    blocked_by: [e04s06]
+    spec: null
+    tasks: null
+
+  - id: e04s08
+    title: Expose authenticated aggregate stats
+    bcps: 0
+    status: blocked
+    issue: 21
+    blocked_by: [e04s07]
+    spec: null
+    tasks: null
+
+  - id: e04s09
+    title: Integrate, document, and verify rate limiting
+    bcps: 0
+    status: blocked
+    issue: 22
+    blocked_by: [e04s08]
+    spec: null
+    tasks: null

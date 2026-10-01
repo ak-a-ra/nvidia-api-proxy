@@ -4,9 +4,21 @@
 
 # Execution Status
 
+# Flat key-value store. eNNsYY: todo | in_progress | passing | failing | blocked
+# Synced by hand from specs/epics/*/epic.yaml (scripts/sync-status-from-epics.sh
+# does not exist in this repository).
+
 ```yaml
-completed_stories: []
-pending_stories: []
-active_stories: []
-blocked_stories: []
+e01s01: passing
+e02s01: passing
+e03s01: todo
+e04s01: passing
+e04s02: blocked
+e04s03: blocked
+e04s04: blocked
+e04s05: blocked
+e04s06: blocked
+e04s07: blocked
+e04s08: blocked
+e04s09: blocked
 ```

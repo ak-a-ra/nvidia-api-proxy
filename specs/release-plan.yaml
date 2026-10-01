@@ -4,9 +4,82 @@
 
 # Release Plan
 
+# Index only. Story status lives in specs/execution-status.yaml; epic manifests
+# live in specs/epics/<capsule_dir>/epic.yaml.
+#
+# Source spec: GitHub issue #13 (544 lines, 150 numbered user stories) and its
+# child slices #14-#22. No prior elaborate-spec run; the issue body is the spec.
+
 ```yaml
-version: "1.0.0"
-released: []
-active_epics: []
-target_date: 2026-09-23
+release:
+  version: "1.1.0"         # mirror of next expected tag, NOT authoritative — gh release view wins
+  codename: "Admission Control"
+  status: planning
+  semantic_release: true
+  bump_hint: minor          # patch | minor | major — CI decides at merge
+  scope_note: >-
+    New capability, opt-in, default-off. Existing deployments must behave
+    identically when the new env vars are absent, so the bump is additive.
+    Two existing docs contradict this epic and are corrected as part of e01:
+    CONVENTIONS.md's "never modify test files" rule (its acceptance criteria
+    require new black-box HTTP tests) and its flat defensive-categories list
+    (which read rate limit and retry as implemented).
+
+epics:
+  - id: e01
+    title: CI workflow
+    wsjf: 5.5
+    capsule_dir: epics/e01-ci-workflow
+    issue: 12
+    note: >-
+      Smallest job size in the plan and the highest risk reduction per unit of
+      work: every other epic's acceptance criteria reference "the full suite
+      passes in CI". Blocks nothing, gates everything.
+
+  - id: e02
+    title: Config guard tests, token side
+    wsjf: 5.0
+    capsule_dir: epics/e02-config-guard-tests
+    issue: 10
+    note: >-
+      ADR 0001 §Compliance states the token-side .trim() path is not covered by
+      a dedicated test. The rate-limiting epic adds new fatal config rules;
+      those must land on a complete guard baseline, not a partial one.
+      #13 user story 150 asks for this to land first if scheduling permits.
+
+  - id: e03
+    title: Opt-in request logging
+    wsjf: 3.0
+    capsule_dir: epics/e03-request-logging
+    issue: 9
+    note: >-
+      Sequenced after e01 because it also adds tests and therefore touches the
+      same test-count sync sites in every living doc.
+
+  - id: e04
+    title: Rate limiting and admission control
+    wsjf: 2.9
+    capsule_dir: epics/e04-rate-limiting
+    issue: 13
+    parent_issue: 13
+    child_issues: [14, 15, 16, 17, 18, 19, 20, 21, 22]
+    note: >-
+      Largest job size in the plan by far (9 slices, 150 user stories), so its
+      raw WSJF is low despite carrying the most business value. The ordering
+      reflects size, not importance. Internally the slices are a strict linear
+      blocked-by chain, so this epic cannot be parallelized:
+      14 -> 15 -> 16 -> 17 -> 18 -> 19 -> 20 -> 21 -> 22.
+      Only #14 is planned and it is complete (e04s01); #15 is next, and #15-#22 are
+      intentionally left todo with no story capsule until their blocker lands, so the
+      release plan does not imply work that cannot start.
+
+bugs:
+  total: 0
+  fixed: 0
+  deferred: 0
+  wontfix: 0
+  registry: null
+  note: >-
+    specs/bugs/registry.yaml does not exist. All 10 closed issues #2-#8, #10,
+    #11, #12 were closed by direct fix; none were filed to a registry.
 ```

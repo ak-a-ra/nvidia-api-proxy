@@ -82,11 +82,11 @@ Example — destructive op:
 
 ## Part 2 — Repository knowledge
 
-Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. All logic in `server.js` (~294 lines); tests in `server.test.js` (~705 lines). No lint/typecheck/formatter config exists.
+Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `server.js` (~249 lines), configuration parsing in `config.js` (~309 lines); tests in `server.test.js` (~1798 lines). No lint/typecheck/formatter config exists.
 
 ### Commands
 
-- `npm test` — full suite (36 tests, Node built-in `node --test` runner, no deps to install)
+- `npm test` — full suite (85 tests, Node built-in `node --test` runner, no deps to install)
 - `node --test --test-name-pattern "SIGTERM"` — run single test by name (needs Node ≥ 20)
 - `npm start` — requires `NVIDIA_BASE_URL` (exits code 1 if missing) plus `NVIDIA_API_KEY` and `PROXY_AUTH_TOKEN` (missing ones → 503 responses, not a crash)
 - CI: GitHub Actions runs `npm test` on Node 20/22/24 for every push/PR — see `.github/workflows/ci.yml`. Run `npm test` locally before pushing anyway.
@@ -101,21 +101,22 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. All logic in `se
 
 - Env vars (`NVIDIA_API_KEY`, `PROXY_AUTH_TOKEN`, `NVIDIA_BASE_URL`, `PORT`) read at **module import time** in `server.js`. Setting `process.env` + re-importing in-process does not work — tests spawn `server.js` as child process with per-test env, get port back over IPC (see `startProxyServer` / `withProxy` in `server.test.js`)
 - In test helpers, `null` = "leave unset" sentinel; `undefined` collides with destructuring defaults
+- The suite is hermetic: `childEnv()` in `server.test.js` strips every variable `server.js`/`config.js` read (see `CONFIG_ENV_VARS`) from the inherited `process.env` before applying a test's overrides, so an operator's exported value cannot decide a result. A new operational variable must be added to `CONFIG_ENV_VARS` in the same commit that adds it to `config.js`
 - Each test gets stub upstream HTTP server; cleanups register via `t.after` (LIFO: proxy child killed before stub closed)
 - Stub upstream modes: `sse`, `stall`, `slowfinish`, `silent`, `activelong`, `midabort`, `abortable`
-- Test count synced in **every** living doc that states one (currently 36) — grep, never trust this list or its line numbers: `grep -rnE 'tests(-| )?[0-9]{2}|[0-9]{2}[ -]tests?|\(currently [0-9]+\)' --include='*.md' --include='*.yaml' .`
-  The `\(currently [0-9]+\)` alternative exists because this bullet states a count that the first two alternatives do not match. Sweep for the stale number afterwards too — `grep -rnE '\b(34|35)\b' --include='*.md' --include='*.yaml' .` — since a site can state the count in a form the pattern above misses.
-  Sites as of 2026-10-01: `README.md:9` badge `tests-36%20passing`, `README.md:86` tip, this bullet (count + `npm test` bullet), `CONVENTIONS.md:17`, `specs/README.md:19`, `specs/tech-architecture/tech-stack.md:129`, `specs/tech-architecture/TEST_PLAN_LATEST.md:44,294,351`, `specs/product/VISION_LATEST.yaml:20`. `plans/*.md` hold historical per-plan numbers — not living docs.
+- Test count synced in **every** living doc that states one (currently 85) — grep, never trust this list or its line numbers: `grep -rnE 'tests(-| )?[0-9]{2,4}|[0-9]{2,4}[ -]?tests?|\(currently [0-9]+\)' --include='*.md' --include='*.yaml' .`
+  The `\(currently [0-9]+\)` alternative exists because this bullet states a count that the first two alternatives do not match. Sweep for the stale number afterwards too — `grep -rnE '\b(84|85)\b' --include='*.md' --include='*.yaml' .` — since a site can state the count in a form the pattern above misses.
+  Sites as of 2026-10-01: `README.md:9` badge `tests-85%20passing`, `README.md:86` tip, this bullet (count + `npm test` bullet), `CONVENTIONS.md:17`, `specs/README.md:19`, `specs/tech-architecture/tech-stack.md:143`, `specs/tech-architecture/TEST_PLAN_LATEST.md:44,294,351`, `specs/product/VISION_LATEST.yaml:20`, `specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md:345`. `plans/*.md` hold historical per-plan numbers — not living docs.
   `docs/research/config-invariant-guard-tests.md` is a dated historical note — do **not** update it.
 
-### server.js invariants (tests assert these)
+### Proxy invariants (tests assert these)
 
 - `duplex: "half"` required when request body is stream and response is read — omitting throws `ERR_STREAM_DUPLICATE_STREAM_OUTPUT`
 - Multi-value `set-cookie` must go through `upstream.headers.getSetCookie()`; iterating `upstream.headers` merges duplicates with `", "` and corrupts cookies
 - `STRIPPED_HEADERS` intentionally includes non-hop-by-hop headers (`host`, `content-length`). `content-length` stripped during header copying, selectively restored for pass-through responses and HEAD so clients get correct length; see comment above `STRIPPED_HEADERS` and restoration block in proxy handler
 - `RESPONSE_STRIPPED_HEADERS` adds `content-encoding` — fetch auto-decompresses upstream response bodies, forwarding that header would misrepresent returned bytes. Client request bodies not decompressed; their `content-encoding` must pass through untouched
-- `validateConfig`: `NVIDIA_BASE_URL` problems fatal at startup (exit 1). Missing `NVIDIA_API_KEY`/`PROXY_AUTH_TOKEN` → runtime 503, not crash. `unconfigured` flag uses `?.trim()` — whitespace-only counts as missing
-- `readSeconds` env parsing: null/empty/whitespace → fallback; non-finite or negative → fallback; `0` disables timeout
+- `config.js` `parseConfig`: `NVIDIA_BASE_URL` problems fatal at startup (exit 1). Missing `NVIDIA_API_KEY`/`PROXY_AUTH_TOKEN` → runtime 503, not crash. `unconfigured` flag uses `?.trim()` — whitespace-only counts as missing
+- `config.js` `readSeconds` env parsing: null/empty/whitespace → fallback; non-finite or negative → fallback; `0` disables timeout. Only the two timeout variables use this leniency; newer operational variables parse strictly — see `specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md`
 - Auth: SHA-256 digest + `timingSafeEqual` — never compare raw bytes (length-mismatch throw + timing leak)
 - Path mapping: incoming `/v1/*` path + query forwarded verbatim onto base origin; base's own `/v1` suffix ignored. Bare `/v1` or `/v1/` → 404. See server.test.js "path mapping" tests
 - Error responses never leak internals (DNS names, URLs): upstream failures → clean `502 { error: "Bad gateway" }`

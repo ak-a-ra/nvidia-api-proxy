@@ -1,0 +1,67 @@
+story_id: e01s01
+title: Run the suite and test count sync on every push
+status: todo
+bcps: 3
+tasks:
+  - id: 1
+    description: >
+      Add scripts/check-test-count.mjs: run npm test, read the reported total from
+      node --test output, grep the same pattern AGENTS.md documents, and exit 1
+      naming file and both numbers on any mismatch. Exempt plans/,
+      docs/research/, and the gitignored .claude/ .agents/ .superpowers/ trees.
+    verify: "node scripts/check-test-count.mjs"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "CI"
+        - "Documentation"
+  - id: 2
+    description: "Prove the checker detects drift by temporarily editing a living doc count, then confirm it exits 1 and restore the file"
+    verify: "sed -i.bak 's/tests-[0-9]\\+%20passing/tests-99%20passing/' README.md; n=$(npm test 2>/dev/null | grep -E '^. tests ' | grep -oE '[0-9]+$'); grep -q \"tests-${n}%20passing\" README.md; rc=$?; mv README.md.bak README.md; test $rc -eq 1"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "CI"
+        - "Regression"
+  - id: 3
+    description: "Add .github/workflows/ci.yml running npm test on Node 18, 20, and 24 for push and pull_request, using only actions/checkout and actions/setup-node, with no install step (zero-dependency project)"
+    verify: "test -f .github/workflows/ci.yml && node -e \"const s=require('fs').readFileSync('.github/workflows/ci.yml','utf8'); for (const v of ['18','20','24']) if (!s.includes(v)) { console.error('missing Node '+v+' matrix leg'); process.exit(1); } if (/npm (ci|install)/.test(s)) { console.error('install step present but project is zero-dep'); process.exit(1); } if (!/npm test/.test(s)) { console.error('npm test not invoked'); process.exit(1); }\""
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "CI"
+        - "DX"
+  - id: 4
+    description: "Add a count-sync job to the workflow that runs scripts/check-test-count.mjs after npm test, on push and pull_request"
+    verify: "grep -q 'check-test-count' .github/workflows/ci.yml"
+    risk: P2
+    status: failing
+    allure:
+      severity: normal
+      categories:
+        - "CI"
+  - id: 5
+    description: "Replace AGENTS.md's 'No CI: tests only run when run locally' claim with the CI workflow, and note the new scripts/ directory in File Organization"
+    verify: "! grep -q 'No CI: tests only run when run locally' AGENTS.md && grep -q 'ci.yml' AGENTS.md"
+    risk: P2
+    status: failing
+    allure:
+      severity: normal
+      categories:
+        - "Documentation"
+  - id: 6
+    description: "Full suite still green and the checker passes on the unmodified tree"
+    verify: "npm test && node scripts/check-test-count.mjs"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "CI"
+        - "Regression"
