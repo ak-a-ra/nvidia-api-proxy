@@ -7,7 +7,7 @@ be executed by an agent that has never seen this session. Execute in the order b
 
 | # | Plan | Category | Status | Depends on |
 | --- | --- | --- | --- | --- |
-| 1 | [01-ci-github-actions.md](01-ci-github-actions.md) | CI/DX | TODO | — |
+| 1 | [01-ci-github-actions.md](01-ci-github-actions.md) | CI/DX | DONE | — |
 | 2 | [02-base-url-scheme-validation.md](02-base-url-scheme-validation.md) | Correctness | DONE | — |
 | 3 | [03-config-guard-tests-round-2.md](03-config-guard-tests-round-2.md) | Tests | DONE | — |
 | 4 | [04-request-header-array-flattening.md](04-request-header-array-flattening.md) | Robustness | DONE | — |
@@ -17,18 +17,20 @@ be executed by an agent that has never seen this session. Execute in the order b
 Landed since the audit: plan 02 (`ec069d8` — guard `server.js:20-27`, test `server.test.js:211`,
 ADR 0001 §1 clause), plan 04 (`63c49f6` revised plan, `dfab41e` fix, `2866f72` count sync), and
 plan 03 (`2b13861` — token-side `.trim()` and missing-token ordering tests, 34 → 36 count sync,
-ADR 0001 §Compliance update).
+ADR 0001 §Compliance update), and plan 01 (`1bc34cd` — `.github/workflows/ci.yml` on Node 20/22/24,
+`AGENTS.md` CI bullet).
 
 Tracker: each remaining plan has a GitHub issue — plan 01 → #12, plan 03 → #10, plan 05 → #9.
 Plan 04 → #11, closed by `dfab41e`. `gh issue list` is the live source of truth.
 
 ## Recommended execution order
 
-`01 → 05` — the remainder; plans 02, 03 and 04 are done. Plan 03 ran first per the original
-order (it was the smaller of the two test-adding plans).
+`05` — the only plan left; 01, 02, 03 and 04 are all done. Plan 03 ran before 01 per the
+original order, then 01.
 
-- Plans 03 and 05 each add tests and therefore both touch the same count-sync sites (03 is now
-  done; 05 still must re-derive the site list itself) — every living
+- Plan 05 adds tests and therefore touches the same count-sync sites (03 is done; 05 must
+  re-derive the site list itself — the `AGENTS.md` list and its grep recipe are both known to
+  be incomplete, see `056f3c5`) — every living
   doc that states a test count, not just the three README/AGENTS.md spots (see `AGENTS.md` "Testing
   quirks"; grep for the sites, the list drifts). **Run them sequentially**, not in parallel, or the
   count-sync edits will conflict.
