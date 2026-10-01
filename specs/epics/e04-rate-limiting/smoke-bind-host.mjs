@@ -3,8 +3,9 @@
 // about network exposure. Starts a stub upstream and a real proxy child, then
 // checks loopback reachability, /health, and one pass-through request.
 //
-// Fails today (PROXY_HOST is not implemented), which is the point: this is the
-// verification script for the story, not a passing baseline.
+// Passes as of 84e0da5, which also fixed the server.js path above: the script
+// resolved it two levels up (specs/server.js) and could therefore only ever
+// fail.
 
 import { spawn } from "node:child_process";
 import http from "node:http";
