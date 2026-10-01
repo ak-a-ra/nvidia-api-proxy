@@ -66,6 +66,38 @@ function authorized(req) {
   );
 }
 
+// Opt-in per-request logging (PROXY_LOG_REQUESTS, parsed by config.js). One
+// JSON line per request, on `close` and never earlier: a streamed response has
+// no duration until its last byte, and a line written from the pipeline
+// callback can precede the response it describes. Method, path, status, and
+// duration are the whole line by construction — no header, no body, no
+// credential, no upstream host ever reaches it.
+function logRequestOnClose(req, res, startedAt, incoming) {
+  res.on("close", () => {
+    try {
+      console.log(
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          method: req.method,
+          path: `${incoming.pathname}${incoming.search}`,
+          // The last status written to the client. 0 means the response was
+          // destroyed before any status reached it — a client disconnect, or a
+          // mid-stream upstream abort. That is a fact about the socket, not a
+          // code the client saw, and a code it never saw is not invented here.
+          status: res.headersSent ? res.statusCode : 0,
+          ms: Date.now() - startedAt,
+        })
+      );
+    } catch {
+      // A closed or full stdout throws (EPIPE/ENOSPC), and this runs inside a
+      // response event, where an uncaught throw is an uncaught exception: the
+      // process would die over a log line. Swallowed on purpose — the request
+      // is already complete, the line is the only thing lost, and stderr is no
+      // safer a place to report it than stdout was.
+    }
+  });
+}
+
 // The validated deploy base URL (config.baseURL, e.g.
 // https://integrate.api.nvidia.com/v1) is the single source of truth.
 // The incoming path is forwarded verbatim onto the base host: the /v1 a
@@ -80,6 +112,13 @@ function upstreamUrl(incoming) {
 const server = http.createServer(async (req, res) => {
   try {
     const incoming = new URL(req.url || "/", "http://localhost");
+
+    // Opt-in only: neither the clock nor the listener exists when the flag is
+    // off, so the disabled path is byte-for-byte today's path. Registered
+    // above every branch, so /health and every local rejection are logged too,
+    // and the clock starts here at arrival rather than whenever the response
+    // happens to end.
+    if (config.logRequests) logRequestOnClose(req, res, Date.now(), incoming);
 
     if (incoming.pathname === "/health") {
       if (config.unconfigured) return sendJson(req, res, 503, { status: "unconfigured" });
