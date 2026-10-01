@@ -99,6 +99,21 @@ const client = new OpenAI({
 | `PROXY_HOST`        | no       | Bind address (default `0.0.0.0`; use `127.0.0.1` to restrict to loopback) |
 | `UPSTREAM_CONNECT_TIMEOUT_SECONDS` | no | Seconds to wait for upstream response headers (default `30`, `0` disables) |
 | `UPSTREAM_IDLE_TIMEOUT_SECONDS`    | no | Seconds a response stream may stay silent before it is cut (default `120`, `0` disables; resets on every chunk) |
+| `PROXY_RPM`        | no | Requests per minute, paired with `PROXY_TPM` (default `unset`; both absent or blank leaves rate limiting disabled) |
+| `PROXY_TPM`        | no | Tokens per minute, paired with `PROXY_RPM` (default `unset`; exactly one of the pair set is fatal) |
+| `PROXY_MAX_CONCURRENT_REQUESTS` | no | Requests allowed to run at once (default disabled — absent, blank, or `0`) |
+| `PROXY_MAX_QUEUE_SIZE` | no | Requests that may wait for capacity (default `32`) |
+| `PROXY_QUEUE_TIMEOUT_SECONDS` | no | Seconds a request may wait before rejection (default `30`) |
+| `PROXY_SAFETY_MARGIN_PCT` | no | Headroom reserved against the rate budgets, `0`–`50` (default `5`) |
+| `PROXY_MAX_BUFFERED_BODY_BYTES` | no | Ceiling on a buffered request body in rate-limit mode (default `8388608`, 8 MiB) |
+| `PROXY_MODEL_LIMITS_JSON` | no | JSON object of per-model budgets keyed by exact model ID, e.g. `{"meta/llama-3.1-8b-instruct":{"rpm":10,"tpm":20000}}` (default `unset`) |
+
+> [!IMPORTANT]
+> Every `PROXY_*` row above except `PROXY_HOST` is **validated and stored, not enforced** — the
+> proxy parses them at startup and nothing reads them at request time, so setting a limit changes
+> no traffic yet. A supplied value its rule rejects is fatal: the process exits with code 1 and a
+> line on stderr naming the variable. `PROXY_HOST` is the exception — it is live, and selects the
+> address `server.listen` binds.
 
 Copy-paste-ready local setup — fill in the two values marked `FIXME`:
 
@@ -109,16 +124,32 @@ export PROXY_AUTH_TOKEN="FIXME"  # token your clients will send
 # ---- optional (defaults shown; uncomment to override) ----
 # export NVIDIA_BASE_URL="https://integrate.api.nvidia.com/v1"  # pinned by render.yaml
 # export PORT="10000"
+# export PROXY_HOST="0.0.0.0"             # live: bind address; 127.0.0.1 restricts to loopback
 # export UPSTREAM_CONNECT_TIMEOUT_SECONDS="30"  # 0 disables
 # export UPSTREAM_IDLE_TIMEOUT_SECONDS="120"    # 0 disables; resets on every chunk
+
+# ---- rate limiting (stored, not enforced yet; PROXY_RPM and PROXY_TPM are a mandatory pair) ----
+# export PROXY_RPM="60"                   # requests per minute
+# export PROXY_TPM="200000"                # tokens per minute
+# export PROXY_MAX_CONCURRENT_REQUESTS="16"  # absent, blank, or 0 disables the ceiling
+# export PROXY_MAX_QUEUE_SIZE="32"         # requests that may wait for capacity
+# export PROXY_QUEUE_TIMEOUT_SECONDS="30"  # how long a request may wait
+# export PROXY_SAFETY_MARGIN_PCT="5"       # headroom reserved against the budgets, 0-50
+# export PROXY_MAX_BUFFERED_BODY_BYTES="8388608"  # buffered-body ceiling in rate-limit mode, 8 MiB
+# export PROXY_MODEL_LIMITS_JSON='{"meta/llama-3.1-8b-instruct":{"rpm":10,"tpm":20000}}'  # per-model budgets
 
 npm start
 ```
 
 > [!NOTE]
 > With missing required vars, `/health` returns `503 { status: "unconfigured" }` and proxied calls
-> return `503`. If `NVIDIA_BASE_URL` is unset or not a valid URL at startup, the process exits with
-> code 1.
+> return `503`. If `NVIDIA_BASE_URL` is unset or not a valid URL at startup, or a `PROXY_*` limit
+> is supplied with a value its rule rejects, the process exits with code 1.
+
+> [!NOTE]
+> `PROXY_MODEL_LIMITS_JSON` is rejected whole — one malformed model entry stops the process rather
+> than dropping that entry. A duplicated model key is the one accepted exception: JSON keeps the
+> last one, so writing the same model twice silently loses the earlier budget.
 
 ## Endpoints
 

@@ -10,7 +10,7 @@
 
 ## Architecture
 
-Entry point: `server.js`. Single-file proxy with no external dependencies.
+Entry point: `server.js`. Two source modules and no external dependencies: `server.js` owns HTTP handling, `config.js` owns every configuration rule.
 
 ### Module Lifecycle
 
@@ -38,14 +38,29 @@ Client → server.js/http.createServer
 
 ## Startup Configuration
 
-| Variable | Required | Behavior on Missing |
-| --- | --- | --- |
-| `NVIDIA_BASE_URL` | Yes | Exit code 1 |
-| `NVIDIA_API_KEY` | Yes | Runtime 503 |
-| `PROXY_AUTH_TOKEN` | Yes | Runtime 503 |
-| `PORT` | No | Default 10000 |
-| `UPSTREAM_CONNECT_TIMEOUT_SECONDS` | No | Default 30 (0 disables) |
-| `UPSTREAM_IDLE_TIMEOUT_SECONDS` | No | Default 120 (resets per chunk, 0 disables) |
+| Variable | Required | Default | Invalid value | Rule |
+| --- | --- | --- | --- | --- |
+| `NVIDIA_BASE_URL` | Yes | — | Fatal, exit 1 | Missing, unparseable, or not http(s) |
+| `NVIDIA_API_KEY` | Yes | — | Degrades, never fatal | Absent or whitespace-only → `unconfigured` → runtime 503 |
+| `PROXY_AUTH_TOKEN` | Yes | — | Degrades, never fatal | Absent or whitespace-only → `unconfigured` → runtime 503 |
+| `PORT` | No | `10000` | Not validated | Handed to `listen()` as-is |
+| `UPSTREAM_CONNECT_TIMEOUT_SECONDS` | No | `30` (`0` disables) | Falls back to default | Empty, whitespace, non-finite, or negative → fallback |
+| `UPSTREAM_IDLE_TIMEOUT_SECONDS` | No | `120` (resets per chunk, `0` disables) | Falls back to default | Same lenient `readSeconds` rule — the named exception to strict validation |
+| `PROXY_HOST` | No | `0.0.0.0` | Not parsed | Absent, empty, or whitespace-only → default; any other value reaches `listen()` verbatim, untrimmed. An unbindable address fails as a `listen()` error event, not as a named-variable message |
+| `PROXY_RPM` | No | unset | Fatal, exit 1 | Mandatory pair with `PROXY_TPM`. Non-blank must be a positive integer, decimal digits only. Both absent or blank → rate limiting disabled |
+| `PROXY_TPM` | No | unset | Fatal, exit 1 | Same pair rule, applied symmetrically |
+| `PROXY_MAX_CONCURRENT_REQUESTS` | No | disabled | Fatal, exit 1 | Absent, blank, or `0` disables the ceiling; otherwise a positive integer, decimal digits only |
+| `PROXY_MAX_QUEUE_SIZE` | No | `32` | Fatal, exit 1 | Positive integer, decimal digits only; `0` is fatal |
+| `PROXY_QUEUE_TIMEOUT_SECONDS` | No | `30` | Fatal, exit 1 | Positive integer, decimal digits only; `0` is fatal |
+| `PROXY_SAFETY_MARGIN_PCT` | No | `5` | Fatal, exit 1 | Integer `0`–`50`, decimal digits only |
+| `PROXY_MAX_BUFFERED_BODY_BYTES` | No | `8388608` (8 MiB) | Fatal, exit 1 | Positive integer, decimal digits only; `0` is fatal |
+| `PROXY_MODEL_LIMITS_JSON` | No | unset | Fatal, exit 1 | Rejected whole, never partially, when supplied: bad JSON, non-object root, blank/padded/control-character model key, non-object entry, entry supplying neither `rpm` nor `tpm`, unknown field in an entry, non-positive-integer budget |
+
+All nine `PROXY_*` operational variables are **validated and stored, not enforced**. Only
+`config.host` is read after parsing, by `server.listen`; the rate pair, ceilings, and per-model
+map sit on the config object until the later slices act on them. An operator who sets a limit
+today sees no change in traffic. Regime rationale: `docs/adr/0002-config-operational-fail-fast.md`.
+
 
 ## Path Mapping
 
@@ -117,8 +132,8 @@ SIGTERM handler:
 
 - **Type Safety**: None — JavaScript dynamic typing
 - **Observability**: Startup `console.log`; `console.error` for config failures, caught errors, stream errors
-- **Request Size Limits**: None imposed
-- **Rate Limiting**: Not implemented
+- **Request Size Limits**: None imposed — `PROXY_MAX_BUFFERED_BODY_BYTES` is validated and stored, not applied
+- **Rate Limiting**: Not implemented — the nine operational variables are validated at startup and never read again
 - **Retries**: Not implemented
 - **Circuit Breaker**: Not implemented
 - **Metrics**: Not implemented
