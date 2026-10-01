@@ -55,11 +55,13 @@ Client → server.js/http.createServer
 | `PROXY_SAFETY_MARGIN_PCT` | No | `5` | Fatal, exit 1 | Integer `0`–`50`, decimal digits only |
 | `PROXY_MAX_BUFFERED_BODY_BYTES` | No | `8388608` (8 MiB) | Fatal, exit 1 | Positive integer, decimal digits only; `0` is fatal |
 | `PROXY_MODEL_LIMITS_JSON` | No | unset | Fatal, exit 1 | Rejected whole, never partially, when supplied: bad JSON, non-object root, blank/padded/control-character model key, non-object entry, entry supplying neither `rpm` nor `tpm`, unknown field in an entry, non-positive-integer budget |
+| `PROXY_LOG_REQUESTS` | No | off | Fatal, exit 1 | Closed vocabulary, case-insensitive after trimming: `1`/`true`/`yes`/`on` enable, `0`/`false`/`no`/`off` disable, unset or blank is off. Anything else is fatal — `maybe` must not start a feature nobody asked for. The only `PROXY_*` variable that is live rather than stored |
 
-All nine `PROXY_*` operational variables are **validated and stored, not enforced**. Only
-`config.host` is read after parsing, by `server.listen`; the rate pair, ceilings, and per-model
-map sit on the config object until the later slices act on them. An operator who sets a limit
-today sees no change in traffic. Regime rationale: `docs/adr/0002-config-operational-fail-fast.md`.
+The nine rate-limiting `PROXY_*` operational variables above are **validated and stored, not
+enforced**. Only `config.host` and `config.logRequests` are read after parsing, the first by
+`server.listen` and the second by the request logger; the rate pair, ceilings, and per-model map
+sit on the config object until the later slices act on them. An operator who sets a limit today
+sees no change in traffic. Regime rationale: `docs/adr/0002-config-operational-fail-fast.md`.
 
 ## Path Mapping
 
@@ -94,6 +96,15 @@ Examples:
 - Connect timeout: `CONNECT_TIMEOUT_SECONDS` (default 30s) aborts before headers
 - Idle timeout: `IDLE_TIMEOUT_SECONDS` (default 120s), resets on each chunk, cuts silent streams
 - `pipeline()` owns error path: mid-stream upstream failure destroys response, never crashes process
+
+## Request Logging
+
+- Opt-in via `PROXY_LOG_REQUESTS`, default off; unset or blank is off and the disabled path registers no listener and reads no clock
+- One JSON object per request on stdout, with `ts`, `method`, `path`, `status`, `ms` — no other field, so a header, body, credential, or upstream host cannot reach the line by construction
+- `status` is the last status written to the client, or `0` when the response was destroyed before any status reached it (`res.headersSent ? res.statusCode : 0`; `res.statusCode` defaults to 200 even when nothing was written, so recording it unconditionally would invent a 200)
+- Written on the response's `close` event, so a streamed response is logged at completion and its client-visible bytes are unchanged
+- Covers `/health` and every local rejection (401, 404, 503), not only proxied requests
+- The write is wrapped in `try`/`catch`: an EPIPE/ENOSPC on a closed or full stdout is swallowed, because an uncaught throw inside a response event would kill the process over a log line
 
 ## Cancellation
 
@@ -130,7 +141,7 @@ SIGTERM handler:
 ## Gray Areas
 
 - **Type Safety**: None — JavaScript dynamic typing
-- **Observability**: Startup `console.log`; `console.error` for config failures, caught errors, stream errors
+- **Observability**: Startup `console.log`; opt-in per-request JSON lines when `PROXY_LOG_REQUESTS` is on; `console.error` for config failures, caught errors, stream errors
 - **Request Size Limits**: None imposed — `PROXY_MAX_BUFFERED_BODY_BYTES` is validated and stored, not applied
 - **Rate Limiting**: Not implemented — the eight limit variables are validated at startup and never read again; `PROXY_HOST` only selects the bind address
 - **Retries**: Not implemented

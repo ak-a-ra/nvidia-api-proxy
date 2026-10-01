@@ -107,13 +107,15 @@ const client = new OpenAI({
 | `PROXY_SAFETY_MARGIN_PCT` | no | Headroom reserved against the rate budgets, `0`–`50` (default `5`) |
 | `PROXY_MAX_BUFFERED_BODY_BYTES` | no | Ceiling on a buffered request body in rate-limit mode (default `8388608`, 8 MiB) |
 | `PROXY_MODEL_LIMITS_JSON` | no | JSON object of per-model budgets keyed by exact model ID, e.g. `{"meta/llama-3.1-8b-instruct":{"rpm":10,"tpm":20000}}` (default `unset`) |
+| `PROXY_LOG_REQUESTS` | no | Write one JSON line per request to stdout (default `off`; accepts `1`/`true`/`yes`/`on` or `0`/`false`/`no`/`off`, case-insensitive — any other value is fatal) |
 
 > [!IMPORTANT]
-> Every `PROXY_*` row above except `PROXY_HOST` is **validated and stored, not enforced** — the
-> proxy parses them at startup and nothing reads them at request time, so setting a limit changes
-> no traffic yet. A supplied value its rule rejects is fatal: the process exits with code 1 and a
-> line on stderr naming the variable. `PROXY_HOST` is the exception — it is live, and selects the
-> address `server.listen` binds.
+> Every `PROXY_*` row above except `PROXY_HOST` and `PROXY_LOG_REQUESTS` is **validated and stored,
+> not enforced** — the proxy parses them at startup and nothing reads them at request time, so
+> setting a limit changes no traffic yet. A supplied value its rule rejects is fatal: the process
+> exits with code 1 and a line on stderr naming the variable. The two exceptions are live:
+> `PROXY_HOST` selects the address `server.listen` binds, and `PROXY_LOG_REQUESTS` writes the
+> request lines described below.
 
 Copy-paste-ready local setup — fill in the two values marked `FIXME`:
 
@@ -138,6 +140,9 @@ export PROXY_AUTH_TOKEN="FIXME"  # token your clients will send
 # export PROXY_MAX_BUFFERED_BODY_BYTES="8388608"  # buffered-body ceiling in rate-limit mode, 8 MiB
 # export PROXY_MODEL_LIMITS_JSON='{"meta/llama-3.1-8b-instruct":{"rpm":10,"tpm":20000}}'  # per-model budgets
 
+# ---- request logging (live, default off) ----
+# export PROXY_LOG_REQUESTS="1"     # 1/true/yes/on enable; 0/false/no/off disable; unset or blank is off
+
 npm start
 ```
 
@@ -150,6 +155,40 @@ npm start
 > `PROXY_MODEL_LIMITS_JSON` is rejected whole — one malformed model entry stops the process rather
 > than dropping that entry. A duplicated model key is the one accepted exception: JSON keeps the
 > last one, so writing the same model twice silently loses the earlier budget.
+
+> [!NOTE]
+> `PROXY_LOG_REQUESTS` accepts only the eight words above, case-insensitively and after trimming.
+> Anything else — `maybe`, `TRUE_`, a stray space inside a word — is **fatal**: the process exits
+> with code 1 and one stderr line naming the variable, the rule, and the value, rather than
+> starting up with the typo reinterpreted as "on".
+
+### Request logging
+
+Set `PROXY_LOG_REQUESTS` to `1`, `true`, `yes`, or `on` to write one JSON object per request to
+stdout. `0`, `false`, `no`, and `off` keep it off, and unset or blank is off — an unset variable is
+indistinguishable from today's build.
+
+```json
+{"ts":"2026-10-01T16:43:01.186Z","method":"POST","path":"/v1/chat/completions?stream=true","status":502,"ms":1204}
+```
+
+| Field | Meaning |
+| ------------- | ------------------------------------------------------------------------------- |
+| `ts` | ISO 8601 timestamp, taken when the line is written |
+| `method` | Request method |
+| `path` | Incoming path and query, exactly the string forwarded upstream |
+| `status` | Last status written to the client, or `0` if the response was destroyed before any status was written |
+| `ms` | Milliseconds from request arrival to the response closing |
+
+Those five fields are the whole line. **A line never contains** request or response headers, the
+`authorization` header value, `NVIDIA_API_KEY`, `PROXY_AUTH_TOKEN`, any request or response body, or
+the upstream host and port.
+
+A line is written on the response's `close` event, so a streamed response is logged when the stream
+completes and its client-visible bytes are unchanged. `/health` and the local rejections (`401`,
+`404`, `503`) are logged like any other request. Enabling logging changes no response status, body,
+or header, and a log write that fails is swallowed rather than reaching the request path. There is
+no level setting, no format setting, and no rotation — the platform log owns those.
 
 ## Endpoints
 
