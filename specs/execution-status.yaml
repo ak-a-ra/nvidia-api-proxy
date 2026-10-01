@@ -9,8 +9,8 @@
 # does not exist in this repository).
 
 ```yaml
-e01s01: todo
-e02s01: todo
+e01s01: passing
+e02s01: passing
 e03s01: todo
 e04s01: passing
 e04s02: blocked

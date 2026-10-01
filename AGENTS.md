@@ -82,7 +82,7 @@ Example — destructive op:
 
 ## Part 2 — Repository knowledge
 
-Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `server.js` (~249 lines), configuration parsing in `config.js` (~303 lines); tests in `server.test.js` (~1553 lines). No lint/typecheck/formatter config exists.
+Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `server.js` (~249 lines), configuration parsing in `config.js` (~309 lines); tests in `server.test.js` (~1798 lines). No lint/typecheck/formatter config exists.
 
 ### Commands
 

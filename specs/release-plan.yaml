@@ -80,6 +80,6 @@ bugs:
   wontfix: 0
   registry: null
   note: >-
-    specs/bugs/registry.yaml does not exist. All 11 closed issues #2-#8, #11
-    were closed by direct fix; none were filed to a registry.
+    specs/bugs/registry.yaml does not exist. All 10 closed issues #2-#8, #10,
+    #11, #12 were closed by direct fix; none were filed to a registry.
 ```
