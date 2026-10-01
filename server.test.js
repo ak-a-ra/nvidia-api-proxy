@@ -1646,16 +1646,33 @@ describe("buffered body ceiling and per-model limits", () => {
     }
   });
 
-  // Keys are exact, case-sensitive model IDs. Two that differ only in case are
-  // two distinct models and both survive, so no lowercasing happens; a key with
-  // surrounding spaces can never match anything, so it is fatal rather than
-  // trimmed into a match the operator did not write.
+  // Keys are exact model IDs, stored byte for byte: never trimmed, never
+  // lowercased. Two that differ only in case are two distinct models, and the
+  // document is accepted whole rather than rejected as a duplicate. The 200
+  // proves acceptance only; the stored map is invisible to this harness (ADR
+  // 0002), and a mutation that lowercased at the assignment would leave it
+  // green. So the case claim is pinned where it is observable instead: the
+  // fatal path echoes the offending key, and an uppercase key echoed as
+  // `"GPT "` cannot have been lowercased anywhere on the way there. What stays
+  // reviewed-by-eye is the map that key is eventually copied into.
   test("PROXY_MODEL_LIMITS_JSON model keys are case-sensitive and unnormalized", async (t) => {
     const { proxy } = await withProxy(t, {
       proxyEnv: { PROXY_MODEL_LIMITS_JSON: '{"Gpt":{"rpm":5},"gpt":{"rpm":6}}' },
     });
     const res = await proxiedFetch(proxy.port, "/health");
-    assert.equal(res.status, 200, "keys differing only in case are two distinct models");
+    assert.equal(res.status, 200, "keys differing only in case are two distinct models, not a duplicate");
+
+    // Same document shape, one fatal key: uppercase is carried into the message
+    // unchanged, so nothing along the path normalized it.
+    const { code, stderr } = await runProxyOnce({
+      ...BASE_ENV,
+      PROXY_MODEL_LIMITS_JSON: '{"GPT ":{"rpm":5}}',
+    });
+    assert.equal(code, 1, "a padded key is fatal whatever its case");
+    assert.ok(
+      stderr.includes('model key "GPT " has surrounding spaces'),
+      `stderr must echo the key byte for byte, uppercase included: ${JSON.stringify(stderr)}`
+    );
   });
 
   test("PROXY_MODEL_LIMITS_JSON with a model key that has surrounding spaces exits 1 naming the variable", async () => {

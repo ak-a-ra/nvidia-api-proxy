@@ -426,7 +426,9 @@ Pinned by tests in `server.test.js`. Every name below is quoted from the suite.
 * `PROXY_MODEL_LIMITS_JSON with a pathological budget value exits 1 with a bounded one-line message,
   not a crash` — the standing rule above, at 2000 and 7000 levels of nesting and with a
   5000-character string;
-* `PROXY_MODEL_LIMITS_JSON model keys are case-sensitive and unnormalized`.
+* `PROXY_MODEL_LIMITS_JSON model keys are case-sensitive and unnormalized` — the case claim is
+  pinned by the fatal path echoing an uppercase key byte for byte, which a lowercasing mutation
+  cannot fake. The stored map itself remains *reviewed by eye*: nothing in the harness can hold it.
 
 **Timeout leniency preserved:**
 
