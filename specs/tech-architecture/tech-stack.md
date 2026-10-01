@@ -43,7 +43,7 @@ Client → server.js/http.createServer
 | `NVIDIA_BASE_URL` | Yes | — | Fatal, exit 1 | Missing, unparseable, or not http(s) |
 | `NVIDIA_API_KEY` | Yes | — | Degrades, never fatal | Absent or whitespace-only → `unconfigured` → runtime 503 |
 | `PROXY_AUTH_TOKEN` | Yes | — | Degrades, never fatal | Absent or whitespace-only → `unconfigured` → runtime 503 |
-| `PORT` | No | `10000` | Not validated | Handed to `listen()` as-is |
+| `PORT` | No | `10000` | Not validated | Only `Number()` coercion; a non-numeric value becomes `NaN` and `listen()` throws |
 | `UPSTREAM_CONNECT_TIMEOUT_SECONDS` | No | `30` (`0` disables) | Falls back to default | Empty, whitespace, non-finite, or negative → fallback |
 | `UPSTREAM_IDLE_TIMEOUT_SECONDS` | No | `120` (resets per chunk, `0` disables) | Falls back to default | Same lenient `readSeconds` rule — the named exception to strict validation |
 | `PROXY_HOST` | No | `0.0.0.0` | Not parsed | Absent, empty, or whitespace-only → default; any other value reaches `listen()` verbatim, untrimmed. An unbindable address fails as a `listen()` error event, not as a named-variable message |
