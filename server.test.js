@@ -1127,6 +1127,67 @@ describe("operational limit config", () => {
     assert.equal(res.status, 200);
     assert.equal(receivedRequests.length, 1);
   });
+
+  // Whitespace-only is absence, not a number. Number("  ") is 0, and 0 is a
+  // legal value for two of the four variables — it disables the concurrency
+  // ceiling and is the low end of the margin's 0-50 range — so a blank value
+  // that reached a numeric guard would read as a supplied 0 instead of an
+  // unset variable. The blank check has to come first, and these tests are the
+  // only place in the suite that says so.
+  //
+  // What the harness can actually prove is narrower than "starts" suggests.
+  // The config object is invisible to a child-process test, so a proxy coming
+  // up does not show which branch was taken: a blank concurrency ceiling and
+  // an explicit 0 produce the same observable startup. The falsifiable half is
+  // the two variables whose 0 is fatal, PROXY_MAX_QUEUE_SIZE and
+  // PROXY_QUEUE_TIMEOUT_SECONDS, pinned by the zero test above. Read as a
+  // number, whitespace exits 1 on those two and the test below fails; read as
+  // absent, both take their documented defaults and start. No test here claims
+  // whitespace reaches the same internal state as 0, and none can — that would
+  // need a second seam this story forbids.
+  test("PROXY_MAX_QUEUE_SIZE and PROXY_QUEUE_TIMEOUT_SECONDS whitespace-only starts and serves /health, where 0 is fatal", async (t) => {
+    for (const blank of ["", "   ", " \t "]) {
+      const { proxy } = await withProxy(t, {
+        proxyEnv: {
+          PROXY_MAX_QUEUE_SIZE: blank,
+          PROXY_QUEUE_TIMEOUT_SECONDS: blank,
+        },
+      });
+      const res = await proxiedFetch(proxy.port, "/health");
+      assert.equal(res.status, 200, `expected a successful start for ${JSON.stringify(blank)}`);
+    }
+  });
+
+  // The same rule on the variable whose 0 is a legal disable rather than fatal.
+  // A blank ceiling must start, and it does — but a start alone cannot separate
+  // the absent path from the zero-disables path, so this pins only that a
+  // whitespace value never reaches the integer guard, where it would be
+  // rejected rather than adopted. The 0-disables behavior itself is pinned by
+  // its own test above.
+  test("PROXY_MAX_CONCURRENT_REQUESTS whitespace-only starts and serves /health", async (t) => {
+    for (const blank of ["", "   ", " \t "]) {
+      const { proxy } = await withProxy(t, {
+        proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: blank },
+      });
+      const res = await proxiedFetch(proxy.port, "/health");
+      assert.equal(res.status, 200, `expected a successful start for ${JSON.stringify(blank)}`);
+    }
+  });
+
+  // The margin's ends stay pinned where they are: 0 and 50 start, 51, 100 and
+  // -1 exit 1. A blank margin belongs on the absent side of that range rather
+  // than on its 0 end; the range guard rejects a whitespace value outright, so
+  // reaching it is a crash rather than a silent default. Nothing here weakens
+  // the boundary test.
+  test("PROXY_SAFETY_MARGIN_PCT whitespace-only starts and serves /health", async (t) => {
+    for (const blank of ["", "   ", " \t "]) {
+      const { proxy } = await withProxy(t, {
+        proxyEnv: { PROXY_SAFETY_MARGIN_PCT: blank },
+      });
+      const res = await proxiedFetch(proxy.port, "/health");
+      assert.equal(res.status, 200, `expected a successful start for ${JSON.stringify(blank)}`);
+    }
+  });
 });
 
 // The buffered-body ceiling and the per-model budget map, the last two
