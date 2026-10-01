@@ -11,7 +11,29 @@ import zlib from "node:zlib";
 function startStubUpstream(status, body, headers, mode) {
   return new Promise((resolve) => {
     const receivedRequests = [];
+    // One record per arriving request, in arrival order. Registered at request
+    // entry (not in the `end` handler) so a request aborted mid-body still
+    // produces a record.
+    const teardowns = [];
     const srv = http.createServer((req, res) => {
+      let resolveClosed;
+      const record = {
+        reqAborted: false,
+        reqClosed: false,
+        resClosed: false,
+        resFinished: false,
+        closed: new Promise((resolve) => {
+          resolveClosed = resolve;
+        }),
+      };
+      teardowns.push(record);
+      req.on("aborted", () => (record.reqAborted = true));
+      req.on("close", () => (record.reqClosed = true));
+      res.on("close", () => {
+        record.resClosed = true;
+        resolveClosed(record);
+      });
+      res.on("finish", () => (record.resFinished = true));
       let chunks = [];
       req.on("data", (c) => chunks.push(c));
       req.on("end", () => {
@@ -81,13 +103,8 @@ function startStubUpstream(status, body, headers, mode) {
         else res.end();
       });
     });
-    const sockets = new Map();
-    srv.on("connection", (socket) => {
-      sockets.set(socket);
-      socket.on("close", () => sockets.delete(socket));
-    });
     srv.listen(0, "127.0.0.1", () =>
-      resolve({ srv, receivedRequests, sockets })
+      resolve({ srv, receivedRequests, teardowns })
     );
   });
 }
@@ -171,7 +188,7 @@ function startProxyServer(baseURL, key, proxyToken, extraEnv = {}) {
 // Start a stub upstream and a proxy child pointing at it; both cleanups are
 // registered on the test context (LIFO: child killed before stub closed).
 async function withProxy(t, { base, baseSuffix = "/v1", key = "sk", token = "pt", proxyEnv = {}, ...stubOpts }) {
-  const { srv: stub, receivedRequests, sockets } = await startStubUpstream(
+  const { srv: stub, receivedRequests, teardowns } = await startStubUpstream(
     stubOpts.status ?? 200,
     stubOpts.body,
     stubOpts.headers,
@@ -187,7 +204,32 @@ async function withProxy(t, { base, baseSuffix = "/v1", key = "sk", token = "pt"
   }
   const proxy = await startProxyServer(base, key, token, proxyEnv);
   t.after(() => proxy.child.kill());
-  return { proxy, receivedRequests, sockets };
+  return { proxy, receivedRequests, teardowns };
+}
+
+// Wait for the first arriving upstream request's response to be torn down
+// (closed without finishing), then assert the abort actually happened. The
+// timeout only exists to fail fast on regression; the failure message names
+// the lifecycle flags observed so the cause is diagnosable from test output.
+async function assertUpstreamAborted(teardowns, timeoutMs = 2000) {
+  const record = teardowns[0];
+  assert.ok(record, "upstream received a request");
+  let timer;
+  const timedOut = await Promise.race([
+    record.closed.then(() => false),
+    new Promise((resolve) => {
+      timer = setTimeout(() => resolve(true), timeoutMs);
+      timer.unref();
+    }),
+  ]);
+  clearTimeout(timer);
+  const flags =
+    `reqAborted=${record.reqAborted} reqClosed=${record.reqClosed} ` +
+    `resClosed=${record.resClosed} resFinished=${record.resFinished}`;
+  assert.ok(!timedOut, `upstream response was not torn down within ${timeoutMs}ms (${flags})`);
+  assert.equal(record.resClosed, true, `upstream response closed (${flags})`);
+  // A normal completion emits finish before close; only an abort skips it.
+  assert.equal(record.resFinished, false, `upstream response aborted, not completed (${flags})`);
 }
 
 function proxiedFetch(port, path, opts = {}) {
@@ -324,6 +366,37 @@ describe("proxy", () => {
     assert.deepEqual(await res.json(), { error: "Unauthorized" });
     // the proxy must reject before ever contacting the upstream
     assert.equal(receivedRequests.length, 0);
+  });
+
+  // Non-leak invariant, token side: auth is checked before the unconfigured
+  // flag regardless of which credential is missing. A proxy whose only
+  // problem is an absent PROXY_AUTH_TOKEN must answer 401 on /v1/*, never
+  // 503 — and must reject before contacting the upstream.
+  test("unauthenticated request gets 401 (not 503) when only the proxy token is missing", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, { token: null });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer whatever" },
+    });
+    assert.equal(res.status, 401);
+    assert.deepEqual(await res.json(), { error: "Unauthorized" });
+    assert.equal(receivedRequests.length, 0);
+  });
+
+  // Whitespace-only credentials count as missing (server.js uses .trim());
+  // the API-key side is pinned by the tests passing key: " ". Pin the token
+  // side: a whitespace token behaves like an absent one. Only the /health
+  // assertion below depends on .trim() — the 401 holds either way.
+  test("whitespace-only proxy token counts as missing (401 + health 503)", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, { token: "   " });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer whatever" },
+    });
+    assert.equal(res.status, 401);
+    assert.equal(receivedRequests.length, 0);
+
+    const health = await proxiedFetch(proxy.port, "/health");
+    assert.equal(health.status, 503);
+    assert.deepEqual(await health.json(), { status: "unconfigured" });
   });
 
   // Degraded responses must be generic: the 503 body may not name the
@@ -637,7 +710,7 @@ describe("proxy", () => {
   // connect-timeout signal. Two phases: pending upstream (no headers yet)
   // and active streaming (first chunk already flushed to client).
   test("downstream disconnect aborts pending upstream (pre-headers)", async (t) => {
-    const { proxy, receivedRequests, sockets } = await withProxy(t, {
+    const { proxy, receivedRequests, teardowns } = await withProxy(t, {
       mode: "silent", // accepts request, never sends response headers
       proxyEnv: { UPSTREAM_CONNECT_TIMEOUT_SECONDS: "30" },
     });
@@ -654,22 +727,12 @@ describe("proxy", () => {
     assert.equal(receivedRequests.length, 1, "upstream received the request");
     // Abort the downstream fetch — simulates client disconnect. The promise
     // rejects with AbortError; swallow it — the assertion is about the
-    // upstream socket, not the downstream fetch result.
+    // upstream request teardown, not the downstream fetch result.
     controller.abort();
     req.catch(() => {});
-    // The upstream connection must close because the proxy aborted the fetch.
-    const socketClosed = Promise.race([
-      (async () => {
-        const check = () => sockets.size === 0;
-        if (check()) return true;
-        for (let i = 0; i < 200 && !check(); i++) {
-          await new Promise((r) => setTimeout(r, 10));
-        }
-        return check();
-      })(),
-      new Promise((r) => setTimeout(() => r(false), 3000)),
-    ]);
-    assert.ok(await socketClosed, "upstream connection should close on downstream disconnect");
+    // The upstream response must be closed, not finished: the proxy aborted
+    // its fetch instead of letting the upstream request complete.
+    await assertUpstreamAborted(teardowns);
     // Proxy must survive: a subsequent health check proves availability.
     const health = await fetch(`http://127.0.0.1:${proxy.port}/health`);
     assert.equal(health.status, 200);
@@ -677,7 +740,7 @@ describe("proxy", () => {
   });
 
   test("downstream disconnect aborts active upstream stream", async (t) => {
-    const { proxy, receivedRequests, sockets } = await withProxy(t, {
+    const { proxy, receivedRequests, teardowns } = await withProxy(t, {
       mode: "abortable", // sends one chunk, then holds the stream open
       proxyEnv: { UPSTREAM_CONNECT_TIMEOUT_SECONDS: "30", UPSTREAM_IDLE_TIMEOUT_SECONDS: "0" },
     });
@@ -692,14 +755,9 @@ describe("proxy", () => {
     assert.equal(new TextDecoder().decode(first.value), "part1-");
     // Simulate downstream client disconnect.
     reader.cancel();
-    // The upstream connection must close — the proxy must abort its fetch.
-    const socketClosed = (async () => {
-      for (let i = 0; i < 200 && sockets.size > 0; i++) {
-        await new Promise((r) => setTimeout(r, 10));
-      }
-      return sockets.size === 0;
-    })();
-    assert.ok(await socketClosed, "upstream stream should close on downstream disconnect");
+    // The upstream stream must be closed, not finished — the proxy must abort
+    // its fetch rather than drain the upstream response.
+    await assertUpstreamAborted(teardowns);
     // Proxy must survive.
     const health = await fetch(`http://127.0.0.1:${proxy.port}/health`);
     assert.equal(health.status, 200);

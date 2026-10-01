@@ -86,10 +86,10 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `s
 
 ### Commands
 
-- `npm test` — full suite (82 tests, Node built-in `node --test` runner, no deps to install)
+- `npm test` — full suite (84 tests, Node built-in `node --test` runner, no deps to install)
 - `node --test --test-name-pattern "SIGTERM"` — run single test by name (needs Node ≥ 20)
 - `npm start` — requires `NVIDIA_BASE_URL` (exits code 1 if missing) plus `NVIDIA_API_KEY` and `PROXY_AUTH_TOKEN` (missing ones → 503 responses, not a crash)
-- No CI: tests only run when run locally — run `npm test` before pushing
+- CI: GitHub Actions runs `npm test` on Node 20/22/24 for every push/PR — see `.github/workflows/ci.yml`. Run `npm test` locally before pushing anyway.
 
 ### Hard constraints
 
@@ -104,8 +104,9 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `s
 - The suite is hermetic: `childEnv()` in `server.test.js` strips every variable `server.js`/`config.js` read (see `CONFIG_ENV_VARS`) from the inherited `process.env` before applying a test's overrides, so an operator's exported value cannot decide a result. A new operational variable must be added to `CONFIG_ENV_VARS` in the same commit that adds it to `config.js`
 - Each test gets stub upstream HTTP server; cleanups register via `t.after` (LIFO: proxy child killed before stub closed)
 - Stub upstream modes: `sse`, `stall`, `slowfinish`, `silent`, `activelong`, `midabort`, `abortable`
-- Test count synced in **every** living doc that states one (currently 82) — grep, never trust this list or its line numbers: `grep -rnE 'tests(-| )?[0-9]{2}|[0-9]{2}[ -]tests?' --include='*.md' --include='*.yaml' .`
-  Sites as of 2026-09-30: `README.md:9` badge `tests-82%20passing`, `README.md:86` tip, `AGENTS.md:89` `npm test` bullet, `CONVENTIONS.md:17`, `specs/README.md:19`, `specs/tech-architecture/tech-stack.md:129`, `specs/tech-architecture/TEST_PLAN_LATEST.md:44,294,351`, `specs/product/VISION_LATEST.yaml:20`, `specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md:336`. `plans/*.md` hold historical per-plan numbers — not living docs.
+- Test count synced in **every** living doc that states one (currently 84) — grep, never trust this list or its line numbers: `grep -rnE 'tests(-| )?[0-9]{2,4}|[0-9]{2,4}[ -]?tests?|\(currently [0-9]+\)' --include='*.md' --include='*.yaml' .`
+  The `\(currently [0-9]+\)` alternative exists because this bullet states a count that the first two alternatives do not match. Sweep for the stale number afterwards too — `grep -rnE '\b(36|37)\b' --include='*.md' --include='*.yaml' .` — since a site can state the count in a form the pattern above misses.
+  Sites as of 2026-10-01: `README.md:9` badge `tests-84%20passing`, `README.md:86` tip, this bullet (count + `npm test` bullet), `CONVENTIONS.md:17`, `specs/README.md:19`, `specs/tech-architecture/tech-stack.md:143`, `specs/tech-architecture/TEST_PLAN_LATEST.md:44,294,351`, `specs/product/VISION_LATEST.yaml:20`, `specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md:336`. `plans/*.md` hold historical per-plan numbers — not living docs.
   `docs/research/config-invariant-guard-tests.md` is a dated historical note — do **not** update it.
 
 ### Proxy invariants (tests assert these)
@@ -128,10 +129,10 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `s
 
 - `render.yaml` = deploy config (free plan, health check `/health`) and pins `NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1`
 - Timeout defaults: `UPSTREAM_CONNECT_TIMEOUT_SECONDS` 30, `UPSTREAM_IDLE_TIMEOUT_SECONDS` 120 (reset per chunk, so active SSE streams never cut)
-- Known limitations tracked as GitHub issues — check `gh issue list` before treating current behavior as intentional or final. As of 2026-09-30: 13 open, each labeled `enhancement` + `ready-for-agent`.
-  - Audit plans (2026-09-20), each with a plan file: #9 opt-in request logging (`plans/05`), #10 token-side config guards (`plans/03`), #12 CI workflow (`plans/01`). Order per `plans/README.md`: 03 → 01 → 05, sequential because 03 and 05 both add tests and touch the same count-sync sites.
+- Known limitations tracked as GitHub issues — check `gh issue list` before treating current behavior as intentional or final. As of 2026-10-01: 11 open — #9, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22 — each labeled `enhancement` + `ready-for-agent`.
+  - Audit plans (2026-09-20): only #9 opt-in request logging (`plans/05`) is still open. #10 token-side config guards (`plans/03`) and #12 CI workflow (`plans/01`) are closed — landed by `2b13861` and `1bc34cd`. Order per `plans/README.md`: 03 → 01 → 05, sequential because 03 and 05 both add tests and touch the same count-sync sites.
   - Rate-limiting epic (2026-09-25, parent #13): #14 → #15 → #16 → #17 → #18 → #19 → #20 → #21 → #22 is a strict linear `Blocked by` chain. #14 (validated operational config owner + configurable bind host) is the only unblocked slice; nothing in it is implemented yet — no `/stats` route, no `PROXY_RPM`/`PROXY_TPM` parsing, no admission path. No plan files exist for the epic. #13's body supersedes its own earlier scope.
-  - Closed: #11 (request-header array flattening) by `dfab41e`; #2–#8 all closed.
+  - Closed: #10 (token-side config guards) by `2b13861`, #11 (request-header array flattening) by `dfab41e`, #12 (CI workflow) by `1bc34cd`; #2–#8 all closed.
 - Epic work will add env vars and change configuration failure modes. When landing any slice, extend the startup-config table in `specs/tech-architecture/tech-stack.md` and record the fail-fast-vs-degrade decision in `docs/adr/`.
 - Node ≥ 18.14 required (engines); dev machine runs Node 24
 

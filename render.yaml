@@ -7,6 +7,11 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     envVars:
+      # Pinned so the deployed runtime matches a CI-tested leg instead of
+      # whatever Render defaults to (engines.node is ">=18.14" and Node 18 is
+      # not in the CI matrix).
+      - key: NODE_VERSION
+        value: "24"
       - key: NVIDIA_BASE_URL
         value: https://integrate.api.nvidia.com/v1
       - key: NVIDIA_API_KEY
