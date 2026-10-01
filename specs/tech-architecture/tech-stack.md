@@ -61,7 +61,6 @@ All nine `PROXY_*` operational variables are **validated and stored, not enforce
 map sit on the config object until the later slices act on them. An operator who sets a limit
 today sees no change in traffic. Regime rationale: `docs/adr/0002-config-operational-fail-fast.md`.
 
-
 ## Path Mapping
 
 Incoming `/v1/*` path + query forwarded verbatim to `BASE_ORIGIN`. Base origin (scheme + host) extracted from `NVIDIA_BASE_URL`; all base path/query are ignored. Bare `/v1` or `/v1/` returns 404.
@@ -133,7 +132,7 @@ SIGTERM handler:
 - **Type Safety**: None — JavaScript dynamic typing
 - **Observability**: Startup `console.log`; `console.error` for config failures, caught errors, stream errors
 - **Request Size Limits**: None imposed — `PROXY_MAX_BUFFERED_BODY_BYTES` is validated and stored, not applied
-- **Rate Limiting**: Not implemented — the nine operational variables are validated at startup and never read again
+- **Rate Limiting**: Not implemented — the eight limit variables are validated at startup and never read again; `PROXY_HOST` only selects the bind address
 - **Retries**: Not implemented
 - **Circuit Breaker**: Not implemented
 - **Metrics**: Not implemented
