@@ -13,6 +13,7 @@ be executed by an agent that has never seen this session. Execute in the order b
 | 4 | [04-request-header-array-flattening.md](04-request-header-array-flattening.md) | Robustness | DONE | — |
 | 5 | [05-opt-in-request-logging.md](05-opt-in-request-logging.md) | Observability/DX | TODO | — |
 | 6 | [06-hoist-upstream-base-origin.md](06-hoist-upstream-base-origin.md) | Performance | DONE | — |
+| 7 | [07-disconnect-test-invariants.md](07-disconnect-test-invariants.md) | Tests/CI | TODO | — |
 
 Landed since the audit: plan 02 (`ec069d8` — guard `server.js:20-27`, test `server.test.js:211`,
 ADR 0001 §1 clause), plan 04 (`63c49f6` revised plan, `dfab41e` fix, `2866f72` count sync), and
