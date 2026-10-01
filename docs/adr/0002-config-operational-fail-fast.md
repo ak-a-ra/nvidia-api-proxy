@@ -291,11 +291,15 @@ otherwise normalized — and case sensitivity is load-bearing: `Gpt` and `gpt` a
   the process could start with a map that does not match the document.
 * **The duplicate-key fail-open is real and stays open.** An operator who writes the same model
   twice loses the earlier budget with no signal. Accepted, with the reasons above.
-* **The suite is not hermetic against ambient operational variables.** A child inherits
-  `process.env`, and a test that means "absent" has to drop the key explicitly, so an exported
-  `PROXY_SAFETY_MARGIN_PCT=51` turns a green suite mostly red — measured three times at 75 tests,
-  where that export left 14 passing and an exported `PROXY_RPM=5` left 11. This is a story-level
-  decision that is still unowned; it is not fixed here.
+* **The suite is now hermetic against ambient operational variables, in the test harness and nowhere
+  else.** It was not: a child inherited `process.env`, and a test that means "absent" had to drop
+  the key explicitly, so an exported `PROXY_SAFETY_MARGIN_PCT=51` turned a green suite mostly red.
+  The harness now strips every variable this ADR governs before applying a test's own overrides, so
+  an operator's shell cannot decide the result. `config.js` deliberately keeps reading its own
+  environment: silencing it there would hide a real deployment mistake, which is the opposite of
+  what this ADR is for. A consequence worth stating: an operational variable added in a later slice
+  is inherited by the harness until `CONFIG_ENV_VARS` in `server.test.js` names it, and the
+  `harness environment isolation` tests catch that only for the variables they enumerate.
 * The `integerRule` branch that renders "a non-negative integer" has no caller today. It exists for
   a future variable passed `{ min: 0 }` without `zeroDisables`; a reader should not expect to see
   that wording in stderr yet.

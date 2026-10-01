@@ -97,9 +97,42 @@ function startStubUpstream(status, body, headers, mode) {
 // server.listen at import, so we just report the port back over IPC.
 const SERVER_PATH = new URL("./server.js", import.meta.url).pathname;
 
+// Every variable server.js and config.js read at import time. A spawned child
+// must never inherit one of these from the ambient shell: the suite asserts on
+// startup behavior for each of them, so an operator's exported value would
+// decide the result (an ambient PROXY_RPM=5 makes every fatal-config child exit
+// 1, and an ambient PROXY_AUTH_TOKEN satisfies the credential that a test meant
+// to leave unset). Stripped, then re-added only by the test that asked for it.
+const CONFIG_ENV_VARS = [
+  "PORT",
+  "NVIDIA_BASE_URL",
+  "NVIDIA_API_KEY",
+  "PROXY_AUTH_TOKEN",
+  "PROXY_HOST",
+  "PROXY_RPM",
+  "PROXY_TPM",
+  "PROXY_MAX_CONCURRENT_REQUESTS",
+  "PROXY_MAX_QUEUE_SIZE",
+  "PROXY_QUEUE_TIMEOUT_SECONDS",
+  "PROXY_SAFETY_MARGIN_PCT",
+  "PROXY_MAX_BUFFERED_BODY_BYTES",
+  "PROXY_MODEL_LIMITS_JSON",
+  "UPSTREAM_CONNECT_TIMEOUT_SECONDS",
+  "UPSTREAM_IDLE_TIMEOUT_SECONDS",
+];
+
+// The child's environment: everything ambient except the variables the proxy
+// reads, then the test's own overrides on top. An override of undefined stays
+// unset, because spawn skips undefined env values.
+function childEnv(overrides = {}) {
+  const env = { ...process.env };
+  for (const name of CONFIG_ENV_VARS) delete env[name];
+  return { ...env, ...overrides };
+}
+
 function startProxyServer(baseURL, key, proxyToken, extraEnv = {}) {
   return new Promise((resolve, reject) => {
-    const env = { ...process.env, ...extraEnv };
+    const env = childEnv(extraEnv);
     // Loose != null: passing undefined would collide with caller-side
     // destructuring defaults, so null is the "leave unset" sentinel.
     if (baseURL != null) env.NVIDIA_BASE_URL = baseURL;
@@ -169,7 +202,7 @@ function runProxyOnce(envOverrides) {
       process.execPath,
       ["--input-type=module", "-e", `import server from ${JSON.stringify(SERVER_PATH)};`],
       {
-        env: { ...process.env, ...envOverrides, PORT: "0" },
+        env: childEnv({ ...envOverrides, PORT: "0" }),
         stdio: ["ignore", "ignore", "pipe", "ignore"],
       }
     );
@@ -1549,5 +1582,116 @@ describe("buffered body ceiling and per-model limits", () => {
     assert.equal(code, 1);
     assert.ok(stderr.includes(NAME), `stderr should name ${NAME}: ${stderr}`);
     assert.ok(stderr.includes("gpt-4o-mini"), `stderr should name the offending model key: ${stderr}`);
+  });
+});
+
+// The suite must decide its own outcome. Every assertion above is about what a
+// child does with the environment the test handed it, so an operator's exported
+// value must never reach that child: an ambient PROXY_SAFETY_MARGIN_PCT=51 makes
+// every fatal case start instead of exiting 1, an ambient PROXY_RPM=5 makes every
+// fatal case exit 1 for the wrong reason, and an ambient PROXY_AUTH_TOKEN
+// satisfies a credential a test meant to leave unset (null means leave-unset,
+// not remove). The harness owns that, because config.js reading its own
+// environment is correct production behavior and silencing it there would hide
+// a real deployment mistake.
+describe("harness environment isolation", () => {
+  // Every value below is fatal or absent-changing on its own, so a leaked one
+  // cannot fail quietly: each would change a startup outcome on the next spawn.
+  const AMBIENT = {
+    PROXY_SAFETY_MARGIN_PCT: "51",
+    PROXY_RPM: "5",
+    PROXY_MAX_QUEUE_SIZE: "0",
+    PROXY_MAX_BUFFERED_BODY_BYTES: "0",
+    PROXY_MODEL_LIMITS_JSON: "{",
+    PROXY_HOST: "10.255.255.1",
+  };
+
+  // Mutating process.env in-process is safe here and nowhere else: the child
+  // reads its own environment at import time, and the values are restored
+  // synchronously right after the spawn, before any other test runs.
+  function withAmbientEnv(vars) {
+    const saved = {};
+    for (const [name, value] of Object.entries(vars)) {
+      saved[name] = process.env[name];
+      process.env[name] = value;
+    }
+    return () => {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    };
+  }
+
+  test("an ambient fatal value does not stop a child the test configured cleanly", async (t) => {
+    const restore = withAmbientEnv(AMBIENT);
+    let proxy;
+    try {
+      ({ proxy } = await withProxy(t, {}));
+    } finally {
+      restore();
+    }
+    const res = await proxiedFetch(proxy.port, "/health");
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { status: "ok" });
+  });
+
+  test("an ambient PROXY_AUTH_TOKEN does not satisfy a credential the test left unset", async (t) => {
+    const restore = withAmbientEnv({ PROXY_AUTH_TOKEN: "ambient-token" });
+    let proxy;
+    try {
+      ({ proxy } = await withProxy(t, { token: null }));
+    } finally {
+      restore();
+    }
+    const res = await proxiedFetch(proxy.port, "/health");
+    assert.equal(res.status, 503);
+    assert.deepEqual(await res.json(), { status: "unconfigured" });
+  });
+
+  // The fatal cases are the half that breaks in the other direction: an ambient
+  // PROXY_MODEL_LIMITS_JSON="{" (or PROXY_RPM=5, or a margin of 51) turns every
+  // child into an exit 1, so an assertion like the ones above would pass on the
+  // wrong reason. Naming the variable the test asked to be rejected, and
+  // refusing to name any other, is what makes the exit mean what it claims.
+  test("a fatal case exits 1 for the variable the test named, not an ambient one", async () => {
+    const restore = withAmbientEnv(AMBIENT);
+    let result;
+    try {
+      result = await runProxyOnce({
+        NVIDIA_BASE_URL: "https://example.com/v1",
+        NVIDIA_API_KEY: "k",
+        PROXY_AUTH_TOKEN: "t",
+        PROXY_MAX_QUEUE_SIZE: "0",
+      });
+    } finally {
+      restore();
+    }
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /PROXY_MAX_QUEUE_SIZE/);
+    for (const name of ["PROXY_MODEL_LIMITS_JSON", "PROXY_RPM", "PROXY_SAFETY_MARGIN_PCT"]) {
+      assert.ok(
+        !result.stderr.includes(name),
+        `an ambient ${name} must not be the reason: ${result.stderr}`
+      );
+    }
+  });
+
+  // Targeted, not a wholesale wipe: the child still needs PATH, HOME and the
+  // rest of the shell to exec node and resolve a stub upstream.
+  test("childEnv strips the variables the proxy reads and inherits the rest", () => {
+    const restore = withAmbientEnv({ ...AMBIENT, PROXY_AUTH_TOKEN: "ambient", PATH: "/usr/bin" });
+    let env;
+    try {
+      env = childEnv({ PROXY_RPM: "60" });
+    } finally {
+      restore();
+    }
+    for (const name of CONFIG_ENV_VARS) {
+      if (name === "PROXY_RPM") continue;
+      assert.equal(env[name], undefined, `${name} must not be inherited`);
+    }
+    assert.equal(env.PROXY_RPM, "60", "an explicit test value still wins");
+    assert.equal(env.PATH, "/usr/bin", "unrelated ambient variables are inherited");
   });
 });

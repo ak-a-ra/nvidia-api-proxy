@@ -173,11 +173,16 @@ tasks:
     description: >
       Run the smoke script: stub upstream plus a real proxy child with PROXY_HOST=127.0.0.1,
       confirming loopback reachability, /health 200, and one pass-through request. Prints
-      SMOKE OK or SMOKE FAIL with the reason.
+      SMOKE OK or SMOKE FAIL with the reason. The script's own path to server.js was
+      wrong by one level (two joins up resolved to specs/server.js), so it could only
+      ever fail; the path is fixed, and the script is otherwise unchanged. This task
+      also settled the story-level hermeticity decision the previous entries deferred:
+      the test harness now strips the variables the proxy reads from the child's
+      environment instead of inheriting the operator's shell.
     verify: "node specs/epics/e04-rate-limiting/smoke-bind-host.mjs"
     risk: P1
     security: none
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:

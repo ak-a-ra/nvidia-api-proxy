@@ -12,7 +12,9 @@ import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-const SERVER = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "server.js");
+// This file sits three levels below the repo root (specs/epics/e04-rate-limiting),
+// so server.js is three joins up, not two.
+const SERVER = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "server.js");
 
 const stub = http.createServer((req, res) => {
   res.writeHead(200, { "content-type": "application/json" });

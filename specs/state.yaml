@@ -144,6 +144,23 @@ decisions:
       a padded key is rejected for never matching a model ID, and a control character cannot
       match one either.
       Reversal is one guard plus the tests that pin it.
+  - decision: Test hermeticity is owned by the test harness, not by config.js
+    rationale: >-
+      Decided 2026-10-01, for e04s01 task 11. server.test.js spread process.env into
+      every spawned child, so an operator's shell decided the outcome: an exported
+      PROXY_SAFETY_MARGIN_PCT=51 left 15 of 78 passing, an exported PROXY_RPM=5 left
+      11, and an exported PROXY_AUTH_TOKEN turned the 503 credential test into a 200,
+      because null in a test's env table means leave-unset and never remove. Measured,
+      not assumed. The fix strips the variables the proxy reads from the inherited
+      environment inside the harness, then applies the test's own overrides on top.
+      config.js keeps reading its own environment unchanged: a config owner that
+      ignored a variable an operator exported would hide a real deployment mistake,
+      which is the opposite of what the fail-fast regime in ADR 0002 exists for. The
+      snapshot-and-restore alternative was rejected because it protects only the
+      documented npm test invocation: any slice that spawns server.js by another route,
+      including a manual smoke script, stays polluted. The strip is named rather than
+      derived, so an operational variable added later is inherited until it is added to
+      CONFIG_ENV_VARS, and that rule is now written into AGENTS.md.
 metrics:
   story_start: 2026-09-30T00:00:00Z
 ```
