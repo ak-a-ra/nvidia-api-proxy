@@ -144,7 +144,7 @@ pin it.
 ## Verification gates
 
 1. `npm test` locally on Node 24 → **36 pass, 0 fail**.
-2. Mutation check per A5 → both tests fail when `server.js` stops aborting upstream.
+2. Mutation check per 1.5 → both tests fail when `server.js` stops aborting upstream.
 3. Push the branch → the real gate is the **CI matrix**: all three legs (Node 20, 22, 24) green.
    Local runs cannot substitute: this bug exists only on Node 20/22, and this machine (Termux arm64)
    cannot run them — `nvm` has no Node 20/22 builds for it, and the official `linux-arm64` Node
