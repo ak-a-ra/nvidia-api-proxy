@@ -3,7 +3,7 @@
 * Story: `e03s01`
 * Epic: `e03` — Opt-in request logging
 * Issue: [#9](https://github.com/ak-a-ra/nvidia-api-proxy/issues/9)
-* Status: todo
+* Status: passing
 * BCPs: 3
 * Type: feat | Context: infra
 
@@ -68,7 +68,17 @@ New env var `PROXY_LOG_REQUESTS`. Output: one JSON line per request on stdout, e
 
 | Variable | Required | Default | Behavior |
 | --- | --- | --- | --- |
-| `PROXY_LOG_REQUESTS` | No | off | Any non-blank non-`"0"`/`"false"` value enables logging |
+| `PROXY_LOG_REQUESTS` | No | off | `1`/`true`/`yes`/`on` enable, `0`/`false`/`no`/`off` disable, case-insensitively and after trimming; unset or blank is off; any other value is fatal (exit 1) |
+
+*Corrected at story closure against `readLogRequests` in `config.js`.* This row originally read
+"any non-blank non-`0`/`false` value enables logging", which shipped differently by decision: that
+rule would make `PROXY_LOG_REQUESTS=maybe` switch a feature on with no signal that a typo was
+reinterpreted. The rationale and its reversal are recorded in `specs/state.yaml`, the regime in
+`docs/adr/0002-config-operational-fail-fast.md`, and the operator-facing statement in `README.md`
+and the `specs/tech-architecture/tech-stack.md` startup-configuration table. Sections 8, 11, 12, 13
+and 16 below are unchanged and describe what shipped. Section 17's "set to a non-blank value" is
+shorthand for "set to one of the four truthy words"; the scenario is left as written because it is
+an acceptance criterion rather than a statement about the configuration surface.
 
 Read at module import time like every other variable.
 

@@ -7,8 +7,8 @@
 ```yaml
 vcs:
   kind: git
-  commit: 63a9698
-  branch: epic-14-config-owner
+  commit: 6c6a54a
+  branch: feat/e03-opt-in-request-logging
   worktree: /data/data/com.termux/files/home/workspace/epic-14-config-owner
 workflow_mode: solo-git
 active_flow: plan
@@ -17,24 +17,33 @@ active_story: null
 session_start: 2026-09-23T08:14:23Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: code
-  source: issue-9
+  next_skill: plan
+  source: issue-15
   note: >-
-    e03s01 tasks 1-5 are implemented and committed on
-    feat/e03-opt-in-request-logging, branched off merged main (e69fa8f). PROXY_LOG_REQUESTS
-    is parsed in config.js as a closed vocabulary (1/true/yes/on enable, 0/false/no/off
-    disable, unset or blank is off, anything else exits 1 naming the variable and its
-    rule) and server.js writes one JSON line per request to stdout on the response's
-    close event, covering /health and every local rejection, with method, path, status,
-    and duration as the only fields. Write failures are swallowed, so a broken stdout
-    cannot reach the request path. The suite is 99 tests green in a clean environment
-    (85 before this work) and the count is synced in every living doc. The test harness
-    gained captureStdout and logThrows options on the two spawn helpers, because "no
-    secret in the log" is untestable against a log nobody can read. Remaining for this
-    story: task 6 documents the variable in the README env var table and the
-    startup-config table in specs/tech-architecture/tech-stack.md, and task 7 flips the
-    task ledger and the story capsule to passing. No ADR entry exists yet for this
-    variable's regime; the decision below is the record until then.
+    e03s01 is complete on feat/e03-opt-in-request-logging, branched off merged main
+    (e69fa8f): all seven tasks passing, each one observed with its own verify command
+    exiting 0, and the suite is 99 tests green in a clean environment (85 before this
+    story). PROXY_LOG_REQUESTS is parsed in config.js as a closed vocabulary
+    (1/true/yes/on enable, 0/false/no/off disable, unset or blank is off, anything else
+    exits 1 naming the variable and its rule) and server.js writes one JSON line per
+    request to stdout on the response's close event, covering /health and every local
+    rejection, with method, path, status, and duration as the only fields. Write
+    failures are swallowed, so a broken stdout cannot reach the request path. The test
+    harness gained captureStdout and logThrows options on the two spawn helpers,
+    because "no secret in the log" is untestable against a log nobody can read.
+    Tasks 6 and 7 closed it: the variable is documented in the README env var table,
+    in the copy-paste block, in a Request logging subsection that states the line
+    format and the exclusion list, and in the startup-config table in
+    specs/tech-architecture/tech-stack.md. ADR 0002 now carries the regime rather
+    than this file holding it alone, and the count is synced in every living doc.
+    Nothing in the story is outstanding.
+    Next is issue #15 (e04s02, Admit and queue work with bounded concurrency), the
+    first unblocked slice of the strict #14 -> #15 -> ... -> #22 chain now that #14 is
+    closed. It has no story capsule and no task ledger, so planning it comes before
+    executing it; its acceptance criteria are written against
+    PROXY_MAX_CONCURRENT_REQUESTS, PROXY_MAX_QUEUE_SIZE and
+    PROXY_QUEUE_TIMEOUT_SECONDS, which e04s01 already parses and stores. Issue #9
+    stays open until the orchestrator closes it at release.
 decisions:
   - decision: Plan only the unblocked slice of the rate limiting epic
     rationale: >-
@@ -210,6 +219,18 @@ decisions:
       unconditionally would invent a 200 for a client that received no response at all.
       "-" was rejected for the same reason a string would be: one field with two types.
       The 0 is a documented sentinel, not a value a status can take.
+  - decision: Task 7's count gate stops calling the e01 script that never landed
+    rationale: >-
+      Decided 2026-10-01, for e03s01 task 7. The ledger's verify read "npm test &&
+      node scripts/check-test-count.mjs", but scripts/ does not exist in this
+      repository: the script belongs to e01s01, which never landed, so the command
+      cannot pass as written and flipping the row on it would record a gate that is
+      red. e04s01 task 12 already made this exact replacement with an inline gate that
+      derives N from npm test and fails on any living doc stating a different number,
+      and it was negative-tested then; e03s01 adopts the same command rather than
+      inventing a third form of the same check. The replacement was run, not
+      assumed: exit 0 and "count ok: 99 across the living docs". The count itself is
+      unchanged by this decision, so no doc count moved because of it.
 metrics:
   story_start: 2026-09-30T00:00:00Z
 ```

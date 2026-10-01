@@ -2,12 +2,12 @@ id: e03
 title: Opt-in request logging
 wsjf: 3.0
 total_bcps: 3
-status: todo
+status: passing
 issue: 9
 stories:
   - id: e03s01
     title: Opt-in request logging via PROXY_LOG_REQUESTS
     bcps: 3
-    status: todo
+    status: passing
     spec: e03s01-opt-in-request-logging.md
     tasks: e03s01-tasks.yaml
