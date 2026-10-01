@@ -134,12 +134,13 @@ SIGTERM handler:
 - **Cleanup**: LIFO via `t.after` (proxy killed before stub closed)
 - **Environment**: Child processes receive per-test environment; `null` = leave unset sentinel
 - **Stub Modes**: `sse`, `stall`, `slowfinish`, `silent`, `activelong`, `midabort`, `abortable`
-- **No CI**: Tests only run locally
+- **CI**: `.github/workflows/ci.yml` runs `npm test` on Node 20, 22, and 24 (push to `main` and every pull request)
 
 ## Deployment Signal
 
 Render config in `render.yaml`:
 - Free plan, health check on `/health`
+- Pinned `NODE_VERSION=24`, matching a CI-tested leg
 - Pinned defaults: `NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1`, connect/idle timeouts
 
 ## Known Limitations & Planning Signals
@@ -147,8 +148,6 @@ Render config in `render.yaml`:
 | Issue | Status | Plan |
 | --- | --- | --- |
 | #9: Opt-in request logging | Open | `plans/05-opt-in-request-logging.md` |
-| #10: Token-side config guards | Open | `plans/03-config-guard-tests-round-2.md` |
-| #12: CI workflow | Open | `plans/01-ci-github-actions.md` |
 
 ## Conventions & Constraints
 

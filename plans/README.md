@@ -13,7 +13,7 @@ be executed by an agent that has never seen this session. Execute in the order b
 | 4 | [04-request-header-array-flattening.md](04-request-header-array-flattening.md) | Robustness | DONE | — |
 | 5 | [05-opt-in-request-logging.md](05-opt-in-request-logging.md) | Observability/DX | TODO | — |
 | 6 | [06-hoist-upstream-base-origin.md](06-hoist-upstream-base-origin.md) | Performance | DONE | — |
-| 7 | [07-disconnect-test-invariants.md](07-disconnect-test-invariants.md) | Tests/CI | TODO | — |
+| 7 | [07-disconnect-test-invariants.md](07-disconnect-test-invariants.md) | Tests/CI | DONE | — |
 
 Landed since the audit: plan 02 (`ec069d8` — guard `server.js:20-27`, test `server.test.js:211`,
 ADR 0001 §1 clause), plan 04 (`63c49f6` revised plan, `dfab41e` fix, `2866f72` count sync), and
@@ -58,8 +58,9 @@ original order, then 01.
 - **Verification gates.** From the repo root:
   - full suite: `npm test` (Node built-in runner, no install step needed);
   - single test: `node --test --test-name-pattern "<substring>"` (Node ≥ 20 recommended).
-- No CI exists at audit time — running `npm test` locally before finishing a plan is the only gate.
-  (Plan 01 adds CI; until it merges, local runs remain the gate.)
+- CI exists. `.github/workflows/ci.yml` runs `npm test` on Node 20, 22, and 24 on every push to
+  `main` and every pull request, so it — not a local run — is the gate. The workflow ran on its
+  first push and failed on Node 20 and 22 with 34 pass / 2 fail; plan 07 fixes those two tests.
 
 ## Audit limitations (be aware)
 
