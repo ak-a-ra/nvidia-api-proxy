@@ -226,7 +226,13 @@ const CONTROL_CHAR = /[\u0000-\u001f\u007f]/;
 // control characters so a string cannot break the line either.
 function describeValue(value) {
   if (value !== null && typeof value === "object") return typeName(value);
-  const text = String(JSON.stringify(value));
+  return boundText(String(JSON.stringify(value)));
+}
+
+// An echoed value's length, capped. Shared with the scalar guards, which
+// interpolate raw operator text rather than a JSON-shaped value and would
+// otherwise put an unbounded run of digits on one stderr line.
+function boundText(text) {
   return text.length > 60 ? `${text.slice(0, 60)}…` : text;
 }
 
@@ -265,7 +271,7 @@ function readPositiveInteger(
   const trimmed = raw.trim();
   const value = Number(trimmed);
   if (!/^[0-9]+$/.test(trimmed) || !Number.isSafeInteger(value) || value < min || value > max) {
-    console.error(`${name} must be ${integerRule(min, max, zeroDisables)}, got: ${trimmed}`);
+    console.error(`${name} must be ${integerRule(min, max, zeroDisables)}, got: ${boundText(trimmed)}`);
     process.exit(1);
   }
   return value;

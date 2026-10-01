@@ -1414,6 +1414,32 @@ describe("buffered body ceiling and per-model limits", () => {
     }
   });
 
+  // The scalar guards echo operator text rather than a JSON-shaped value, so
+  // they need the bound on their own path: a 100,000-digit PROXY_RPM used to
+  // put 100,044 bytes on one stderr line. Same rule as describeValue, reached
+  // through boundText. The under-300-byte ceiling is the assertion that fails
+  // without the fix — the message is not a crash, so nothing else here would
+  // notice. Short values are unaffected: the 30-digit row in INVALID_CEILINGS
+  // asserts `got: <value>` verbatim and stays green.
+  test("a long invalid ceiling is echoed bounded, not in full", async () => {
+    const digits = "1".repeat(100_000);
+    const { code, stderr } = await runProxyOnce({
+      ...BASE_ENV,
+      PROXY_MAX_BUFFERED_BODY_BYTES: digits,
+    });
+    assert.equal(code, 1, "a 100,000-digit ceiling is not a safe integer");
+    assert.ok(
+      stderr.includes("PROXY_MAX_BUFFERED_BODY_BYTES must be a positive integer"),
+      `stderr should still name the variable and its rule: ${stderr.length} bytes`
+    );
+    assert.ok(
+      stderr.includes(`got: ${"1".repeat(60)}…`),
+      `stderr should echo the value bounded at 60 characters with an ellipsis: ${stderr.length} bytes`
+    );
+    assert.equal(stderr.trim().split("\n").length, 1, "stderr must stay on one line");
+    assert.ok(stderr.length < 300, `stderr must stay short, got ${stderr.length} bytes`);
+  });
+
   // This story validates and stores the ceiling; it does not enforce it. A
   // one-byte body ceiling must still pass a request through, so a later slice
   // that starts buffering has to change this test deliberately.
