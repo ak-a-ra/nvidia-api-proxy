@@ -43,12 +43,12 @@ stopped doing upstream work" — a proxy that undici's connection pool invalidat
 
 Raw probe log kept at `~/probe.log` (outside the repo) if you want to re-read the raw event lists.
 
-## Task A — rewrite the two disconnect tests to assert request teardown
+## Task 1 — rewrite the two disconnect tests to assert request teardown
 
 **Files: `server.test.js` only.** No new test names, so the suite stays at 36 and **no test-count doc
 sync is required**.
 
-### A1. Record upstream teardown in the stub
+### 1.1. Record upstream teardown in the stub
 
 In `startStubUpstream` (`server.test.js:11-92`), register per-request lifecycle observers in the
 `http.createServer` callback **before** the body handling, so an abort that lands mid-body is still
@@ -67,12 +67,12 @@ Note the `req.on("end")` handler currently is where `receivedRequests.push(...)`
 teardown observers must be registered at request entry, not inside that handler, so that an aborted
 request (which never emits `end`) still produces a record.
 
-### A2. Thread it through `withProxy`
+### 1.2. Thread it through `withProxy`
 
 `withProxy` (`server.test.js:139-157`) destructures `startStubUpstream`'s return value; add
 `teardowns` to that destructure and to its own return object.
 
-### A3. Rewrite the two tests
+### 1.3. Rewrite the two tests
 
 Replace the `sockets.size === 0` polls with a wait on the teardown record for the **first** upstream
 request, with a timeout so a regression fails fast instead of hanging:
@@ -90,20 +90,20 @@ request, with a timeout so a regression fails fast instead of hanging:
 Prefer an event-driven wait (the record's promise, raced against a timeout) over a polling loop — the
 current polling loop is what turned a 50ms event into a 2000ms failure.
 
-### A4. Delete the now-dead `sockets` map
+### 1.4. Delete the now-dead `sockets` map
 
 The `sockets` map (`server.test.js:84-90`, exposed at `:140` and `:156`) is used **only** by these two
 tests — verified: the only other hits are its own declaration and the two `withProxy` plumbing lines.
 Remove it, and drop `sockets` from both destructures and from `withProxy`'s return value. If you find
 a consumer this plan missed, keep the map instead and say so in the report.
 
-### A5. Mutation-check the new assertions (mandatory)
+### 1.5. Mutation-check the new assertions (mandatory)
 
 A test that cannot fail proves nothing. Temporarily break the disconnect handling in `server.js`
 (remove/short-circuit the `ac.abort()` on downstream `close` at `server.js:178-179`), run the two
 tests, and confirm **both fail**. Revert the mutation. Paste the failing output into the report.
 
-## Task B — pin the deployed Node version
+## Task 2 — pin the deployed Node version
 
 **File: `render.yaml`.** Nothing in the repo or the Render API responses reachable from this machine
 revealed which Node version the deploy actually uses (Render dashboard is not accessible here, and
@@ -125,7 +125,7 @@ pin it.
 - Do **not** touch `engines.node` in `package.json`. `>=18.14` is the supported-runtime claim and the
   matrix found no evidence against it; changing it is out of scope.
 
-## Task C — doc sync for now-false statements
+## Task 3 — doc sync for now-false statements
 
 - `plans/README.md`:
   - status table — add row `7` for this plan (see the row format of the existing rows);
