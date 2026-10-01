@@ -165,3 +165,14 @@ rather than writing one.
 - `perf-bench.js` (untracked, pre-existing) — do not add, commit, or delete it.
 - Loosening the poll budget to make the old assertions pass — that keeps a pool-dependent property
   and stays flaky. Rejected.
+
+## Post-merge follow-up
+
+Trigger: the CI matrix (Node 20/22/24) green on this plan's pull request. Until then, do not make these
+edits. Afterwards, in `plans/README.md` only:
+
+1. Status table — flip plan 07's row from `TODO` to `DONE`.
+2. "Landed since the audit" — add plan 07 with its two commits, `131cbaf` (disconnect-test invariants)
+   and `3541df2` (doc and CI-claim sync).
+3. Executor constraints, CI paragraph — replace "plan 07's fix ... is still awaiting its CI-matrix gate"
+   with the fact that the matrix ran and passed.

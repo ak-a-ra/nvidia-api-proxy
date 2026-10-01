@@ -128,10 +128,10 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. All logic in `se
 
 - `render.yaml` = deploy config (free plan, health check `/health`) and pins `NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1`
 - Timeout defaults: `UPSTREAM_CONNECT_TIMEOUT_SECONDS` 30, `UPSTREAM_IDLE_TIMEOUT_SECONDS` 120 (reset per chunk, so active SSE streams never cut)
-- Known limitations tracked as GitHub issues — check `gh issue list` before treating current behavior as intentional or final. As of 2026-09-30: 13 open, each labeled `enhancement` + `ready-for-agent`.
-  - Audit plans (2026-09-20), each with a plan file: #9 opt-in request logging (`plans/05`), #10 token-side config guards (`plans/03`), #12 CI workflow (`plans/01`). Order per `plans/README.md`: 03 → 01 → 05, sequential because 03 and 05 both add tests and touch the same count-sync sites.
+- Known limitations tracked as GitHub issues — check `gh issue list` before treating current behavior as intentional or final. As of 2026-10-01: 11 open — #9, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22 — each labeled `enhancement` + `ready-for-agent`.
+  - Audit plans (2026-09-20): only #9 opt-in request logging (`plans/05`) is still open. #10 token-side config guards (`plans/03`) and #12 CI workflow (`plans/01`) are closed — landed by `2b13861` and `1bc34cd`. Order per `plans/README.md`: 03 → 01 → 05, sequential because 03 and 05 both add tests and touch the same count-sync sites.
   - Rate-limiting epic (2026-09-25, parent #13): #14 → #15 → #16 → #17 → #18 → #19 → #20 → #21 → #22 is a strict linear `Blocked by` chain. #14 (validated operational config owner + configurable bind host) is the only unblocked slice; nothing in it is implemented yet — no `/stats` route, no `PROXY_RPM`/`PROXY_TPM` parsing, no admission path. No plan files exist for the epic. #13's body supersedes its own earlier scope.
-  - Closed: #11 (request-header array flattening) by `dfab41e`; #2–#8 all closed.
+  - Closed: #10 (token-side config guards) by `2b13861`, #11 (request-header array flattening) by `dfab41e`, #12 (CI workflow) by `1bc34cd`; #2–#8 all closed.
 - Epic work will add env vars and change configuration failure modes. When landing any slice, extend the startup-config table in `specs/tech-architecture/tech-stack.md` and record the fail-fast-vs-degrade decision in `docs/adr/`.
 - Node ≥ 18.14 required (engines); dev machine runs Node 24
 

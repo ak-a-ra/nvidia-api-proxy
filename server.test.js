@@ -180,10 +180,15 @@ async function withProxy(t, { base, baseSuffix = "/v1", key = "sk", token = "pt"
 async function assertUpstreamAborted(teardowns, timeoutMs = 2000) {
   const record = teardowns[0];
   assert.ok(record, "upstream received a request");
+  let timer;
   const timedOut = await Promise.race([
     record.closed.then(() => false),
-    new Promise((resolve) => setTimeout(() => resolve(true), timeoutMs)),
+    new Promise((resolve) => {
+      timer = setTimeout(() => resolve(true), timeoutMs);
+      timer.unref();
+    }),
   ]);
+  clearTimeout(timer);
   const flags =
     `reqAborted=${record.reqAborted} reqClosed=${record.reqClosed} ` +
     `resClosed=${record.resClosed} resFinished=${record.resFinished}`;

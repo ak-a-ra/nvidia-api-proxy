@@ -21,9 +21,10 @@ plan 03 (`2b13861` — token-side `.trim()` and missing-token ordering tests, 34
 ADR 0001 §Compliance update), and plan 01 (`1bc34cd` — `.github/workflows/ci.yml` on Node 20/22/24,
 `AGENTS.md` CI bullet).
 
-Tracker: each remaining plan has a GitHub issue — plan 05 → #9, the only one still open. The landed
-plans' issues are closed: plan 01 → #12, closed by `1bc34cd`; plan 03 → #10, closed by `2b13861`;
-plan 04 → #11, closed by `dfab41e`. Plan 07 has no issue. `gh issue list` is the live source of truth.
+Tracker: not every plan has a GitHub issue — of the plans still to do, only plan 05 has one (#9, the
+only plan issue still open). The landed plans' issues are closed: plan 01 → #12, closed by `1bc34cd`;
+plan 03 → #10, closed by `2b13861`; plan 04 → #11, closed by `dfab41e`. Plan 07 has no issue.
+`gh issue list` is the live source of truth.
 
 ## Recommended execution order
 
