@@ -7,9 +7,9 @@
 ```yaml
 vcs:
   kind: git
-  commit: cbf4f8f
+  commit: 63a9698
   branch: epic-14-config-owner
-  worktree: ../epic-14-config-owner
+  worktree: /data/data/com.termux/files/home/workspace/epic-14-config-owner
 workflow_mode: solo-git
 active_flow: plan
 active_epic: e04
@@ -21,8 +21,8 @@ handoff:
   source: issue-15
   note: >-
     e04s01 is complete. All twelve tasks are status: passing, each one observed with its
-    own verify command exiting 0, the suite is 84 tests green in a clean environment, and
-    task 12's count gate reports "count ok: 84 across the living docs". config.js owns
+    own verify command exiting 0, the suite is 85 tests green in a clean environment, and
+    task 12's count gate reports "count ok: 85 across the living docs". config.js owns
     every operational variable and server.js keeps its HTTP handler byte-for-byte.
     The nine variables this story added are validated at startup and stored, and none of
     them is enforced yet, which is the point: a later slice applies a limit without
