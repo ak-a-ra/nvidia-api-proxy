@@ -3,7 +3,7 @@
 * Story: `e04s01`
 * Epic: `e04` — Rate limiting and admission control
 * Issue: [#14](https://github.com/ak-a-ra/nvidia-api-proxy/issues/14) (slice 1 of 9)
-* Status: failing
+* Status: passing
 * BCPs: 9
 * Type: refactor | Risk: P0 | Context: infra
 * Maturity: 3 (Countable)
@@ -100,7 +100,9 @@ vocabulary instead of each inventing terms.
 
 ## 4. Preconditions
 
-- Suite green at 34/34 (verified on branch `epic-14-config-owner`).
+- Suite green at the branch's merge base (34/34 at `4cc7fc6`, verified on branch
+  `epic-14-config-owner` at authoring time). That is a dated precondition record, not the current
+  count — §21 carries the live figure, which is the one to read and the one the count gate checks.
 - e01 (CI) and e02 (config guard baseline) landed, so new fatal rules land on a complete
   guard baseline rather than the partial one ADR 0001 documents.
 
@@ -189,7 +191,13 @@ those are later slices.
   health behavior. Only the listener address.
 - `NVIDIA_BASE_URL` validation stays exactly as ADR 0001 specifies.
 - Missing credentials still yield `unconfigured` and 503, never a crash.
-- Fatal operational values exit 1 with stderr naming the variable.
+- Fatal operational values exit 1 with stderr naming the variable. **`PROXY_HOST` is the one
+  exception**, and it fails closed rather than quietly: an unbindable address surfaces as an
+  unhandled `'error'` event — a Node stack dump naming `EADDRNOTAVAIL` and the address, with zero
+  occurrences of the string `PROXY_HOST` — and exits 1. The exit code holds; the message discipline
+  does not. Recorded as an accepted consequence in `docs/adr/0002-config-operational-fail-fast.md`
+  and left for a follow-up, since fixing it means a `server.on("error", …)` handler in `server.js`,
+  which this story's "no new test seam" constraint puts out of reach.
 - The server entry exports nothing new.
 - Every pre-existing test passes unchanged.
 
@@ -311,7 +319,8 @@ module in the project.
 1. `npm start` → `node server.js` (also `render.yaml`).
 2. `server.test.js` — spawns it as a child with `import server from <abs path>`, relies on
    the **default export**, `listening`/`error` events, and the IPC port handshake.
-3. `perf-bench.js` — same child-process pattern.
+3. `specs/epics/e04-rate-limiting/smoke-bind-host.mjs` — same child-process pattern (task 11's
+   smoke check; the `perf-bench.js` named here previously does not exist in this repository).
 4. Named exports `CONNECT_TIMEOUT_SECONDS` and `IDLE_TIMEOUT_SECONDS`.
 
 **Contracts that must survive this story.**
