@@ -13,6 +13,7 @@ scope:
     - Header fidelity preservation
     - Constant-time authentication
     - Graceful SIGTERM shutdown for zero-downtime deploys
+    - Configurable listen address via PROXY_HOST, default 0.0.0.0; 127.0.0.1 restricts a deployment to loopback
   exclude:
     - Web UI or dashboard features
     - Database storage
@@ -28,6 +29,11 @@ defensive_categories:
   - Circuit breaker
   - Timeout
   - Graceful degradation
+
+accepted_tradeoffs:
+  - "In rate-limit mode the proxy buffers a bounded copy of each request body, up to PROXY_MAX_BUFFERED_BODY_BYTES (default 8 MiB), to read the exact model ID and estimate token cost. The accepted cost is memory spent on metering; the original bytes are still forwarded without transformation, and a body over the cap is rejected locally."
+  - "With rate limiting disabled, request bodies stay fully streaming, with no buffering and no added latency. The buffer exists to meter, never to inspect."
+  - "Both are commitments of issue #13, whose enforcement slices have not landed. The operational variables are validated and stored today and nothing reads them, so the current build buffers nothing."
 
 tech_stack:
   language: JavaScript (ESM)
