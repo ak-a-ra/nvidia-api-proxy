@@ -307,8 +307,9 @@ describe("proxy", () => {
   });
 
   // Whitespace-only credentials count as missing (server.js uses .trim());
-  // the API-key side is pinned by the tests above passing key: " ". Pin the
-  // token side: a whitespace token behaves like an absent one.
+  // the API-key side is pinned by the tests passing key: " ". Pin the token
+  // side: a whitespace token behaves like an absent one. Only the /health
+  // assertion below depends on .trim() — the 401 holds either way.
   test("whitespace-only proxy token counts as missing (401 + health 503)", async (t) => {
     const { proxy, receivedRequests } = await withProxy(t, { token: "   " });
     const res = await proxiedFetch(proxy.port, "/v1/models", {

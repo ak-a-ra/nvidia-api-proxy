@@ -9,22 +9,26 @@ be executed by an agent that has never seen this session. Execute in the order b
 | --- | --- | --- | --- | --- |
 | 1 | [01-ci-github-actions.md](01-ci-github-actions.md) | CI/DX | TODO | — |
 | 2 | [02-base-url-scheme-validation.md](02-base-url-scheme-validation.md) | Correctness | DONE | — |
-| 3 | [03-config-guard-tests-round-2.md](03-config-guard-tests-round-2.md) | Tests | TODO | — |
+| 3 | [03-config-guard-tests-round-2.md](03-config-guard-tests-round-2.md) | Tests | DONE | — |
 | 4 | [04-request-header-array-flattening.md](04-request-header-array-flattening.md) | Robustness | DONE | — |
 | 5 | [05-opt-in-request-logging.md](05-opt-in-request-logging.md) | Observability/DX | TODO | — |
 | 6 | [06-hoist-upstream-base-origin.md](06-hoist-upstream-base-origin.md) | Performance | DONE | — |
 
 Landed since the audit: plan 02 (`ec069d8` — guard `server.js:20-27`, test `server.test.js:211`,
-ADR 0001 §1 clause) and plan 04 (`63c49f6` revised plan, `dfab41e` fix, `2866f72` count sync).
+ADR 0001 §1 clause), plan 04 (`63c49f6` revised plan, `dfab41e` fix, `2866f72` count sync), and
+plan 03 (`2b13861` — token-side `.trim()` and missing-token ordering tests, 34 → 36 count sync,
+ADR 0001 §Compliance update).
 
 Tracker: each remaining plan has a GitHub issue — plan 01 → #12, plan 03 → #10, plan 05 → #9.
 Plan 04 → #11, closed by `dfab41e`. `gh issue list` is the live source of truth.
 
 ## Recommended execution order
 
-`03 → 01 → 05` — the remainder; plans 02 and 04 are already done.
+`01 → 05` — the remainder; plans 02, 03 and 04 are done. Plan 03 ran first per the original
+order (it was the smaller of the two test-adding plans).
 
-- Plans 03 and 05 each add tests and therefore both touch the same count-sync sites — every living
+- Plans 03 and 05 each add tests and therefore both touch the same count-sync sites (03 is now
+  done; 05 still must re-derive the site list itself) — every living
   doc that states a test count, not just the three README/AGENTS.md spots (see `AGENTS.md` "Testing
   quirks"; grep for the sites, the list drifts). **Run them sequentially**, not in parallel, or the
   count-sync edits will conflict.
