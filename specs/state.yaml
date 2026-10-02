@@ -22,7 +22,7 @@ handoff:
   note: >-
     e03s01 is complete on feat/e03-opt-in-request-logging, branched off merged main
     (e69fa8f): all seven tasks passing, each one observed with its own verify command
-    exiting 0, and the suite is 99 tests green in a clean environment (85 before this
+    exiting 0, and the suite is 100 tests green in a clean environment (85 before this
     story). PROXY_LOG_REQUESTS is parsed in config.js as a closed vocabulary
     (1/true/yes/on enable, 0/false/no/off disable, unset or blank is off, anything else
     exits 1 naming the variable and its rule) and server.js writes one JSON line per
