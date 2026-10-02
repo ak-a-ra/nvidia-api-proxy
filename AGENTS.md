@@ -82,11 +82,11 @@ Example — destructive op:
 
 ## Part 2 — Repository knowledge
 
-Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `server.js` (~249 lines), configuration parsing in `config.js` (~309 lines); tests in `server.test.js` (~1798 lines). No lint/typecheck/formatter config exists.
+Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `server.js` (~288 lines), configuration parsing in `config.js` (~343 lines); tests in `server.test.js` (~2351 lines). No lint/typecheck/formatter config exists.
 
 ### Commands
 
-- `npm test` — full suite (85 tests, Node built-in `node --test` runner, no deps to install)
+- `npm test` — full suite (100 tests, Node built-in `node --test` runner, no deps to install)
 - `node --test --test-name-pattern "SIGTERM"` — run single test by name (needs Node ≥ 20)
 - `npm start` — requires `NVIDIA_BASE_URL` (exits code 1 if missing) plus `NVIDIA_API_KEY` and `PROXY_AUTH_TOKEN` (missing ones → 503 responses, not a crash)
 - CI: GitHub Actions runs `npm test` on Node 20/22/24 for every push/PR — see `.github/workflows/ci.yml`. Run `npm test` locally before pushing anyway.
@@ -104,9 +104,9 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `s
 - The suite is hermetic: `childEnv()` in `server.test.js` strips every variable `server.js`/`config.js` read (see `CONFIG_ENV_VARS`) from the inherited `process.env` before applying a test's overrides, so an operator's exported value cannot decide a result. A new operational variable must be added to `CONFIG_ENV_VARS` in the same commit that adds it to `config.js`
 - Each test gets stub upstream HTTP server; cleanups register via `t.after` (LIFO: proxy child killed before stub closed)
 - Stub upstream modes: `sse`, `stall`, `slowfinish`, `silent`, `activelong`, `midabort`, `abortable`
-- Test count synced in **every** living doc that states one (currently 85) — grep, never trust this list or its line numbers: `grep -rnE 'tests(-| )?[0-9]{2,4}|[0-9]{2,4}[ -]?tests?|\(currently [0-9]+\)' --include='*.md' --include='*.yaml' .`
-  The `\(currently [0-9]+\)` alternative exists because this bullet states a count that the first two alternatives do not match. Sweep for the stale number afterwards too — `grep -rnE '\b(84|85)\b' --include='*.md' --include='*.yaml' .` — since a site can state the count in a form the pattern above misses.
-  Sites as of 2026-10-01: `README.md:9` badge `tests-85%20passing`, `README.md:86` tip, this bullet (count + `npm test` bullet), `CONVENTIONS.md:17`, `specs/README.md:19`, `specs/tech-architecture/tech-stack.md:143`, `specs/tech-architecture/TEST_PLAN_LATEST.md:44,294,351`, `specs/product/VISION_LATEST.yaml:20`, `specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md:345`. `plans/*.md` hold historical per-plan numbers — not living docs.
+- Test count synced in **every** living doc that states one (currently 100) — grep, never trust this list or its line numbers: `grep -rnE 'tests(-| )?[0-9]{2,4}|[0-9]{2,4}[ -]?tests?|\(currently [0-9]+\)' --include='*.md' --include='*.yaml' .`
+  The `\(currently [0-9]+\)` alternative exists because this bullet states a count that the first two alternatives do not match. Sweep for the stale number afterwards too — `grep -rnE '\b(85|99)\b' --include='*.md' --include='*.yaml' .` — since a site can state the count in a form the pattern above misses.
+  Sites as of 2026-10-02: `README.md:9` badge `tests-100%20passing`, `README.md:86` tip, this bullet (count + `npm test` bullet), `CONVENTIONS.md:17`, `specs/README.md:19`, `specs/tech-architecture/tech-stack.md:155`, `specs/tech-architecture/TEST_PLAN_LATEST.md:44,294,351`, `specs/product/VISION_LATEST.yaml:20`, `specs/state.yaml` handoff note, `specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md:345`. `plans/*.md` hold historical per-plan numbers — not living docs.
   `docs/research/config-invariant-guard-tests.md` is a dated historical note — do **not** update it.
 
 ### Proxy invariants (tests assert these)
@@ -117,6 +117,7 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `s
 - `RESPONSE_STRIPPED_HEADERS` adds `content-encoding` — fetch auto-decompresses upstream response bodies, forwarding that header would misrepresent returned bytes. Client request bodies not decompressed; their `content-encoding` must pass through untouched
 - `config.js` `parseConfig`: `NVIDIA_BASE_URL` problems fatal at startup (exit 1). Missing `NVIDIA_API_KEY`/`PROXY_AUTH_TOKEN` → runtime 503, not crash. `unconfigured` flag uses `?.trim()` — whitespace-only counts as missing
 - `config.js` `readSeconds` env parsing: null/empty/whitespace → fallback; non-finite or negative → fallback; `0` disables timeout. Only the two timeout variables use this leniency; newer operational variables parse strictly — see `specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md`
+- `PROXY_LOG_REQUESTS` gates per-request stdout logging (`if (config.logRequests) logRequestOnClose(...))`, registered above every branch). The line is the closed set `ts`/`method`/`path`/`status`/`ms` — never a header, body, the proxy's key or token, or the upstream host — but `path` is the client's own request target verbatim, query string included and unredacted, so a secret in a query parameter is logged. That is disclosed, not a defect; changing it is a deliberate decision, not a cleanup — see `docs/adr/0002-config-operational-fail-fast.md` and the `request logging` tests
 - Auth: SHA-256 digest + `timingSafeEqual` — never compare raw bytes (length-mismatch throw + timing leak)
 - Path mapping: incoming `/v1/*` path + query forwarded verbatim onto base origin; base's own `/v1` suffix ignored. Bare `/v1` or `/v1/` → 404. See server.test.js "path mapping" tests
 - Error responses never leak internals (DNS names, URLs): upstream failures → clean `502 { error: "Bad gateway" }`

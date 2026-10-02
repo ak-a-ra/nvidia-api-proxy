@@ -7,8 +7,8 @@
 ```yaml
 vcs:
   kind: git
-  commit: 63a9698
-  branch: epic-14-config-owner
+  commit: 6c6a54a
+  branch: feat/e03-opt-in-request-logging
   worktree: /data/data/com.termux/files/home/workspace/epic-14-config-owner
 workflow_mode: solo-git
 active_flow: plan
@@ -20,19 +20,30 @@ handoff:
   next_skill: plan
   source: issue-15
   note: >-
-    e04s01 is complete. All twelve tasks are status: passing, each one observed with its
-    own verify command exiting 0, the suite is 85 tests green in a clean environment, and
-    task 12's count gate reports "count ok: 85 across the living docs". config.js owns
-    every operational variable and server.js keeps its HTTP handler byte-for-byte.
-    The nine variables this story added are validated at startup and stored, and none of
-    them is enforced yet, which is the point: a later slice applies a limit without
-    inventing its own parsing. Issue #15 (e04s02, admission control with a bounded FIFO
-    queue) is next in the strict linear #14 -> #15 -> #16 -> #17 -> #18 -> #19 -> #20 ->
-    #21 -> #22 chain and is unblocked now that e04s01 passes. It has no story capsule and
-    no task ledger, so planning it is the next flow; its acceptance criteria name exactly
-    the PROXY_MAX_CONCURRENT_REQUESTS, PROXY_MAX_QUEUE_SIZE and PROXY_QUEUE_TIMEOUT_SECONDS
-    variables this story already parses, and it is the first slice to make any stored value
-    observable through behavior rather than through startup acceptance alone.
+    e03s01 is complete on feat/e03-opt-in-request-logging, branched off merged main
+    (e69fa8f): all seven tasks passing, each one observed with its own verify command
+    exiting 0, and the suite is 100 tests green in a clean environment (85 before this
+    story). PROXY_LOG_REQUESTS is parsed in config.js as a closed vocabulary
+    (1/true/yes/on enable, 0/false/no/off disable, unset or blank is off, anything else
+    exits 1 naming the variable and its rule) and server.js writes one JSON line per
+    request to stdout on the response's close event, covering /health and every local
+    rejection, with method, path, status, and duration as the only fields. Write
+    failures are swallowed, so a broken stdout cannot reach the request path. The test
+    harness gained captureStdout and logThrows options on the two spawn helpers,
+    because "no secret in the log" is untestable against a log nobody can read.
+    Tasks 6 and 7 closed it: the variable is documented in the README env var table,
+    in the copy-paste block, in a Request logging subsection that states the line
+    format and the exclusion list, and in the startup-config table in
+    specs/tech-architecture/tech-stack.md. ADR 0002 now carries the regime rather
+    than this file holding it alone, and the count is synced in every living doc.
+    Nothing in the story is outstanding.
+    Next is issue #15 (e04s02, Admit and queue work with bounded concurrency), the
+    first unblocked slice of the strict #14 -> #15 -> ... -> #22 chain now that #14 is
+    closed. It has no story capsule and no task ledger, so planning it comes before
+    executing it; its acceptance criteria are written against
+    PROXY_MAX_CONCURRENT_REQUESTS, PROXY_MAX_QUEUE_SIZE and
+    PROXY_QUEUE_TIMEOUT_SECONDS, which e04s01 already parses and stores. Issue #9
+    stays open until the orchestrator closes it at release.
 decisions:
   - decision: Plan only the unblocked slice of the rate limiting epic
     rationale: >-
@@ -175,6 +186,51 @@ decisions:
       silenced the gate for every future story spec, which is the drift the gate exists
       to catch, so the number moved to 82 and the verify pattern is unchanged. The gate
       now covers story specs as it was written, and it is green rather than relaxed.
+  - decision: PROXY_LOG_REQUESTS is a closed vocabulary, and anything outside it is fatal
+    rationale: >-
+      Decided 2026-10-01, for e03s01 task 1, against the story's section 9 wording
+      ("any non-blank non-0/false value enables logging"). The brief for this slice
+      directed the strict reading and the story loses, which is the recorded deviation.
+      1/true/yes/on enable and 0/false/no/off disable, case-insensitively and trimmed;
+      unset or blank is off. Everything else exits 1 with one stderr line naming the
+      variable, its rule, and the offending value bounded at 60 characters. The
+      story's rule makes PROXY_LOG_REQUESTS=maybe switch a feature on with no signal
+      that a typo was reinterpreted, and that is the quiet failure ADR 0002 exists to
+      prevent, in the same family as Number("1e3") being 1000 for a rate limit. Fatal
+      rather than lenient even though a boolean is the weakest case for strictness: the
+      failure shape is identical (a value the operator wrote and the proxy did not
+      honor, noticed by nobody), and the variable is new, so this fatal path cannot
+      break a deployment that predates it. Leniency for this variable would also be
+      the second parsing dialect in the file after readSeconds, and the first that
+      silently accepts an operator's text. Reversal is one regex pair plus the tests
+      that pin them.
+  - decision: A log line records the last status written to the client, and 0 when none reached it
+    rationale: >-
+      Decided 2026-10-01, for e03s01 task 2. The line is written on the response's
+      close event, which fires for every response including the destroyed ones, so the
+      status has a rule for the cases where there is no finished response to report.
+      The status is the last one written to the client, which is what the client
+      actually saw: a streamed response cut by an upstream failure logs the 200 whose
+      headers arrived, not a synthetic 5xx that describes the proxy rather than the
+      exchange. A response destroyed before any status was written - a client
+      disconnect before upstream headers - logs 0. A number, not a string, so the field
+      type stays stable, and explicitly not a code the client never saw: Node's
+      res.statusCode defaults to 200 even when nothing was written, so recording it
+      unconditionally would invent a 200 for a client that received no response at all.
+      "-" was rejected for the same reason a string would be: one field with two types.
+      The 0 is a documented sentinel, not a value a status can take.
+  - decision: Task 7's count gate stops calling the e01 script that never landed
+    rationale: >-
+      Decided 2026-10-01, for e03s01 task 7. The ledger's verify read "npm test &&
+      node scripts/check-test-count.mjs", but scripts/ does not exist in this
+      repository: the script belongs to e01s01, which never landed, so the command
+      cannot pass as written and flipping the row on it would record a gate that is
+      red. e04s01 task 12 already made this exact replacement with an inline gate that
+      derives N from npm test and fails on any living doc stating a different number,
+      and it was negative-tested then; e03s01 adopts the same command rather than
+      inventing a third form of the same check. The replacement was run, not
+      assumed: exit 0 and "count ok: 99 across the living docs". The count itself is
+      unchanged by this decision, so no doc count moved because of it.
 metrics:
   story_start: 2026-09-30T00:00:00Z
 ```

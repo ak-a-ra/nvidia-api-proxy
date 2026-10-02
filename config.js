@@ -38,6 +38,7 @@ export function parseConfig(env) {
     // holds a map of budgets. A caller must not be able to read a per-model
     // budget map beside a half-configured global rate pair.
     modelLimits: readModelLimits(env),
+    logRequests: readLogRequests(env),
     apiKey: env.NVIDIA_API_KEY,
     proxyToken: env.PROXY_AUTH_TOKEN,
     unconfigured: !env.NVIDIA_API_KEY?.trim() || !env.PROXY_AUTH_TOKEN?.trim(),
@@ -202,6 +203,39 @@ function readModelLimits(env) {
     limits[model] = budget;
   }
   return limits;
+}
+
+// Opt-in per-request logging (PROXY_LOG_REQUESTS). The one variable here that
+// is a flag rather than a ceiling, so its rule is a vocabulary instead of a
+// number, and both sides of that vocabulary are written out: 1/true/yes/on
+// enable, 0/false/no/off disable, unset or blank is off.
+//
+// Why not the story's "any non-blank non-0/false value enables logging": that
+// makes PROXY_LOG_REQUESTS=maybe start a feature nobody asked for, and the
+// operator gets no signal that their typo was reinterpreted. Every other value
+// in this file is parsed as written for the same reason — see the digits-only
+// rule below. A typo'd truthy string must not decide whether the proxy logs.
+//
+// Fatal on anything outside the two sets, like every other operational
+// variable here (ADR 0002): a boolean cannot mis-enforce a budget, but it has
+// the same failure shape — a value the operator wrote and the proxy did not
+// honor, noticed by nobody. The variable is new, so this fatal path cannot
+// break a deployment that predates it.
+const TRUTHY = /^(1|true|yes|on)$/i;
+const FALSY = /^(0|false|no|off)$/i;
+
+function readLogRequests(env) {
+  const raw = env.PROXY_LOG_REQUESTS;
+  // Blank check first, the convention every group in this file keeps: a
+  // whitespace-only value is an absent variable, not an unparseable one.
+  if (!raw?.trim()) return false;
+  const trimmed = raw.trim();
+  if (TRUTHY.test(trimmed)) return true;
+  if (FALSY.test(trimmed)) return false;
+  fatal(
+    "PROXY_LOG_REQUESTS",
+    `must be 1, 0, true, false, yes, no, on or off, got: ${boundText(trimmed)}`
+  );
 }
 
 // What the offending value is, in the words an operator reading stderr needs:

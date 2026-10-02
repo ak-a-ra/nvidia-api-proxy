@@ -1,13 +1,13 @@
 story_id: e03s01
 title: Opt-in request logging via PROXY_LOG_REQUESTS
-status: todo
+status: passing
 bcps: 3
 tasks:
   - id: 1
     description: "Parse PROXY_LOG_REQUESTS in validateConfig alongside the existing variables, defaulting to off when unset, blank, '0', or 'false'; do not change any other config regime"
     verify: "node --test --test-name-pattern 'logging' server.test.js"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
@@ -17,7 +17,7 @@ tasks:
     description: "Emit one JSON line per request (ts, method, path, status, ms) inside the proxy handler, wrapped in try/catch so a stdout failure cannot reach the response path"
     verify: "node --test --test-name-pattern 'logging' server.test.js"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
@@ -26,7 +26,7 @@ tasks:
     description: "Log on response close rather than mid-stream so SSE responses are logged at completion and their client-visible bytes stay byte-identical"
     verify: "node --test --test-name-pattern 'stream' server.test.js"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
@@ -36,7 +36,7 @@ tasks:
     description: "Add a test asserting no log line contains the API key, the proxy token, an authorization header value, a request body, or the upstream host:port"
     verify: "node --test --test-name-pattern 'logging' server.test.js"
     risk: P0
-    status: failing
+    status: passing
     allure:
       severity: critical
       categories:
@@ -46,7 +46,7 @@ tasks:
     description: "Add a test proving logging is off by default and that enabling it changes no response status, body, or headers"
     verify: "node --test --test-name-pattern 'logging' server.test.js"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
@@ -56,16 +56,26 @@ tasks:
     description: "Document PROXY_LOG_REQUESTS in the README env var table and the startup-config table in specs/tech-architecture/tech-stack.md"
     verify: "grep -q 'PROXY_LOG_REQUESTS' README.md && grep -q 'PROXY_LOG_REQUESTS' specs/tech-architecture/tech-stack.md"
     risk: P2
-    status: failing
+    status: passing
     allure:
       severity: normal
       categories:
         - "Documentation"
   - id: 7
-    description: "Full suite green, then sync the new total into every living doc that states a count"
-    verify: "npm test && node scripts/check-test-count.mjs"
+    description: >
+      Full suite green, then sync the new total into every living doc that states a
+      count. The verify below asserts the assertion rather than trusting it: it
+      derives N from npm test and fails if any hit outside plans/, docs/research/,
+      LOG.md, specs/epics/*/briefs/, and specs/epics/*/*-tasks.yaml states a different
+      number. Task ledgers are excluded because e01s01 carries a deliberately wrong
+      count as a CI test fixture, which is not a statement about the suite. Briefs
+      and LOG.md are append-only dated records of what a task reported at the time and
+      are never rewritten. It replaced "npm test && node scripts/check-test-count.mjs":
+      that script belongs to e01s01, which never landed, so the command could not pass
+      as written. This is the same replacement e04s01 task 12 already made.
+    verify: "npm test && n=$(npm test 2>/dev/null | grep -E '^. tests ' | grep -oE '[0-9]+$') && grep -q \"tests-${n}%20passing\" README.md && test -z \"$(grep -rnE 'tests(-| )?[0-9]{2,4}|[0-9]{2,4}[ -]?tests?' --include='*.md' --include='*.yaml' . | grep -vE '^\\./(plans/|docs/research/|LOG\\.md|specs/epics/.*/briefs/|specs/epics/.*-tasks\\.yaml)' | grep -vE \"tests(-| )?${n}|[^0-9]${n}[ -]?tests?\")\" && echo \"count ok: ${n} across the living docs\""
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:

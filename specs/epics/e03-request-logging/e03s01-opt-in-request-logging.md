@@ -3,7 +3,7 @@
 * Story: `e03s01`
 * Epic: `e03` — Opt-in request logging
 * Issue: [#9](https://github.com/ak-a-ra/nvidia-api-proxy/issues/9)
-* Status: todo
+* Status: passing
 * BCPs: 3
 * Type: feat | Context: infra
 
@@ -28,7 +28,9 @@ client complaint with proxy activity.
 
 ## 4. Preconditions
 
-- Suite green at 34/34.
+- Suite green at 34/34. That is a dated precondition record, not the current count — the living
+  count is the one in `README.md`'s badge and the count gate in `e03s01-tasks.yaml`, and those are
+  the ones to read.
 - `render.yaml` already captures stdout/stderr as the platform log.
 
 ## 5. Solution and main flow
@@ -68,7 +70,17 @@ New env var `PROXY_LOG_REQUESTS`. Output: one JSON line per request on stdout, e
 
 | Variable | Required | Default | Behavior |
 | --- | --- | --- | --- |
-| `PROXY_LOG_REQUESTS` | No | off | Any non-blank non-`"0"`/`"false"` value enables logging |
+| `PROXY_LOG_REQUESTS` | No | off | `1`/`true`/`yes`/`on` enable, `0`/`false`/`no`/`off` disable, case-insensitively and after trimming; unset or blank is off; any other value is fatal (exit 1) |
+
+*Corrected at story closure against `readLogRequests` in `config.js`.* This row originally read
+"any non-blank non-`0`/`false` value enables logging", which shipped differently by decision: that
+rule would make `PROXY_LOG_REQUESTS=maybe` switch a feature on with no signal that a typo was
+reinterpreted. The rationale and its reversal are recorded in `specs/state.yaml`, the regime in
+`docs/adr/0002-config-operational-fail-fast.md`, and the operator-facing statement in `README.md`
+and the `specs/tech-architecture/tech-stack.md` startup-configuration table. Sections 8, 11, 12, 13
+and 16 below are unchanged and describe what shipped. Section 17's "set to a non-blank value" is
+shorthand for "set to one of the four truthy words"; the scenario is left as written because it is
+an acceptance criterion rather than a statement about the configuration surface.
 
 Read at module import time like every other variable.
 
@@ -80,7 +92,11 @@ None. Counters are not part of this story; issue #21 owns aggregate stats.
 
 - Logging never alters a response status, body, or headers.
 - Logging never throws into the request path — a write failure is swallowed.
-- Log lines never contain credentials, bodies, or upstream hostnames.
+- Log lines never contain credentials, bodies, or upstream hostnames. Scope this: the proxy's own
+  key and token, any header, and any body cannot reach the line, by construction. `path` is the
+  client's own request target copied verbatim, query string included and unredacted, so a secret a
+  caller puts in a query parameter does reach the line — logged verbatim by decision, not by
+  oversight.
 - `/health` requests are logged only if the operator enabled logging; it is not special-cased
   out.
 
@@ -97,6 +113,16 @@ The main risk is a log line becoming a credential leak. Request bodies (which ma
 data) and all `authorization` headers are excluded by construction — the log records only
 method, path, status, and duration. This is the same privacy boundary that keeps
 `/stats` aggregate-only.
+
+The boundary is about the proxy's own state, not the caller's request. `path` is the one field a
+client controls, and it is the incoming request target verbatim, query string included, with no
+redaction and no allowlist of credential-shaped parameter names. Query-string credentials are a
+documented convention on several OpenAI-compatible bases, so a caller may legitimately pass a
+secret that way and the proxy will log it. Logging `pathname` alone, or masking a guessed set of
+parameter names, was considered and rejected: the first silently narrows what an operator
+debugging a query-parameter problem can see, the second is incomplete by construction. The operator
+is told instead — `README.md`, `specs/tech-architecture/tech-stack.md`, and ADR 0002 all state the
+verbatim behavior in those words, and a test pins it so a future redaction is deliberate.
 
 ## 14. Observability
 
@@ -144,6 +170,16 @@ Scenario: A logging failure never breaks the request
   When a client sends a request
   Then the response is still correct
 ```
+
+*Second clarification, added at whole-story review (2026-10-01).* Scenario 2's "the line contains
+no credential" is true of the proxy's configured `NVIDIA_API_KEY` and `PROXY_AUTH_TOKEN`, of any
+`authorization` header, and of any body — the closed field set is what guarantees that. It is not
+true of a secret the *client* puts in the request target: `path` is logged verbatim, query string
+included, so `?api_key=…` is logged. Logged deliberately, disclosed in `README.md`,
+`specs/tech-architecture/tech-stack.md` and ADR 0002, and pinned by `the query string is logged
+verbatim: a client-supplied query credential reaches the line`. The scenario text is left as
+written because it is an acceptance criterion; §11 and §13 above carry the scope. Same treatment as
+§9's corrected row above.
 
 ## 18. Out of scope
 
