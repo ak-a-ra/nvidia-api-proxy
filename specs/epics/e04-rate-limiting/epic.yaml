@@ -21,7 +21,7 @@ stories:
   - id: e04s02
     title: Admit and queue work with bounded concurrency
     bcps: 0
-    status: blocked
+    status: todo
     issue: 15
     blocked_by: [e04s01]
     spec: null

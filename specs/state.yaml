@@ -7,43 +7,37 @@
 ```yaml
 vcs:
   kind: git
-  commit: 6c6a54a
-  branch: feat/e03-opt-in-request-logging
-  worktree: /data/data/com.termux/files/home/workspace/epic-14-config-owner
+  commit: 9d663d9
+  branch: main
+  worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
 workflow_mode: solo-git
 active_flow: plan
 active_epic: e04
-active_story: null
+active_story: e04s02
 session_start: 2026-09-23T08:14:23Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: plan
+  next_skill: slice-tasks
   source: issue-15
   note: >-
-    e03s01 is complete on feat/e03-opt-in-request-logging, branched off merged main
-    (e69fa8f): all seven tasks passing, each one observed with its own verify command
-    exiting 0, and the suite is 100 tests green in a clean environment (85 before this
-    story). PROXY_LOG_REQUESTS is parsed in config.js as a closed vocabulary
-    (1/true/yes/on enable, 0/false/no/off disable, unset or blank is off, anything else
-    exits 1 naming the variable and its rule) and server.js writes one JSON line per
-    request to stdout on the response's close event, covering /health and every local
-    rejection, with method, path, status, and duration as the only fields. Write
-    failures are swallowed, so a broken stdout cannot reach the request path. The test
-    harness gained captureStdout and logThrows options on the two spawn helpers,
-    because "no secret in the log" is untestable against a log nobody can read.
-    Tasks 6 and 7 closed it: the variable is documented in the README env var table,
-    in the copy-paste block, in a Request logging subsection that states the line
-    format and the exclusion list, and in the startup-config table in
-    specs/tech-architecture/tech-stack.md. ADR 0002 now carries the regime rather
-    than this file holding it alone, and the count is synced in every living doc.
-    Nothing in the story is outstanding.
+    e03s01 is landed on main (9d663d9, merge of feat/e03-opt-in-request-logging off
+    e69fa8f), all seven tasks passing and the suite green at 100. Two things were
+    outstanding when this release started and both are now closed: the
+    whole-story review round had never been committed, so its F1 disclosure of the
+    query-string credential boundary (the incoming request target is logged
+    verbatim, query string included) sat as an uncommitted test and uncommitted doc
+    edits, and the fifteenth logging test it pinned moved the suite from 99 to 100
+    without task 7's count gate being re-run. Both are committed on main; the gate
+    prints "count ok: 100 across the living docs".
     Next is issue #15 (e04s02, Admit and queue work with bounded concurrency), the
-    first unblocked slice of the strict #14 -> #15 -> ... -> #22 chain now that #14 is
-    closed. It has no story capsule and no task ledger, so planning it comes before
-    executing it; its acceptance criteria are written against
+    first unblocked slice of the strict #14 -> #15 -> ... -> #22 chain now that #14
+    is closed. It has no story capsule and no task ledger, so planning it comes
+    before executing it: slice-tasks then plan-work, with the orchestrator role in
+    AGENTS.md (one implementer subagent per task, one reviewer subagent per task)
+    applying as it did for e04s01. Its acceptance criteria are written against
     PROXY_MAX_CONCURRENT_REQUESTS, PROXY_MAX_QUEUE_SIZE and
-    PROXY_QUEUE_TIMEOUT_SECONDS, which e04s01 already parses and stores. Issue #9
-    stays open until the orchestrator closes it at release.
+    PROXY_QUEUE_TIMEOUT_SECONDS, which e04s01 already parses and stores and which
+    nothing enforces yet.
 decisions:
   - decision: Plan only the unblocked slice of the rate limiting epic
     rationale: >-
@@ -231,6 +225,10 @@ decisions:
       inventing a third form of the same check. The replacement was run, not
       assumed: exit 0 and "count ok: 99 across the living docs". The count itself is
       unchanged by this decision, so no doc count moved because of it.
+release:
+  ci_verified: true
+  ci_run: 36979464322
+  merged: 9d663d9
 metrics:
-  story_start: 2026-09-30T00:00:00Z
+  story_start: 2026-10-02T00:00:00Z
 ```
