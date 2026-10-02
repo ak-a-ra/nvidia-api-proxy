@@ -34,3 +34,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run format:check
+      # The spec ledger is a fenced YAML block inside a markdown file, and
+      # PyYAML silently keeps the last value for a duplicate key. This script
+      # negative-tests the reader so a broken ledger cannot pass unnoticed.
+      - run: python3 scripts/check-state-yaml.py

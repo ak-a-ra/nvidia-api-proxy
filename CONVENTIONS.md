@@ -30,9 +30,9 @@ exist in `server.js`.
 
 ## Architecture
 
-- `server.js` — HTTP handling: server lifecycle, auth, path mapping, upstream fetch and streaming, timeouts, shutdown (~249 lines)
-- `config.js` — Configuration: parsing and validation for every environment variable (~309 lines)
-- `server.test.js` — Test suite (~1798 lines)
+- `server.js` — HTTP handling: server lifecycle, auth, path mapping, upstream fetch and streaming, timeouts, shutdown (~283 lines)
+- `config.js` — Configuration: parsing and validation for every environment variable (~352 lines)
+- `server.test.js` — Test suite (~2464 lines)
 - Modules split by concern; `config.js` imports nothing from `server.js`, so configuration can be read without starting a listener
 
 ## Naming Conventions

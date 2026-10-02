@@ -38,7 +38,13 @@ def read_state(path):
             break
     if end is None:
         raise ValueError("```yaml block is never closed")
-    import yaml
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover - CI/host dependency
+        raise SystemExit(
+            "PyYAML is required to validate specs/state.yaml. "
+            "Install it with: pip install pyyaml"
+        )
     # PyYAML silently keeps the LAST value for a duplicate key, which would
     # drop a handoff field with no error at all. Reject duplicates instead.
     class NoDupesLoader(yaml.SafeLoader):

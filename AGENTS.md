@@ -82,7 +82,7 @@ Example — destructive op:
 
 ## Part 2 — Repository knowledge
 
-Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `server.js` (~288 lines), configuration parsing in `config.js` (~343 lines); tests in `server.test.js` (~2351 lines). Runtime is dependency-free; lint/typecheck/format are dev-only (`devDependencies`) and are configured — see `eslint.config.js`, `tsconfig.json`, `.prettierrc.json`.
+Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `server.js` (~283 lines), configuration parsing in `config.js` (~352 lines); tests in `server.test.js` (~2464 lines). Runtime is dependency-free; lint/typecheck/format are dev-only (`devDependencies`) and are configured — see `eslint.config.js`, `tsconfig.json`, `.prettierrc.json`.
 
 ### Commands
 
