@@ -127,6 +127,8 @@ still stored-only.
 
 - Suite green at the merge base. That is a dated record, not the current count — §21
   carries the live figure, which is the one to read and the one the count gate checks.
+  The floor is 100, and task 8's gate fails until the suite is above it, so a build that
+  adds no black-box test cannot report itself done.
 - e04s01 landed: the three variables are already parsed, validated, fatal-on-bad-value,
   and stored, so this story adds enforcement only. It changes no parsing rule and adds
   no environment variable.
@@ -397,8 +399,13 @@ The tag set is empty and no human approval is required.
 - Overload leaking internals → detected by task 2's exact-body assertion and task 5's
   leak check.
 - Regression in the existing suite (the baseline is the detector; the count is carried by
-  task 8's gate, which derives it from `npm test` rather than from a remembered number).
+  task 8's gate, which derives it from `npm test` and also refuses to pass while the
+  suite sits at the pre-story floor of 100).
 - Docs left asserting "stored, not enforced" → detected by task 7.
+- A stale count in `specs/state.yaml`'s handoff note → not detectable by the count scan,
+  which needs the word "tests" next to the number and that file states bare figures.
+  Task 8 names the file instead; AGENTS.md already lists the handoff note as a site to
+  keep current.
 
 ## 22. Out-of-scope references
 
