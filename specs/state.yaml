@@ -17,27 +17,23 @@ active_story: e04s02
 session_start: 2026-09-23T08:14:23Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: slice-tasks
+  next_skill: kickoff-branch
   source: issue-15
   note: >-
-    e03s01 is landed on main (9d663d9, merge of feat/e03-opt-in-request-logging off
-    e69fa8f), all seven tasks passing and the suite green at 100. Two things were
-    outstanding when this release started and both are now closed: the
-    whole-story review round had never been committed, so its F1 disclosure of the
-    query-string credential boundary (the incoming request target is logged
-    verbatim, query string included) sat as an uncommitted test and uncommitted doc
-    edits, and the fifteenth logging test it pinned moved the suite from 99 to 100
-    without task 7's count gate being re-run. Both are committed on main; the gate
-    prints "count ok: 100 across the living docs".
-    Next is issue #15 (e04s02, Admit and queue work with bounded concurrency), the
-    first unblocked slice of the strict #14 -> #15 -> ... -> #22 chain now that #14
-    is closed. It has no story capsule and no task ledger, so planning it comes
-    before executing it: slice-tasks then plan-work, with the orchestrator role in
-    AGENTS.md (one implementer subagent per task, one reviewer subagent per task)
-    applying as it did for e04s01. Its acceptance criteria are written against
-    PROXY_MAX_CONCURRENT_REQUESTS, PROXY_MAX_QUEUE_SIZE and
-    PROXY_QUEUE_TIMEOUT_SECONDS, which e04s01 already parses and stores and which
-    nothing enforces yet.
+    e04s02 is planned, not implemented. The capsule landed on main: the story spec is
+    specs/epics/e04-rate-limiting/e04s02-admit-and-queue.md, the ledger is
+    e04s02-tasks.yaml with eight tasks, and epic.yaml now lists e04s02 as planned
+    with bcps 8. Nothing in the runtime changed; the suite is still green at 100,
+    which is the pre-story floor. All eight verifies were executed against the
+    unbuilt tree and all eight fail there, so no row is green before its task is
+    done. Next is kickoff-branch off main for feat/e04-admission-control, then
+    execute-plan through the orchestrator role in AGENTS.md (one implementer
+    subagent per task, one reviewer subagent per task), as e04s01 did.
+    Three decisions were taken during planning and are recorded below: admission
+    state lives in a new root-level admission.js rather than in server.js; the
+    queue wait is event-driven, resolved by the release that frees capacity, with
+    no polling; and abort-aware and shutdown-safe admission stay out of scope
+    because they are issue #16, e04s03.
 decisions:
   - decision: Plan only the unblocked slice of the rate limiting epic
     rationale: >-
@@ -180,6 +176,44 @@ decisions:
       silenced the gate for every future story spec, which is the drift the gate exists
       to catch, so the number moved to 82 and the verify pattern is unchanged. The gate
       now covers story specs as it was written, and it is green rather than relaxed.
+  - decision: Admission state gets its own root-level module, and the wait is event-driven
+    rationale: >-
+      Decided 2026-10-02, for e04s02 planning. Three forks were open and all three were
+      settled from repo precedent rather than left as questions. Ownership: a new
+      root-level admission.js holds the active count, the FIFO list, and the per-ticket
+      settled flag, on the config.js precedent and because #13 stories 59-61 and 135-138
+      ask for one owner of limiter state; scattering a counter across four terminal
+      branches in server.js is how a slot leaks or double-releases. Wait mechanism: a
+      waiter is resolved by the release that frees capacity, never by a polling timer,
+      because #13 story 68 forbids fine-grained busy polling and a poll wakes the event
+      loop for every waiting client on every tick. Placement: the gate sits after
+      authentication and after the unconfigured check, so an anonymous caller cannot
+      distinguish a full queue from an authorized request, which would leak credential
+      state and contradict the ordering ADR 0001 already fixes.
+  - decision: Abort-aware and shutdown-safe admission are e04s03, not part of e04s02
+    rationale: >-
+      Decided 2026-10-02, for e04s02 planning, to keep the first traffic-changing slice
+      small. A queued request whose client disconnects, and SIGTERM rejecting waiters
+      with 503, are both named in issue #16 and are already sequenced there as e04s03.
+      What e04s02 does guarantee is that a waiter cannot leak: a wait ends either by
+      admission or by the configured timeout, and the release handle is idempotent, so
+      there is no third path in which a waiter is stranded. Planning measured that
+      writeHead and end after res.destroy() neither throw synchronously nor crash the
+      server, so the rejection path is safe to build now; the behavior worth having
+      (not charging a departed client for capacity, not holding sockets through
+      shutdown) is the part that waits for #16.
+  - decision: The count gate carries a pre-story floor so a no-test implementation cannot pass it
+    rationale: >-
+      Decided 2026-10-02, for e04s02 task 8. A gate that only checks the docs agree with
+      each other is green on an untouched tree: the count is 100 before the story and 100
+      after an implementer adds no tests, so every doc still agrees and the row goes
+      green for work that did not happen. The gate therefore fails when the suite is not
+      above the pre-story floor of 100. This was found by running all eight verifies
+      against the unbuilt tree rather than by reasoning about them: task 8 was the one
+      row that passed, and it passed for exactly that reason. Two other defects in the
+      same row were fixed the same way, one an escaped dollar sign that made the YAML
+      unparseable and one a nested-quoting parse error that exited 127, which looked
+      like a failing assertion but was a broken command.
   - decision: PROXY_LOG_REQUESTS is a closed vocabulary, and anything outside it is fatal
     rationale: >-
       Decided 2026-10-01, for e03s01 task 1, against the story's section 9 wording

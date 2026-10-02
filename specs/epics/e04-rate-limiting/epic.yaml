@@ -5,9 +5,9 @@ total_bcps: 9
 status: in_progress
 issue: 13
 parent_issue: 13
-# The nine slices are a strict linear blocked-by chain. Only the first is
-# planned; the rest stay todo with no capsule so the plan never implies work
-# that cannot start.
+# The nine slices are a strict linear blocked-by chain. A slice gets a capsule
+# (spec + tasks) when it becomes the head of the chain; the rest stay todo with
+# spec: null and tasks: null so the plan never implies work that cannot start.
 stories:
   - id: e04s01
     title: Validated operational config owner and configurable bind host
@@ -20,12 +20,12 @@ stories:
 
   - id: e04s02
     title: Admit and queue work with bounded concurrency
-    bcps: 0
-    status: todo
+    bcps: 8
+    status: planned
     issue: 15
     blocked_by: [e04s01]
-    spec: null
-    tasks: null
+    spec: e04s02-admit-and-queue.md
+    tasks: e04s02-tasks.yaml
 
   - id: e04s03
     title: Make admission abort-aware and shutdown-safe

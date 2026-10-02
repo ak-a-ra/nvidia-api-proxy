@@ -1,0 +1,186 @@
+story_id: e04s02
+title: Admit and queue work with bounded concurrency
+status: failing
+bcps: 8
+issue: 15
+type: feat
+risk: P0
+context: infra
+tasks:
+  - id: 1
+    description: >
+      Add a root-level admission.js that owns all admission state behind one narrow interface:
+      construct it from config.limits, acquire() returns either an immediate admission, a
+      pending ticket resolved later, or a rejection, and release() frees a slot and wakes the
+      oldest waiter. Three invariants live inside this module and nowhere else: the active
+      count never exceeds the ceiling, release is idempotent per admission (a settled flag, not
+      a call count), and a ticket whose wait timed out is never admitted afterwards. When
+      config.limits.maxConcurrentRequests is null the module admits everything immediately,
+      allocates no queue, and starts no timer, so the request path is today's path.
+      This story adds no environment variable, so CONFIG_ENV_VARS in server.test.js needs no
+      entry; do not add one. server.js must not re-export limiter internals (issue #13 story
+      138) and no second test seam may appear (story 139), so admission.js stays tested
+      through the existing black-box child-process harness.
+    verify: "npm test && node -e \"const s=require('fs').readFileSync('admission.js','utf8'); if(!/maxConcurrentRequests/.test(s)){console.error('admission.js does not read the configured ceiling');process.exit(1);} const v=require('fs').readFileSync('server.js','utf8'); if(/export\\s*{[^}]*\\b(createAdmission|admission|acquire)\\b/.test(v)){console.error('server.js must not re-export limiter internals');process.exit(1);} if(/setInterval/.test(s)){console.error('admission must be event-driven, never polled');process.exit(1);} console.log('no new security findings in affected paths: no new export, no polling');\""
+    risk: P0
+    security: low
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Admission"
+        - "Refactor"
+  - id: 2
+    description: >
+      Wire the gate into server.js after the unconfigured check and before the upstream
+      request is built, so a queued or rejected request never contacts the upstream. Add black-box
+      tests for: the ceiling absent, blank, and "0" admitting every concurrent request with no
+      wait and no rejection; a positive ceiling admitting up to that many and making the rest
+      wait; and a full queue answering 429 with body exactly {"error":"Too many requests"}, a
+      positive Retry-After, and zero upstream requests for the rejected one. The stub upstream
+      needs a mode that holds a response open so a ceiling can be observed; add it additively and
+      leave every existing mode untouched. Both rejection reasons must share one sendJson path so
+      the request stays drained and the keep-alive connection survives the early rejection.
+      Tests must drive ordering through the stub's recorded arrival, never by sleeping and hoping.
+    verify: "out=$(node --test --test-reporter=tap --test-name-pattern 'concurrency ceiling|full queue' server.test.js 2>&1); rc=$?; test $rc -eq 0 && t=$(printf '%s\\n' \"$out\" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(concurrency ceiling|full queue)') && test \"$t\" -ge 3 && node -e \"const s=require('fs').readFileSync('server.js','utf8'); if(!/retry-after|Retry-After/i.test(s)){console.error('429 must carry Retry-After');process.exit(1);} if(!/Too many requests/.test(s)){console.error('rejection body missing');process.exit(1);} console.log('no new security findings in affected paths: rejection body is a fixed string');\""
+    risk: P0
+    security: high
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Admission"
+        - "Config"
+        - "Security Review"
+  - id: 3
+    description: >
+      Prove the queue is strict FIFO and that an arriving request cannot overtake an older
+      waiter. With a one-slot ceiling, drive three requests in a known arrival order while the
+      single slot is busy and assert the upstream recorded those same three bodies in that same
+      order. Also pin the no-bypass rule directly: while one request waits, a request that arrives
+      afterwards with the slot already free must still wait behind it. The wait must be resolved
+      by the release that frees capacity, never by a timer that polls, and no test may assert an
+      ordering the stub did not record.
+    verify: "out=$(node --test --test-reporter=tap --test-name-pattern 'FIFO' server.test.js 2>&1); rc=$?; test $rc -eq 0 && t=$(printf '%s\\n' \"$out\" | grep -cE '^[[:space:]]*ok [0-9]+ - .*FIFO') && test \"$t\" -ge 1 && node -e \"const s=require('fs').readFileSync('admission.js','utf8'); if(/setInterval|while\\s*\\(\\s*true/.test(s)){console.error('queue wait must be event-driven');process.exit(1);} console.log('no new security findings in affected paths: FIFO order does not leak caller data');\""
+    risk: P0
+    security: low
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Admission"
+  - id: 4
+    description: >
+      Prove capacity is released exactly once on every terminal path, each through the one shared
+      cleanup path: normal completion, a no-body response, an upstream error status passed
+      through, a pre-header upstream failure, and a mid-stream upstream failure. For each, run the
+      failing or finishing request first under a one-slot ceiling, then assert the next request is
+      admitted rather than queued forever, which is what a leaked slot looks like. A double
+      release is the opposite failure and inflates capacity past the configured ceiling: cover it
+      by asserting that after the terminal path the still-busy slot does not admit a second
+      request. This task is where the queue-timeout rejection is added, so a wait that expires
+      answers 429 with the same fixed body and a Retry-After carrying the configured wait.
+    verify: "out=$(node --test --test-reporter=tap --test-name-pattern 'slot release|queue timeout|terminal' server.test.js 2>&1); rc=$?; test $rc -eq 0 && t=$(printf '%s\\n' \"$out\" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(slot release|queue timeout|terminal)') && test \"$t\" -ge 4 && npm test"
+    risk: P0
+    security: medium
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Admission"
+        - "Streaming"
+        - "Security Review"
+  - id: 5
+    description: >
+      Prove the two properties that are easy to regress silently. First, /health bypasses
+      admission: with a one-slot ceiling, one request streaming, and the queue full, /health must
+      still answer 200 with its existing body. Second, the 429 leaks nothing: assert the response
+      body is exactly the fixed string and that it names no model, path, queue depth, budget
+      value, or upstream host. Extend the same assertion to prove enabling the ceiling changes no
+      pass-through behavior once a request is admitted: path mapping, query forwarding, credential
+      swap, header fidelity, byte-identical request body, and SSE streaming all behave as they do
+      with the ceiling disabled.
+    verify: "out=$(node --test --test-reporter=tap --test-name-pattern 'health bypass|leak|429 body' server.test.js 2>&1); rc=$?; test $rc -eq 0 && t=$(printf '%s\\n' \"$out\" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(health bypass|leak|429 body)') && test \"$t\" -ge 2 && node -e \"const s=require('fs').readFileSync('server.js','utf8'); if(/health[\\s\\S]{0,400}acquire/.test(s)){console.error('/health must not pass through admission');process.exit(1);} console.log('no new security findings in affected paths: overload response is inert');\""
+    risk: P0
+    security: high
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Admission"
+        - "Security Review"
+        - "Streaming"
+  - id: 6
+    description: >
+      Correct the one existing test whose title this story falsifies:
+      "PROXY_MAX_CONCURRENT_REQUESTS=1 over a one-slot queue still proxies normally (values
+      validated, not applied)". Its assertion stays verbatim, because a single request under a
+      one-slot ceiling still proxies normally, but the title must no longer claim the ceiling
+      changes no traffic. ADR 0002 records that a later enforcing slice has to change this test
+      deliberately, and that is this change. Rename it so it states the surviving claim: a single
+      request under a one-slot ceiling is admitted and proxied normally. Do not touch the three
+      sibling tests named "values validated, not applied" for the rate pair, the body-buffer cap,
+      and the per-model map, and do not weaken or delete any assertion anywhere.
+    verify: "node --test --test-reporter=tap --test-name-pattern 'PROXY_MAX_CONCURRENT_REQUESTS' server.test.js 2>&1 | grep -cE '^[[:space:]]*ok [0-9]+ - .*PROXY_MAX_CONCURRENT_REQUESTS' && node -e \"const s=require('fs').readFileSync('server.test.js','utf8'); const stale=s.split('\\n').filter((l)=>/values validated, not applied/.test(l)&&/MAX_CONCURRENT/.test(l)); if(stale.length){console.error('stale concurrency title remains: '+stale[0].trim());process.exit(1);} const keep=s.split('\\n').filter((l)=>/values validated, not applied/.test(l)); if(keep.length<3){console.error('the three stored-only tests must keep their titles, found '+keep.length);process.exit(1);} console.log('titles reconciled: one corrected, three stored-only claims intact');\""
+    risk: P1
+    security: none
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Documentation"
+        - "Regression"
+  - id: 7
+    description: >
+      Correct every living document that now says the three variables are stored and not
+      enforced, since this story makes them enforced. README.md: move PROXY_MAX_CONCURRENT_REQUESTS,
+      PROXY_MAX_QUEUE_SIZE, and PROXY_QUEUE_TIMEOUT_SECONDS out of the "stored, not enforced" note
+      into the live set, and retitle the rate-limiting block so the remaining stored-only variables
+      are named correctly. specs/tech-architecture/tech-stack.md: same correction in the startup
+      configuration table and in the paragraph beneath it. CONTEXT.md: correct only the paragraph
+      that disclaims enforcement for Admission control and Queue, leaving the rate budget, per-model
+      budget, safety margin, and usage reconciliation disclaims in place and the glossary
+      definitions unchanged. docs/adr/0002: amend Decision 1.4 and the Coverage section, which both
+      assert the eight limits are unenforced, and record that the concurrency ceiling is now live
+      while the other five stay stored-only. specs/product/SCOPE_LATEST.yaml: the accepted-tradeoffs
+      paragraph claiming nothing reads the operational variables is no longer true.
+      CONVENTIONS.md: add admission.js to Architecture and File Organization with the same
+      ownership split config.js established, and move "Rate limit" out of the planned list in the
+      Defensive Code Categories, since the concurrency half is now implemented.
+      README.md's IMPORTANT note about unenforced limits must keep naming the two
+      genuinely stored-only groups rather than being deleted wholesale, since five limits stay
+      unenforced in this story.
+    verify: "grep -q 'stored, not enforced' README.md && ! grep -qE 'PROXY_MAX_CONCURRENT_REQUESTS[^|]*not enforced' README.md && grep -q 'admission.js' CONVENTIONS.md && grep -q 'enforced' docs/adr/0002-config-operational-fail-fast.md && grep -q 'Admission control' CONTEXT.md && node -e \"for (const f of ['README.md','CONTEXT.md','specs/tech-architecture/tech-stack.md','docs/adr/0002-config-operational-fail-fast.md','specs/product/SCOPE_LATEST.yaml']) { const s=require('fs').readFileSync(f,'utf8'); if(/PROXY_MAX_CONCURRENT_REQUESTS[^.]*reads them at request time, so setting a limit changes no traffic/.test(s)) { console.error('stale unenforced claim in '+f); process.exit(1);} } console.log('all five documents no longer claim the ceiling is inert');\""
+    risk: P1
+    security: none
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Documentation"
+        - "Domain"
+  - id: 8
+    description: >
+      Full suite green with the default export still the only test seam, then sync the new total
+      into every living doc that states a count. The verify below asserts the assertion rather
+      than trusting it. It runs npm test once, derives N from the summary line, and fails if N is
+      not above the pre-story floor of 100 — without that guard this task would go green for an
+      implementer who added no tests at all and simply left every count untouched. It then
+      requires the README badge to read tests-N%20passing, and fails if any doc outside plans/,
+      docs/research/, .superpowers/, LOG.md, specs/epics/*/briefs/, and
+      specs/epics/*/*-tasks.yaml states a different number. The dated agent archives under
+      .superpowers/sdd/ hold per-run counts and are excluded for the same reason plans/ is.
+      Task ledgers are excluded because e01s01 carries a deliberately wrong count as a CI
+      fixture, which is not a statement about the suite. Briefs and LOG.md are append-only dated
+      records and are never rewritten; this story spec is none of the three and stays in scope.
+      It carries the word tests in its own prose, so the scan must skip this ledger file, which
+      the exclusion handles.
+    verify: "node -e \"const r = require(\\\"child_process\\\").spawnSync(\\\"npm\\\", [\\\"test\\\"], { encoding: \\\"utf8\\\", maxBuffer: 268435456 });\nconst out = (r.stdout || \\\"\\\") + (r.stderr || \\\"\\\");\nif (r.status !== 0) {\n  process.stdout.write(out.slice(-4000));\n  console.error(\\\"npm test failed\\\");\n  process.exit(1);\n}\nconst FLOOR = 100;\nconst line = out.split(\\\"\\\\n\\\").find((l) => /tests\\\\s+[0-9]+/.test(l));\nif (!line) {\n  console.error(\\\"no test count in npm test output\\\");\n  process.exit(1);\n}\nconst n = Number((line.match(/tests\\\\s+([0-9]+)/) || [])[1]);\nif (!Number.isInteger(n) || n < 1) {\n  console.error(\\\"could not derive a test count, got \\\" + line.trim());\n  process.exit(1);\n}\nif (n <= FLOOR) {\n  console.error(\\\"suite is still at the pre-story floor of \\\" + FLOOR + \\\" tests: no black-box test was added, and syncing the docs to an unchanged count would hide that\\\");\n  process.exit(1);\n}\nconst fs = require(\\\"fs\\\");\nconst badge = \\\"tests-\\\" + n + \\\"%20passing\\\";\nif (!fs.readFileSync(\\\"README.md\\\", \\\"utf8\\\").includes(badge)) {\n  console.error(\\\"README badge is not \\\" + badge);\n  process.exit(1);\n}\nconst SKIP = /^\\\\.\\\\/?(plans\\\\/|docs\\\\/research\\\\/|\\\\.superpowers\\\\/|LOG\\\\.md|specs\\\\/epics\\\\/.*\\\\/briefs\\\\/|specs\\\\/epics\\\\/.*-tasks\\\\.yaml)/;\nconst COUNT = /tests(-| )?[0-9]{2,4}|[0-9]{2,4}[ -]?tests?/;\nconst MENTION = new RegExp(\\\"(tests(-| )?\\\" + n + \\\"|[^0-9]\\\" + n + \\\"[ -]?tests?)\\\");\nconst bad = [];\nconst walk = (d) => {\n  for (const e of fs.readdirSync(d, { withFileTypes: true })) {\n    if (e.name === \\\"node_modules\\\" || e.name === \\\".git\\\") continue;\n    const p = d + \\\"/\\\" + e.name;\n    if (e.isDirectory()) {\n      walk(p);\n      continue;\n    }\n    const isDoc = e.name.endsWith(\\\".md\\\") || e.name.endsWith(\\\".yaml\\\");\n    if (!isDoc) continue;\n    if (SKIP.test(p)) continue;\n    fs.readFileSync(p, \\\"utf8\\\")\n      .split(\\\"\\\\n\\\")\n      .forEach((l, i) => {\n        if (COUNT.test(l) && !MENTION.test(l)) bad.push(p + \\\":\\\" + (i + 1) + \\\": \\\" + l.trim().slice(0, 90));\n      });\n  }\n};\nwalk(\\\".\\\");\nif (bad.length) {\n  console.error(\\\"stale test counts:\\\\n\\\" + bad.join(\\\"\\\\n\\\"));\n  process.exit(1);\n}\nconsole.log(\\\"count ok: \\\" + n + \\\" tests across the living docs\\\");\""
+    risk: P1
+    security: none
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Regression"
+        - "Documentation"
