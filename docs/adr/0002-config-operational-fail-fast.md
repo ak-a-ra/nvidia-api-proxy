@@ -2,9 +2,12 @@
 
 * Status: accepted
 * Date: 2026-10-01
-* Amended: 2026-10-01 — e03s01 adds `PROXY_LOG_REQUESTS`, the tenth operational variable and the
-  first one that is a flag rather than a ceiling. The regime does not move; the parsing rule is a
-  closed vocabulary. See *Decision* §1.5, §2, and *Compliance*.
+* Amended: 2026-10-01 — e03s01 adds `PROXY_LOG_REQUESTS`, the tenth `PROXY_*` operational variable
+  and the first one that is a flag rather than a ceiling. The regime does not move; the parsing
+  rule is a closed vocabulary. See *Decision* §1.5, §2, and *Compliance*.
+* Amended: 2026-10-01 — counts corrected against `config.js`: eight rate-limiting limits (the epic
+  added nine `PROXY_*` variables, `PROXY_HOST` being the ninth and not a limit), ten variables on
+  the fatal path. See *Context* and *Consequences*.
 * Deciders: maintainers
 * Extends: ADR 0001 — [Config validation — fail-fast for base URL, degrade for credentials](0001-config-validation-fail-fast-vs-degrade.md)
 * Context file: [`CONTEXT.md`](../../CONTEXT.md) — see *misconfigured*, *unconfigured*, *health*, *connect window*, *idle window*
@@ -19,7 +22,10 @@ other.
 The rate limiting epic then arrived needing nine more variables, and none of them is a credential:
 `PROXY_HOST`, `PROXY_RPM`, `PROXY_TPM`, `PROXY_MAX_CONCURRENT_REQUESTS`, `PROXY_MAX_QUEUE_SIZE`,
 `PROXY_QUEUE_TIMEOUT_SECONDS`, `PROXY_SAFETY_MARGIN_PCT`, `PROXY_MAX_BUFFERED_BODY_BYTES`, and
-`PROXY_MODEL_LIMITS_JSON`. Their failure modes are not obvious. A silently-defaulted queue depth, a
+`PROXY_MODEL_LIMITS_JSON`. Nine is how many variables that epic added; **eight** is how many of
+them are rate-limiting limits. `PROXY_HOST` is the ninth, a bind address with no validation rule
+and no fatal path, so it is named apart from the eight wherever the two are counted apart below.
+Their failure modes are not obvious. A silently-defaulted queue depth, a
 whitespace value read as `0`, a half-written rate pair — none of these crashes anything. They just
 produce a proxy that enforces something other than what the operator wrote, or enforces nothing
 while appearing to.
@@ -36,18 +42,22 @@ So the question this ADR answers is narrow and deliberate: **where does ADR 0001
 fall for variables that describe an operational policy, and what happens to the existing lenient
 fallback?**
 
-A tenth operational variable has since arrived from a different epic — `PROXY_LOG_REQUESTS`
-(issue #9, story `e03s01`) — and it is the first one that is not a ceiling. It is a flag, so it has
-no range to validate: its rule is a vocabulary instead of a number. The same question applies, and
-the answer is the same regime with a rule that could not have been written for the other nine.
+A tenth `PROXY_*` operational variable has since arrived from a different epic —
+`PROXY_LOG_REQUESTS` (issue #9, story `e03s01`) — and it is the first one that is not a ceiling.
+"Tenth" counts the ten `PROXY_*` variables this project has: the eight rate-limiting limits, plus
+`PROXY_HOST`, plus this flag. It is a flag, so it has no range to validate: its rule is a
+vocabulary instead of a number. The same question applies, and the answer is the same regime with
+a rule that could not have been written for the other nine.
 
 ## Decision
 
 ### 1. The two regimes extend; neither moves
 
-1. **Operational configuration fails fast at startup.** Any of the nine variables above, supplied
-   non-blank with a value its rule rejects, calls `process.exit(1)` from `parseConfig` with one
-   line on stderr naming the variable and the rule it broke.
+1. **Operational configuration fails fast at startup.** Any of the eight rate-limiting limits
+   above, and `PROXY_LOG_REQUESTS`, supplied non-blank with a value its rule rejects, calls
+   `process.exit(1)` from `parseConfig` with one line on stderr naming the variable and the rule
+   it broke. `PROXY_HOST` is the ninth variable of that epic and is deliberately absent here: it
+   has no rule to break (see its own entry below).
 2. **The credential regime from ADR 0001 is unchanged.** A missing or whitespace-only
    `NVIDIA_API_KEY` or `PROXY_AUTH_TOKEN` still starts the process and still degrades to
    `unconfigured`: `/health` → 503 `{ status: "unconfigured" }`, proxied request → 503
@@ -58,16 +68,15 @@ the answer is the same regime with a rule that could not have been written for t
    fallback for an empty, whitespace, non-finite, or negative value. Tightening them is a
    behavior change outside this decision's scope. Nothing else may use `readSeconds`; the
    leniency is a named exception, not a general parsing mode.
-4. **The nine rate-limiting variables above are validated and stored, not enforced.** Nothing in
-   this change reads them at request time except `config.host`, which `server.js` passes to
-   `server.listen`. The rate budgets, ceilings, and per-model map are dead weight on the config
-   object until the later slices (#15–#22) act on them. This story changes nothing about request
-   handling.
+4. **The eight rate-limiting limits above are validated and stored, not enforced.** Nothing reads
+   them at request time; they are dead weight on the config object until the later slices (#15–#22)
+   act on them. The epic's ninth variable, `config.host`, is the exception that does get read, by
+   `server.listen`. This story changes nothing about request handling.
 5. **`PROXY_LOG_REQUESTS` is under the same regime, and is the one operational variable that is
    live.** Anything outside its vocabulary is fatal at startup, exactly like a mistyped ceiling:
    the failure shape is identical — a value the operator wrote and the proxy did not honor, noticed
-   by nobody. Unlike the nine, it *is* read at request time, so `config.logRequests` gates one
-   stdout line per request rather than sitting unread. The variable is new, so this fatal path
+   by nobody. Unlike the eight stored limits, it *is* read at request time, so `config.logRequests`
+   gates one stdout line per request rather than sitting unread. The variable is new, so this fatal path
    cannot break a deployment that predates it. Absent, blank, or falsy it is off, which is what
    keeps a deployment that never sets it byte-identical to a build without the feature.
 
@@ -318,12 +327,27 @@ otherwise normalized — and case sensitivity is load-bearing: `Gpt` and `gpt` a
   literal in `logRequestOnClose` names `ts`, `method`, `path`, `status`, and `ms` and nothing else,
   so a header, a body, a credential, or the upstream host cannot reach the line even if a future
   edit forgets to exclude one. Its privacy boundary is reviewable as a five-item list.
+* **One caveat on that boundary, because a closed field set is not a redaction pass.** `path` is
+  the incoming request target copied byte for byte — query string included, with nothing masked and
+  no allowlist of credential-shaped parameter names. It is the only client-controlled field in the
+  line, so a caller that puts a secret in a query parameter puts it in the operator's stdout, and
+  query-string credentials are a documented convention on several OpenAI-compatible bases. The
+  exclusion list above is true about the *proxy's own* state (its key, its token, headers, bodies,
+  upstream host) and silent about the caller's URL; `README.md`, `tech-stack.md` § Request Logging,
+  and story §11/§13/§17 say so in those words. Rejected alternative: logging `incoming.pathname`
+  alone, or masking a guessed set of parameter names — the first silently narrows what an operator
+  debugging a query-parameter problem can see, the second is incomplete by construction, and both
+  break the story's §8 verbatim-path contract. Disclosing is the honest fix; redacting is a
+  different, deliberate design decision a future story can take with a migration note. The current
+  behavior is pinned by `the query string is logged verbatim: a client-supplied query credential
+  reaches the line`.
 
 **Negative / neutral**
 
 * **Two regimes — plus a third behavior for the two timeout variables — is a real asymmetry.**
-  Eleven variables fail fast (the base URL from ADR 0001, these nine, and `PROXY_LOG_REQUESTS`),
-  two degrade, and two keep their own fallback. The dividing line is a judgment about what kind of
+  Ten variables fail fast (the base URL from ADR 0001, the eight rate-limiting limits, and
+  `PROXY_LOG_REQUESTS`; `PROXY_HOST` has no rule and so no fatal path), two degrade, and two keep
+  their own fallback. The dividing line is a judgment about what kind of
   state a variable describes, so it has to be *understood*, not memorized — this ADR and ADR 0001
   are what carry it, and `config.js` states the rule at each guard.
 * **`config.js` now holds three parsing shapes, and the flag's is a word list.** Digits-only range,
@@ -503,7 +527,7 @@ Pinned by tests in `server.test.js`. Every name below is quoted from the suite.
   pinned by the fatal path echoing an uppercase key byte for byte, which a lowercasing mutation
   cannot fake. The stored map itself remains *reviewed by eye*: nothing in the harness can hold it.
 
-**`PROXY_LOG_REQUESTS` (added by e03s01, the tenth operational variable):**
+**`PROXY_LOG_REQUESTS` (added by e03s01, the tenth `PROXY_*` operational variable):**
 
 * `logging is off by default: unset, blank, 0 and false write no request log line` — the
   default-off regime, in all four of the ways it can be reached;
@@ -521,6 +545,11 @@ Pinned by tests in `server.test.js`. Every name below is quoted from the suite.
 * `no request log line contains the proxy token, the API key, an authorization value, a request
   body, or the upstream host:port` — the exclusion rule from the story, pinned against a child whose
   stdout the harness actually reads;
+* `the query string is logged verbatim: a client-supplied query credential reaches the line` — the
+  disclosed half of that boundary. The exclusion rule above is about the proxy's own state;
+  `path` is the client-controlled field and is copied byte for byte, so a credential a caller puts
+  in a query parameter is logged. Pinned deliberately, so redacting it later is a visible decision
+  rather than a silent change to what an operator can debug;
 * `an SSE response is byte-identical with logging on and off and is logged on completion` and
   `a streamed response is logged on close, not mid-stream, and its duration covers the whole stream`
   — the close-event decision and the no-response-change invariant, for streams;
@@ -581,7 +610,7 @@ Rationale and test design documented in
   behavior for duplicate names is unpredictable and most implementations report the last
   name/value pair only. Cited for the accepted fail-open.
 * [`specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md`](../../specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md)
-  — the story the nine rate-limiting variables come from.
+  — the story the eight rate-limiting limits, and the ninth `PROXY_*` variable `PROXY_HOST`, come from.
 * [`specs/epics/e03-request-logging/e03s01-opt-in-request-logging.md`](../../specs/epics/e03-request-logging/e03s01-opt-in-request-logging.md)
   — the story `PROXY_LOG_REQUESTS` comes from (issue #9). Its §9 configuration row specifies
   "any non-blank non-`0`/`false` value enables logging" and is **superseded** by the strict

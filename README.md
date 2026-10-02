@@ -176,13 +176,20 @@ indistinguishable from today's build.
 | ------------- | ------------------------------------------------------------------------------- |
 | `ts` | ISO 8601 timestamp, taken when the line is written |
 | `method` | Request method |
-| `path` | Incoming path and query, exactly the string forwarded upstream |
+| `path` | Incoming path and query string, verbatim — exactly the string forwarded upstream |
 | `status` | Last status written to the client, or `0` if the response was destroyed before any status was written |
 | `ms` | Milliseconds from request arrival to the response closing |
 
 Those five fields are the whole line. **A line never contains** request or response headers, the
 `authorization` header value, `NVIDIA_API_KEY`, `PROXY_AUTH_TOKEN`, any request or response body, or
 the upstream host and port.
+
+That list is about the proxy's own state, not about the caller's request. `path` is the one
+client-controlled field, and it is copied byte for byte — query string included, with no redaction
+and no filtering of credential-shaped parameter names. A caller who puts a secret in a query
+parameter (`?api_key=…` is a common convention on OpenAI-compatible gateways, and `NVIDIA_BASE_URL`
+is yours to choose) puts that secret in the log. **With logging on, never pass a credential in a
+URL.** The proxy's own key and token are excluded; a caller's own URL is not.
 
 A line is written on the response's `close` event, so a streamed response is logged when the stream
 completes and its client-visible bytes are unchanged. `/health` and the local rejections (`401`,

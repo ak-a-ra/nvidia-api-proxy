@@ -2158,6 +2158,41 @@ describe("request logging", () => {
     }
   });
 
+  // The disclosed half of that boundary. The closed field set keeps the proxy's
+  // own key, token, headers and bodies out; it does not scrub the one field a
+  // client controls. `path` is the incoming request target copied byte for byte,
+  // query string included, so a caller who puts a secret in a query parameter
+  // puts it in the operator's log — stated in README, tech-stack.md and ADR
+  // 0002. Pinned here so turning on redaction is a deliberate, visible change
+  // rather than a silent narrowing of what an operator can debug.
+  test("the query string is logged verbatim: a client-supplied query credential reaches the line", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: LOG,
+      proxyOpts: { captureStdout: true },
+      body: JSON.stringify({ ok: true }),
+    });
+    const target = "/v1/models?api_key=sk-QUERY-KEY-ccc333&access_token=QUERYTOKEN-ddd444&limit=2";
+    const res = await proxiedFetch(proxy.port, target, {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    await res.text();
+    const [line] = await waitForLines(proxy, 1);
+    assert.equal(line.path, target, "the request target is echoed byte for byte, query string included");
+    const stdout = proxy.stdout();
+    for (const secret of ["sk-QUERY-KEY-ccc333", "QUERYTOKEN-ddd444"]) {
+      assert.ok(
+        stdout.includes(secret),
+        `disclosed behavior: a client query credential is logged verbatim (${secret}): ${stdout}`
+      );
+    }
+    assert.deepEqual(
+      Object.keys(line).sort(),
+      ["method", "ms", "path", "status", "ts"],
+      "redacting the query must not come with a new field: the five are still the whole line"
+    );
+  });
+
   // Task 3. Byte-identity is the part that proves the log is not touching the
   // stream: the same stub, the same bytes, logging on and off.
   test("an SSE response is byte-identical with logging on and off and is logged on completion", async (t) => {

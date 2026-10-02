@@ -57,7 +57,7 @@ Client → server.js/http.createServer
 | `PROXY_MODEL_LIMITS_JSON` | No | unset | Fatal, exit 1 | Rejected whole, never partially, when supplied: bad JSON, non-object root, blank/padded/control-character model key, non-object entry, entry supplying neither `rpm` nor `tpm`, unknown field in an entry, non-positive-integer budget |
 | `PROXY_LOG_REQUESTS` | No | off | Fatal, exit 1 | Closed vocabulary, case-insensitive after trimming: `1`/`true`/`yes`/`on` enable, `0`/`false`/`no`/`off` disable, unset or blank is off. Anything else is fatal — `maybe` must not start a feature nobody asked for. The only `PROXY_*` variable that is live rather than stored |
 
-The nine rate-limiting `PROXY_*` operational variables above are **validated and stored, not
+The eight rate-limiting `PROXY_*` limits above are **validated and stored, not
 enforced**. Only `config.host` and `config.logRequests` are read after parsing, the first by
 `server.listen` and the second by the request logger; the rate pair, ceilings, and per-model map
 sit on the config object until the later slices act on them. An operator who sets a limit today
@@ -101,6 +101,7 @@ Examples:
 
 - Opt-in via `PROXY_LOG_REQUESTS`, default off; unset or blank is off and the disabled path registers no listener and reads no clock
 - One JSON object per request on stdout, with `ts`, `method`, `path`, `status`, `ms` — no other field, so a header, body, credential, or upstream host cannot reach the line by construction
+- `path` is the incoming request target verbatim, query string included, and nothing is redacted from it — a client that puts a secret in a query parameter puts it in the line. The closed field set is what keeps the proxy's *own* key, token, headers and bodies out; it does not scrub the caller's URL
 - `status` is the last status written to the client, or `0` when the response was destroyed before any status reached it (`res.headersSent ? res.statusCode : 0`; `res.statusCode` defaults to 200 even when nothing was written, so recording it unconditionally would invent a 200)
 - Written on the response's `close` event, so a streamed response is logged at completion and its client-visible bytes are unchanged
 - Covers `/health` and every local rejection (401, 404, 503), not only proxied requests
