@@ -146,6 +146,26 @@ decisions:
       a padded key is rejected for never matching a model ID, and a control character cannot
       match one either.
       Reversal is one guard plus the tests that pin it.
+  - decision: The document check asserts each file's claim, not a phrase, and is negative-tested both ways
+    rationale: >-
+      Decided 2026-10-02, for e04s02 task 7, replacing a grep-based check that was
+      vacuous. The old regex expected PROXY_MAX_CONCURRENT_REQUESTS to sit next to
+      "reads them at request time", but README names the variable only in a table row
+      and states the disclaimer as prose about "every PROXY_* row", so the pattern
+      could never match and the row would go green while the stale claim stood. The
+      replacement asserts claims: README must not claim nothing is read, must keep
+      naming PROXY_HOST and PROXY_LOG_REQUESTS as live, and must name the ceiling it
+      now enforces. Phrase-level greps are the wrong tool here because "validated and
+      stored, not enforced" legitimately survives in README and tech-stack for the
+      five limits that stay unenforced, so grepping for it either misses the stale
+      claim or forbids the correct fix. Two wrong requirements were written first and
+      caught only by running them: one demanded README name PROXY_RPM and
+      PROXY_MODEL_LIMITS_JSON, which it never did, and one demanded SCOPE_LATEST name
+      the ceiling, which it never did either, its stale claim living in the
+      accepted-tradeoffs paragraph. The check is negative-tested both ways: green on a
+      simulated fixed tree, six specific findings on the real tree. A gate that has
+      only ever been seen failing has not been shown to pass, and one that has only
+      ever passed has not been shown to fail.
   - decision: Test hermeticity is owned by the test harness, not by config.js
     rationale: >-
       Decided 2026-10-01, for e04s01 task 11. server.test.js spread process.env into

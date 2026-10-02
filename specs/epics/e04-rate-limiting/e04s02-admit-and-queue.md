@@ -97,7 +97,11 @@ validates and stores but does not enforce".
 
 **After:** both terms stay defined and their definitions are unchanged; the paragraph
 that disclaims enforcement is corrected for the concurrency ceiling while the
-rate-budget and per-model disclaims stay.
+rate-budget and per-model disclaims stay. Note the current text names all five terms
+in one sentence — "Admission control, Queue, Rate budget, Per-model budget, and Safety
+margin" — so Admission control and Queue are disclaimed together with the three that
+stay unenforced; only that shared sentence is amended, and usage reconciliation is a
+separate sentence that stays as it is.
 
 #### REMOVED: One test claims the concurrency ceiling changes no traffic
 
@@ -180,9 +184,10 @@ Reused unchanged: **Client**, **Upstream**, **Credential swap**, **Local respons
 **Idle window**, **Client disconnect**, **Health**, **Pass-through**, **Unconfigured**.
 
 **Admission control** and **Queue** keep their `CONTEXT.md` definitions verbatim — this
-story makes them real rather than redefining them. Only the paragraph disclaiming
-enforcement changes. Rate budget, per-model budget, safety margin, and usage
-reconciliation are untouched and stay unenforced.
+story makes them real rather than redefining them. Only the shared sentence disclaiming
+enforcement changes, and it must keep naming Rate budget, Per-model budget, and Safety
+margin, since those three limits stay unenforced. Usage reconciliation is a separate
+sentence with no implementation at all and is untouched.
 
 ## 8. Interfaces and contracts
 
