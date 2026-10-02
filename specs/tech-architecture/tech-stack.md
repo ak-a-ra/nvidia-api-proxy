@@ -7,6 +7,13 @@
 - **Package Manager**: npm
 - **Test Runner**: Node built-in `node --test`
 - **Dependencies**: 0 (zero dependencies)
+- **Dev Tooling** (devDependencies only, never shipped): ESLint 9, TypeScript 5 (`checkJs`, `strict: false`), Prettier 3 (`printWidth: 100`, `es5` trailing commas)
+- **Quality Gates**: `npm test` stays install-free; `npm run check` (lint + typecheck + format:check) is the pre-commit gate and runs in CI as a separate `quality` job
+
+Type annotations are JSDoc, not TypeScript syntax, and there are no `@ts-check`
+pragmas: `checkJs` is enabled globally in `tsconfig.json` and the two shipped
+files are the only ones included. `@types/node` is pinned to v20 to match the
+oldest runtime in the CI matrix.
 
 ## Architecture
 

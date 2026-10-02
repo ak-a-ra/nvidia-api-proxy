@@ -87,6 +87,14 @@ const client = new OpenAI({
 > ```bash
 > npm test
 > ```
+>
+> Lint, typecheck and formatting are checked separately and need a one-time
+> `npm install` first. These are dev-only tools; the proxy itself still has no
+> runtime dependencies.
+> ```bash
+> npm install
+> npm run check   # lint + typecheck + format:check
+> ```
 
 ## Configuration
 
