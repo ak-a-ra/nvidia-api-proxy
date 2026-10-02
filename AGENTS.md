@@ -82,18 +82,24 @@ Example — destructive op:
 
 ## Part 2 — Repository knowledge
 
-Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `server.js` (~288 lines), configuration parsing in `config.js` (~343 lines); tests in `server.test.js` (~2351 lines). No lint/typecheck/formatter config exists.
+Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `server.js` (~288 lines), configuration parsing in `config.js` (~343 lines); tests in `server.test.js` (~2351 lines). Runtime is dependency-free; lint/typecheck/format are dev-only (`devDependencies`) and are configured — see `eslint.config.js`, `tsconfig.json`, `.prettierrc.json`.
 
 ### Commands
 
 - `npm test` — full suite (100 tests, Node built-in `node --test` runner, no deps to install)
 - `node --test --test-name-pattern "SIGTERM"` — run single test by name (needs Node ≥ 20)
+- `npm run check` — **lint + typecheck + format:check in one command. Run this before every commit and before every push.** It is the same gate CI enforces.
+- `npm run lint` / `npm run lint:fix` — ESLint 9, flat config
+- `npm run typecheck` — `tsc -p tsconfig.json`, `checkJs` with `strict: false` (JSDoc-annotated, no `@ts-check` pragmas)
+- `npm run format` / `npm run format:check` — Prettier 3, `printWidth: 100`
 - `npm start` — requires `NVIDIA_BASE_URL` (exits code 1 if missing) plus `NVIDIA_API_KEY` and `PROXY_AUTH_TOKEN` (missing ones → 503 responses, not a crash)
-- CI: GitHub Actions runs `npm test` on Node 20/22/24 for every push/PR — see `.github/workflows/ci.yml`. Run `npm test` locally before pushing anyway.
+- First-time setup on a fresh clone: `npm install` (dev tooling only; the proxy itself still runs with zero install)
+- CI: GitHub Actions runs `npm test` on Node 20/22/24 and a separate `quality` job (lint/typecheck/format) on Node 24 for every push/PR — see `.github/workflows/ci.yml`. Run `npm test` and `npm run check` locally before pushing anyway.
 
 ### Hard constraints
 
-- Never add dependency. Node built-ins only (`node:` imports); zero-deps advertised in README badge and `package.json`
+- **Never add a runtime dependency.** Node built-ins only (`node:` imports); zero-deps advertised in README badge and `package.json`. Lint/typecheck/format tooling lives in `devDependencies` and is the only permitted addition — `dependencies` must stay absent. `npm test` must stay plain `node --test` so the suite runs without an install.
+- **Run `npm run check` before committing.** Lint, typecheck, and format are enforced by CI and are not optional cleanup. Fix findings rather than silencing a rule or reformatting unrelated lines.
 - ESM only (`"type": "module"`) — use `import`, not `require`
 - Surgical patch > big rewrite, per Part 1
 

@@ -18,3 +18,19 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: npm test
+
+  quality:
+    # Lint, typecheck and format. Separate from the matrix above on purpose:
+    # `npm test` stays plain `node --test` so the proxy's zero-dependency
+    # promise still holds for anyone who just wants to run the suite. This job
+    # is the only one that needs an install.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run format:check

@@ -1,11 +1,7 @@
 import http from "node:http";
 import { pipeline, Readable } from "node:stream";
 import { createHash, timingSafeEqual } from "node:crypto";
-import {
-  parseConfig,
-  CONNECT_TIMEOUT_SECONDS,
-  IDLE_TIMEOUT_SECONDS,
-} from "./config.js";
+import { parseConfig, CONNECT_TIMEOUT_SECONDS, IDLE_TIMEOUT_SECONDS } from "./config.js";
 
 const PORT = Number(process.env.PORT || 10000);
 
@@ -60,10 +56,7 @@ function authorized(req) {
   if (!TOKEN_DIGEST) return false;
   const header = req.headers.authorization;
   if (!header || !header.startsWith("Bearer ")) return false;
-  return timingSafeEqual(
-    createHash("sha256").update(header.slice(7)).digest(),
-    TOKEN_DIGEST
-  );
+  return timingSafeEqual(createHash("sha256").update(header.slice(7)).digest(), TOKEN_DIGEST);
 }
 
 // Opt-in per-request logging (PROXY_LOG_REQUESTS, parsed by config.js). One
@@ -151,6 +144,7 @@ const server = http.createServer(async (req, res) => {
     // arrive as an array (cookie is pre-merged by Node; STRIPPED_HEADERS covers
     // the hop-by-hop candidates). The response direction solves its sibling
     // problem with getSetCookie() below.
+    /** @type {Record<string, string>} */
     const headers = {};
     for (const [name, value] of Object.entries(req.headers)) {
       const v = Array.isArray(value) ? value.join(", ") : value;
@@ -196,6 +190,7 @@ const server = http.createServer(async (req, res) => {
     // Copy raw multi-value headers (forEach over Headers merges duplicates
     // with ", " which corrupts set-cookie). getSetCookie handles the most
     // common multi-value header; raw entries cover the rest.
+    /** @type {import("node:http").OutgoingHttpHeaders} */
     const responseHeaders = {};
     for (const [name, value] of upstream.headers) {
       if (RESPONSE_STRIPPED_HEADERS.has(name)) continue;

@@ -102,9 +102,7 @@ function readLimits(env) {
   return {
     // null is the only nullable member: absent, blank, or 0 all disable.
     maxConcurrentRequests: concurrency === 0 ? null : concurrency,
-    maxQueueSize: hasQueueSize
-      ? readPositiveInteger("PROXY_MAX_QUEUE_SIZE", rawQueueSize)
-      : 32,
+    maxQueueSize: hasQueueSize ? readPositiveInteger("PROXY_MAX_QUEUE_SIZE", rawQueueSize) : 32,
     queueTimeoutSeconds: hasQueueTimeout
       ? readPositiveInteger("PROXY_QUEUE_TIMEOUT_SECONDS", rawQueueTimeout)
       : 30,
@@ -170,10 +168,16 @@ function readModelLimits(env) {
     const control = CONTROL_CHAR.exec(model);
     if (control) {
       const point = control[0].codePointAt(0).toString(16).toUpperCase().padStart(4, "0");
-      fatal("PROXY_MODEL_LIMITS_JSON", `model key ${describeKey(model)} contains a control character: U+${point}`);
+      fatal(
+        "PROXY_MODEL_LIMITS_JSON",
+        `model key ${describeKey(model)} contains a control character: U+${point}`
+      );
     }
     if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
-      fatal(`PROXY_MODEL_LIMITS_JSON["${model}"]`, `must be a JSON object, got: ${typeName(entry)}`);
+      fatal(
+        `PROXY_MODEL_LIMITS_JSON["${model}"]`,
+        `must be a JSON object, got: ${typeName(entry)}`
+      );
     }
     // An entry has to supply a budget and may not carry a field nobody reads:
     // "rps" would vanish and leave the operator believing the model is capped.
@@ -184,7 +188,10 @@ function readModelLimits(env) {
     const budget = {};
     for (const field of fields) {
       if (field !== "rpm" && field !== "tpm") {
-        fatal(`PROXY_MODEL_LIMITS_JSON["${model}"]`, `has an unknown field: ${field} (only rpm and tpm are read)`);
+        fatal(
+          `PROXY_MODEL_LIMITS_JSON["${model}"]`,
+          `has an unknown field: ${field} (only rpm and tpm are read)`
+        );
       }
       const value = entry[field];
       // Type first, then the one integer guard. JSON.parse has already turned
@@ -196,9 +203,15 @@ function readModelLimits(env) {
       // grammar accepts 1e3 and yields 1000, so by the time the value exists
       // there is no textual evidence left of what was written.
       if (typeof value !== "number") {
-        fatal(`PROXY_MODEL_LIMITS_JSON["${model}"].${field}`, `must be a positive integer, got: ${describeValue(value)}`);
+        fatal(
+          `PROXY_MODEL_LIMITS_JSON["${model}"].${field}`,
+          `must be a positive integer, got: ${describeValue(value)}`
+        );
       }
-      budget[field] = readPositiveInteger(`PROXY_MODEL_LIMITS_JSON["${model}"].${field}`, String(value));
+      budget[field] = readPositiveInteger(
+        `PROXY_MODEL_LIMITS_JSON["${model}"].${field}`,
+        String(value)
+      );
     }
     limits[model] = budget;
   }
@@ -305,7 +318,9 @@ function readPositiveInteger(
   const trimmed = raw.trim();
   const value = Number(trimmed);
   if (!/^[0-9]+$/.test(trimmed) || !Number.isSafeInteger(value) || value < min || value > max) {
-    console.error(`${name} must be ${integerRule(min, max, zeroDisables)}, got: ${boundText(trimmed)}`);
+    console.error(
+      `${name} must be ${integerRule(min, max, zeroDisables)}, got: ${boundText(trimmed)}`
+    );
     process.exit(1);
   }
   return value;
@@ -333,11 +348,5 @@ function readSeconds(name, fallback) {
   return Number.isFinite(raw) && raw >= 0 ? raw : fallback;
 }
 
-export const CONNECT_TIMEOUT_SECONDS = readSeconds(
-  "UPSTREAM_CONNECT_TIMEOUT_SECONDS",
-  30
-);
-export const IDLE_TIMEOUT_SECONDS = readSeconds(
-  "UPSTREAM_IDLE_TIMEOUT_SECONDS",
-  120
-);
+export const CONNECT_TIMEOUT_SECONDS = readSeconds("UPSTREAM_CONNECT_TIMEOUT_SECONDS", 30);
+export const IDLE_TIMEOUT_SECONDS = readSeconds("UPSTREAM_IDLE_TIMEOUT_SECONDS", 120);

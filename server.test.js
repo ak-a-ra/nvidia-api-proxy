@@ -34,7 +34,7 @@ function startStubUpstream(status, body, headers, mode) {
         resolveClosed(record);
       });
       res.on("finish", () => (record.resFinished = true));
-      let chunks = [];
+      const chunks = [];
       req.on("data", (c) => chunks.push(c));
       req.on("end", () => {
         const requestBody = Buffer.concat(chunks);
@@ -51,9 +51,7 @@ function startStubUpstream(status, body, headers, mode) {
         // Real APIs (like NVIDIA) declare content-length on JSON responses;
         // mirror that so pass-through behavior is exercised realistically.
         const outHeaders = { ...headers };
-        const hasCL = Object.keys(outHeaders).some(
-          (k) => k.toLowerCase() === "content-length"
-        );
+        const hasCL = Object.keys(outHeaders).some((k) => k.toLowerCase() === "content-length");
         if (body !== undefined && !hasCL) {
           outHeaders["content-length"] = String(Buffer.byteLength(String(body)));
         }
@@ -103,9 +101,7 @@ function startStubUpstream(status, body, headers, mode) {
         else res.end();
       });
     });
-    srv.listen(0, "127.0.0.1", () =>
-      resolve({ srv, receivedRequests, teardowns })
-    );
+    srv.listen(0, "127.0.0.1", () => resolve({ srv, receivedRequests, teardowns }));
   });
 }
 
@@ -229,8 +225,15 @@ function startProxyServer(baseURL, key, proxyToken, extraEnv = {}, options = {})
 // registered on the test context (LIFO: child killed before stub closed).
 // proxyOpts is forwarded to startProxyServer (captureStdout, logThrows); base
 // is returned so a test can name the upstream host it must never see in a log.
-async function withProxy(t, { base, baseSuffix = "/v1", key = "sk", token = "pt", proxyEnv = {}, proxyOpts = {}, ...stubOpts }) {
-  const { srv: stub, receivedRequests, teardowns } = await startStubUpstream(
+async function withProxy(
+  t,
+  { base, baseSuffix = "/v1", key = "sk", token = "pt", proxyEnv = {}, proxyOpts = {}, ...stubOpts }
+) {
+  const {
+    srv: stub,
+    receivedRequests,
+    teardowns,
+  } = await startStubUpstream(
     stubOpts.status ?? 200,
     stubOpts.body,
     stubOpts.headers,
@@ -345,7 +348,10 @@ describe("proxy", () => {
       body: JSON.stringify({ ok: true, echoed: "body" }),
       headers: { "content-type": "application/json" },
     });
-    const payload = JSON.stringify({ model: "nemotron", messages: [{ role: "user", content: "hi" }] });
+    const payload = JSON.stringify({
+      model: "nemotron",
+      messages: [{ role: "user", content: "hi" }],
+    });
     const res = await proxiedFetch(proxy.port, "/v1/chat/completions?stream=true", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer pt-secret" },
@@ -554,7 +560,7 @@ describe("proxy", () => {
   });
 
   test("upstream that never sends response headers times out with 502", async (t) => {
-    const { proxy, receivedRequests } = await withProxy(t, {
+    const { proxy } = await withProxy(t, {
       mode: "silent",
       proxyEnv: { UPSTREAM_CONNECT_TIMEOUT_SECONDS: "1" },
     });
@@ -645,7 +651,9 @@ describe("proxy", () => {
     const exited = new Promise((resolve) => proxy.child.on("exit", resolve));
     const code = await Promise.race([
       exited,
-      new Promise((_, rej) => setTimeout(() => rej(new Error("proxy did not exit after SIGTERM")), 4000)),
+      new Promise((_, rej) =>
+        setTimeout(() => rej(new Error("proxy did not exit after SIGTERM")), 4000)
+      ),
     ]);
     assert.equal(code, 0);
   });
@@ -782,7 +790,7 @@ describe("proxy", () => {
   });
 
   test("downstream disconnect aborts active upstream stream", async (t) => {
-    const { proxy, receivedRequests, teardowns } = await withProxy(t, {
+    const { proxy, teardowns } = await withProxy(t, {
       mode: "abortable", // sends one chunk, then holds the stream open
       proxyEnv: { UPSTREAM_CONNECT_TIMEOUT_SECONDS: "30", UPSTREAM_IDLE_TIMEOUT_SECONDS: "0" },
     });
@@ -832,9 +840,7 @@ describe("proxy", () => {
       r.end();
     });
     assert.equal(res.statusCode, 200);
-    assert.deepEqual(receivedRequests[0].setCookie, [
-      "sid=abc; Path=/, theme=dark; Path=/",
-    ]);
+    assert.deepEqual(receivedRequests[0].setCookie, ["sid=abc; Path=/, theme=dark; Path=/"]);
   });
 });
 
@@ -890,11 +896,7 @@ describe("bind host", () => {
     assert.equal(req.contentEncoding, "gzip", "request headers forwarded");
     assert.deepEqual(req.rawBody, gzipped, "request body forwarded byte-identical");
     assert.equal(req.authorization, "Bearer sk-test", "client token swapped upstream");
-    assert.equal(
-      req.path,
-      "/v1/chat/completions?stream=true",
-      "path and query forwarded verbatim"
-    );
+    assert.equal(req.path, "/v1/chat/completions?stream=true", "path and query forwarded verbatim");
     const health = await proxiedFetch(proxy.port, "/health");
     assert.equal(health.status, 200);
     assert.deepEqual(await health.json(), { status: "ok" });
@@ -1000,7 +1002,11 @@ describe("rate budget config", () => {
   // Blank is absent, so a blank partner is the "exactly one set" case, not a
   // valid half-empty pair.
   test("PROXY_TPM set with PROXY_RPM whitespace-only exits 1 naming both variables", async () => {
-    const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_RPM: "   ", PROXY_TPM: "100000" });
+    const { code, stderr } = await runProxyOnce({
+      ...BASE_ENV,
+      PROXY_RPM: "   ",
+      PROXY_TPM: "100000",
+    });
     assert.equal(code, 1);
     assert.ok(stderr.includes("PROXY_RPM"), `stderr should name PROXY_RPM: ${stderr}`);
     assert.ok(stderr.includes("PROXY_TPM"), `stderr should name PROXY_TPM: ${stderr}`);
@@ -1050,7 +1056,10 @@ describe("rate budget config", () => {
       ["digit separator", "1_000"],
       ["overflowing exponent", "1e400"],
     ];
-    for (const [name, partner] of [["PROXY_RPM", "PROXY_TPM"], ["PROXY_TPM", "PROXY_RPM"]]) {
+    for (const [name, partner] of [
+      ["PROXY_RPM", "PROXY_TPM"],
+      ["PROXY_TPM", "PROXY_RPM"],
+    ]) {
       for (const [label, value] of NOTATIONS) {
         const { code, stderr } = await runProxyOnce({
           ...BASE_ENV,
@@ -1226,7 +1235,11 @@ describe("operational limit config", () => {
   // both ends of the range are pinned: 0 and 50 start (test above), 51 and -1
   // do not.
   test("PROXY_SAFETY_MARGIN_PCT outside 0-50 exits 1 naming PROXY_SAFETY_MARGIN_PCT", async () => {
-    for (const [label, value] of [["51", "51"], ["negative", "-1"], ["100", "100"]]) {
+    for (const [label, value] of [
+      ["51", "51"],
+      ["negative", "-1"],
+      ["100", "100"],
+    ]) {
       const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_SAFETY_MARGIN_PCT: value });
       assert.equal(code, 1, `expected exit 1 for PROXY_SAFETY_MARGIN_PCT ${label} (${value})`);
       assert.ok(
@@ -1443,8 +1456,15 @@ describe("buffered body ceiling and per-model limits", () => {
 
   test("PROXY_MAX_BUFFERED_BODY_BYTES rejects a non-blank invalid value, names itself and states its rule", async () => {
     for (const [label, value] of INVALID_CEILINGS) {
-      const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_MAX_BUFFERED_BODY_BYTES: value });
-      assert.equal(code, 1, `expected exit 1 for PROXY_MAX_BUFFERED_BODY_BYTES ${label} (${value})`);
+      const { code, stderr } = await runProxyOnce({
+        ...BASE_ENV,
+        PROXY_MAX_BUFFERED_BODY_BYTES: value,
+      });
+      assert.equal(
+        code,
+        1,
+        `expected exit 1 for PROXY_MAX_BUFFERED_BODY_BYTES ${label} (${value})`
+      );
       assert.ok(
         stderr.includes("PROXY_MAX_BUFFERED_BODY_BYTES must be a positive integer"),
         `stderr should name PROXY_MAX_BUFFERED_BODY_BYTES and its rule for ${label}: ${stderr}`
@@ -1536,7 +1556,10 @@ describe("buffered body ceiling and per-model limits", () => {
   });
 
   test("PROXY_MODEL_LIMITS_JSON with bad JSON exits 1 naming the variable", async () => {
-    const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_MODEL_LIMITS_JSON: "{not json" });
+    const { code, stderr } = await runProxyOnce({
+      ...BASE_ENV,
+      PROXY_MODEL_LIMITS_JSON: "{not json",
+    });
     assert.equal(code, 1);
     assert.ok(stderr.includes(NAME), `stderr should name ${NAME}: ${stderr}`);
   });
@@ -1557,7 +1580,10 @@ describe("buffered body ceiling and per-model limits", () => {
     ]) {
       const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_MODEL_LIMITS_JSON: value });
       assert.equal(code, 1, `expected exit 1 for a ${label} model key (${value})`);
-      assert.ok(stderr.includes(NAME), `stderr should name ${NAME} for a ${label} model key: ${stderr}`);
+      assert.ok(
+        stderr.includes(NAME),
+        `stderr should name ${NAME} for a ${label} model key: ${stderr}`
+      );
     }
   });
 
@@ -1572,7 +1598,10 @@ describe("buffered body ceiling and per-model limits", () => {
     ]) {
       const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_MODEL_LIMITS_JSON: value });
       assert.equal(code, 1, `expected exit 1 for a ${label} entry (${value})`);
-      assert.ok(stderr.includes(`${NAME}["gpt"]`), `stderr should name the model key for a ${label} entry: ${stderr}`);
+      assert.ok(
+        stderr.includes(`${NAME}["gpt"]`),
+        `stderr should name the model key for a ${label} entry: ${stderr}`
+      );
     }
   });
 
@@ -1601,7 +1630,10 @@ describe("buffered body ceiling and per-model limits", () => {
     ]) {
       const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_MODEL_LIMITS_JSON: value });
       assert.equal(code, 1, `expected exit 1 for ${label} (${value})`);
-      assert.ok(stderr.includes(`${NAME}["gpt"]`), `stderr should name the model key for ${label}: ${stderr}`);
+      assert.ok(
+        stderr.includes(`${NAME}["gpt"]`),
+        `stderr should name the model key for ${label}: ${stderr}`
+      );
     }
   });
 
@@ -1618,7 +1650,10 @@ describe("buffered body ceiling and per-model limits", () => {
     ]) {
       const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PROXY_MODEL_LIMITS_JSON: doc });
       assert.equal(code, 1, `expected exit 1 for ${doc}`);
-      assert.ok(stderr.includes(`${NAME}["gpt"].rpm`), `stderr should name the rejected entry: ${stderr}`);
+      assert.ok(
+        stderr.includes(`${NAME}["gpt"].rpm`),
+        `stderr should name the rejected entry: ${stderr}`
+      );
     }
   });
 
@@ -1680,11 +1715,26 @@ describe("buffered body ceiling and per-model limits", () => {
         stderr.includes(shown),
         `stderr should report ${shown} for ${label}: ${JSON.stringify(stderr)}`
       );
-      for (const marker of ["RangeError", "Maximum call stack size exceeded", "at JSON.stringify", "${model}"]) {
-        assert.ok(!stderr.includes(marker), `stderr must be a message, not a stack dump (${marker}) for ${label}: ${JSON.stringify(stderr)}`);
+      for (const marker of [
+        "RangeError",
+        "Maximum call stack size exceeded",
+        "at JSON.stringify",
+        "${model}",
+      ]) {
+        assert.ok(
+          !stderr.includes(marker),
+          `stderr must be a message, not a stack dump (${marker}) for ${label}: ${JSON.stringify(stderr)}`
+        );
       }
-      assert.equal(stderr.trim().split("\n").length, 1, `stderr must stay on one line for ${label}`);
-      assert.ok(stderr.length < 300, `stderr must stay short for ${label}, got ${stderr.length} bytes`);
+      assert.equal(
+        stderr.trim().split("\n").length,
+        1,
+        `stderr must stay on one line for ${label}`
+      );
+      assert.ok(
+        stderr.length < 300,
+        `stderr must stay short for ${label}, got ${stderr.length} bytes`
+      );
     }
   });
 
@@ -1702,7 +1752,11 @@ describe("buffered body ceiling and per-model limits", () => {
       proxyEnv: { PROXY_MODEL_LIMITS_JSON: '{"Gpt":{"rpm":5},"gpt":{"rpm":6}}' },
     });
     const res = await proxiedFetch(proxy.port, "/health");
-    assert.equal(res.status, 200, "keys differing only in case are two distinct models, not a duplicate");
+    assert.equal(
+      res.status,
+      200,
+      "keys differing only in case are two distinct models, not a duplicate"
+    );
 
     // Same document shape, one fatal key: uppercase is carried into the message
     // unchanged, so nothing along the path normalized it.
@@ -1724,7 +1778,10 @@ describe("buffered body ceiling and per-model limits", () => {
     });
     assert.equal(code, 1);
     assert.ok(stderr.includes(NAME), `stderr should name ${NAME}: ${stderr}`);
-    assert.ok(stderr.includes("gpt-4o-mini"), `stderr should name the offending model key: ${stderr}`);
+    assert.ok(
+      stderr.includes("gpt-4o-mini"),
+      `stderr should name the offending model key: ${stderr}`
+    );
   });
 });
 
@@ -1965,9 +2022,16 @@ describe("request logging", () => {
         `stderr should echo the offending value for ${value}: ${stderr}`
       );
       for (const marker of ["Error:", "at ", "node:internal"]) {
-        assert.ok(!stderr.includes(marker), `stderr must be a message, not a dump (${marker}): ${stderr}`);
+        assert.ok(
+          !stderr.includes(marker),
+          `stderr must be a message, not a dump (${marker}): ${stderr}`
+        );
       }
-      assert.equal(stderr.trim().split("\n").length, 1, `stderr must stay on one line for ${value}`);
+      assert.equal(
+        stderr.trim().split("\n").length,
+        1,
+        `stderr must stay on one line for ${value}`
+      );
     }
   });
 
@@ -2073,7 +2137,10 @@ describe("request logging", () => {
     assert.equal(line.path, "/v1/models");
     const stdout = proxy.stdout();
     for (const secret of [new URL(base).host, "127.0.0.1:1", "ECONNREFUSED", "http://"]) {
-      assert.ok(!stdout.includes(secret), `stdout must not name the upstream (${secret}): ${stdout}`);
+      assert.ok(
+        !stdout.includes(secret),
+        `stdout must not name the upstream (${secret}): ${stdout}`
+      );
     }
   });
 
@@ -2153,7 +2220,10 @@ describe("request logging", () => {
         ["upstream host:port", upstreamHost],
         ["upstream host:port (failing proxy)", new URL("http://127.0.0.1:1").host],
       ]) {
-        assert.ok(!stdout.includes(value), `${label}: the log must not carry the ${what} (${value}): ${stdout}`);
+        assert.ok(
+          !stdout.includes(value),
+          `${label}: the log must not carry the ${what} (${value}): ${stdout}`
+        );
       }
     }
   });
@@ -2178,7 +2248,11 @@ describe("request logging", () => {
     assert.equal(res.status, 200);
     await res.text();
     const [line] = await waitForLines(proxy, 1);
-    assert.equal(line.path, target, "the request target is echoed byte for byte, query string included");
+    assert.equal(
+      line.path,
+      target,
+      "the request target is echoed byte for byte, query string included"
+    );
     const stdout = proxy.stdout();
     for (const secret of ["sk-QUERY-KEY-ccc333", "QUERYTOKEN-ddd444"]) {
       assert.ok(
@@ -2214,7 +2288,10 @@ describe("request logging", () => {
 
     assert.equal(onRes.status, offRes.status);
     assert.equal(onText, offText, "client-visible SSE bytes are unchanged by logging");
-    assert.ok(onText.includes("data: chunk1") && onText.includes("data: chunk2"), "both chunks arrived");
+    assert.ok(
+      onText.includes("data: chunk1") && onText.includes("data: chunk2"),
+      "both chunks arrived"
+    );
     assert.deepEqual(logLines(off.proxy), [], "the logging-off child wrote no request log line");
     const [line] = await waitForLines(on.proxy, 1);
     assert.equal(line.status, 200);
@@ -2239,11 +2316,7 @@ describe("request logging", () => {
     const reader = res.body.getReader();
     const first = await reader.read();
     assert.equal(new TextDecoder().decode(first.value), "slow");
-    assert.deepEqual(
-      logLines(proxy),
-      [],
-      "no line while the stream is still open"
-    );
+    assert.deepEqual(logLines(proxy), [], "no line while the stream is still open");
     let rest = "";
     for (;;) {
       const chunk = await reader.read();
@@ -2253,10 +2326,7 @@ describe("request logging", () => {
     assert.equal(rest, " done");
     const [line] = await waitForLines(proxy, 1);
     assert.equal(line.status, 200);
-    assert.ok(
-      line.ms >= 1400,
-      `duration must span the stream (1.5s), got ${line.ms}ms`
-    );
+    assert.ok(line.ms >= 1400, `duration must span the stream (1.5s), got ${line.ms}ms`);
   });
 
   // Logging on changes no response. Compared field by field, status and body
@@ -2346,11 +2416,19 @@ describe("request logging", () => {
     assert.equal(res.status, 200);
     const reader = res.body.getReader();
     const first = await reader.read();
-    assert.equal(new TextDecoder().decode(first.value), "hello", "headers and one chunk reached the client");
+    assert.equal(
+      new TextDecoder().decode(first.value),
+      "hello",
+      "headers and one chunk reached the client"
+    );
     // The stream is cut under the client: the read fails rather than ending.
     await assert.rejects(reader.read());
     const [line] = await waitForLines(proxy, 1);
-    assert.equal(typeof line.status, "number", "a status is recorded even though the stream never completed");
+    assert.equal(
+      typeof line.status,
+      "number",
+      "a status is recorded even though the stream never completed"
+    );
     assert.equal(line.status, 200, "the last status written to the client");
     assert.equal(line.path, "/v1/models");
     assert.equal(typeof line.ms, "number");
