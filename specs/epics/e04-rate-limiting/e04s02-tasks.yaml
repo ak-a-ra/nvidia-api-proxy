@@ -83,7 +83,7 @@ tasks:
     verify: "out=$(node --test --test-reporter=tap --test-name-pattern 'slot release|queue timeout|terminal' server.test.js 2>&1); rc=$?; test $rc -eq 0 && t=$(printf '%s\\n' \"$out\" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(slot release|queue timeout|terminal)') && test \"$t\" -ge 4 && npm test"
     risk: P0
     security: medium
-    status: failing
+    status: passing
     allure:
       severity: critical
       categories:

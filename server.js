@@ -142,7 +142,19 @@ const server = http.createServer(async (req, res) => {
 
     const ticket = await admission.acquire();
     if (!ticket.admitted) {
-      return sendJson(req, res, 429, { error: "Too many requests" }, { "retry-after": "1" });
+      // Both rejections share one body and one status. The wait differs: a
+      // full queue retries very soon, because a slot frees on its own, while a
+      // client that already waited out the configured timeout should not be
+      // told to retry immediately — sending it around the loop to wait the
+      // whole bound again is the failure the value exists to prevent.
+      const retryAfter = ticket.reason === "queue_timeout" ? config.limits.queueTimeoutSeconds : 1;
+      return sendJson(
+        req,
+        res,
+        429,
+        { error: "Too many requests" },
+        { "retry-after": String(retryAfter) }
+      );
     }
     res.on("close", ticket.release);
 

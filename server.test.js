@@ -101,15 +101,27 @@ function startStubUpstream(status, body, headers, mode) {
           return;
         }
         if (mode === "hold") {
-          // Send a real 200 header set, then hold the body open until the test
-          // releases it. flushHeaders() is required: writeHead() only queues
-          // headers and undici's fetch does not settle on queued headers, so
-          // without the flush the proxy's own connect timeout fires and it
-          // answers 502. Used to observe a concurrency ceiling: the proxy
-          // admits up to the ceiling and holds those responses; the rest wait
-          // or are rejected, and releasing lets the waiters proceed.
+          // Send a real 200 header set plus one chunk, then hold the body open
+          // until the test releases it. Both steps are required:
+          // flushHeaders() undoes writeHead()'s buffering so the proxy's own
+          // fetch settles instead of timing out and answering 502, and the
+          // chunk starts the proxy's response pipeline, which is what flushes
+          // the headers on to the client. Without the chunk the proxy queues
+          // its headers behind res.writeHead() exactly as the stub did, and
+          // the client waits until the idle watchdog destroys the stream.
+          // Used to observe a concurrency ceiling: the proxy admits up to the
+          // ceiling and holds those responses; the rest wait or are rejected,
+          // and releasing lets the waiters proceed.
           res.flushHeaders();
+          res.write("held");
           heldResponses.push(res);
+          return;
+        }
+        if (mode === "preabort") {
+          // A pre-header upstream failure: the request is accepted and
+          // recorded, then the socket is destroyed before any status is
+          // written, so the proxy's fetch rejects with no headers received.
+          req.socket.destroy();
           return;
         }
         if (body !== undefined) res.end(body, "utf8");
@@ -2837,5 +2849,311 @@ describe("admission queue FIFO", () => {
       assert.equal(r.status, 200, "every request completes 200");
     }
     assert.deepEqual(arrivalOrder(receivedRequests), ["holder", "first", "late"]);
+  });
+});
+
+// Capacity released exactly once on every terminal path. Each test drives one
+// terminal path under a one-slot ceiling, then asks whether the *next* request
+// is admitted rather than queued forever — a leaked slot is what "queued
+// forever" looks like from outside the module.
+//
+// The observation rule is the same in every case and is what makes this block
+// safe: the slot is held open by the `hold` stub mode, so a request that is
+// queued reaches the upstream zero times and never resolves, while a request
+// that is admitted arrives upstream exactly once and is itself held. Counts
+// therefore come from the stub's recorded arrivals, never from a clock.
+describe("admission slot release on terminal paths", () => {
+  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function waitForCount(what, check, expected, timeoutMs = 10_000) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const seen = check();
+      if (seen === expected) return;
+      if (Date.now() >= deadline) {
+        assert.fail(
+          `timed out after ${timeoutMs}ms waiting for ${what} (was ${seen}, wanted ${expected})`
+        );
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+
+  // Fire the request that takes the slot under a one-slot ceiling and wait
+  // until the stub has actually held it, so the slot is provably occupied
+  // before a terminal path is triggered.
+  const takeSlot = async (proxy, heldResponses, receivedRequests) => {
+    const first = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    await waitForCount("the first request to occupy the slot", () => heldResponses.length, 1);
+    assert.equal(receivedRequests.length, 1, "exactly one request reached the upstream");
+    return first;
+  };
+
+  // A request fired after the terminal path. It must be admitted at once, so
+  // it must arrive upstream — a leaked slot leaves it queued, holding the
+  // arrival count at one and never resolving the fetch.
+  const secondMustBeAdmitted = async (proxy, heldResponses, receivedRequests, label) => {
+    const second = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    second.catch(() => {});
+    try {
+      await waitForCount(
+        `${label}: the next request to be admitted (a leaked slot would queue it forever)`,
+        () => receivedRequests.length,
+        2
+      );
+    } catch (e) {
+      second.catch(() => {});
+      throw e;
+    }
+    return second;
+  };
+
+  // Every terminal path below leaves exactly one held response open (the
+  // second request), so release it to close the test out cleanly.
+  const drain = async (first, second, heldResponses) => {
+    while (heldResponses.length > 0) heldResponses.shift().end();
+    await Promise.allSettled([first, second]);
+  };
+
+  // 1. Normal completion. The first request runs to its end upstream; the slot
+  // it held must be free afterwards.
+  test("slot release on normal completion admits the next request", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: "1" },
+      mode: "hold",
+    });
+    const first = await takeSlot(proxy, heldResponses, receivedRequests);
+    heldResponses.shift().end(); // the terminal path: a completed response
+    const firstRes = await first;
+    assert.equal(firstRes.status, 200, "the completed request still answers 200");
+    const second = await secondMustBeAdmitted(
+      proxy,
+      heldResponses,
+      receivedRequests,
+      "normal completion"
+    );
+    await drain(first, second, heldResponses);
+  });
+
+  // 2. A no-body response. `upstream.body` is null, so the handler returns
+  // before the stream path — this is the branch where a release registered
+  // only in the pipeline callback would leak.
+  test("slot release on a no-body response admits the next request", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: "1" },
+      status: 204,
+    });
+    // The stub answers a 204 and ends, so `upstream.body` is null and the
+    // handler returns before the stream path. The slot must be released at
+    // that branch, not at a stream end that never happens.
+    const first = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(first.status, 204, "the no-body status passes through");
+    assert.equal(await first.text(), "");
+    const second = await secondMustBeAdmitted(
+      proxy,
+      heldResponses,
+      receivedRequests,
+      "no-body response"
+    );
+    await drain(first, second, heldResponses);
+  });
+
+  // 3. An upstream error status passed straight through. The body ends normally
+  // under the hood, so this is the same release path as normal completion but
+  // proves a 5xx status does not divert it.
+  test("slot release after an upstream error status admits the next request", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: "1" },
+      status: 503,
+      mode: "hold",
+    });
+    const first = await takeSlot(proxy, heldResponses, receivedRequests);
+    heldResponses.shift().end();
+    const firstRes = await first;
+    assert.equal(firstRes.status, 503, "the upstream status passes through unchanged");
+    const second = await secondMustBeAdmitted(
+      proxy,
+      heldResponses,
+      receivedRequests,
+      "upstream error status"
+    );
+    await drain(first, second, heldResponses);
+  });
+
+  // 4. A pre-header upstream failure. The stub accepts the request, records it,
+  // and destroys the socket before any status is written, so the proxy's fetch
+  // rejects with headers never sent — the slot is held by a request whose
+  // client never receives a body at all.
+  test("slot release after a pre-header upstream failure admits the next request", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: "1" },
+      mode: "preabort",
+    });
+    const first = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    await waitForCount(
+      "the failed request to reach the upstream",
+      () => receivedRequests.length,
+      1
+    );
+    const firstRes = await first.then(
+      (r) => r,
+      (e) => e
+    );
+    assert.ok(
+      firstRes instanceof Error || firstRes.status >= 500,
+      "the client sees a failure, not a stream"
+    );
+    const second = await secondMustBeAdmitted(
+      proxy,
+      heldResponses,
+      receivedRequests,
+      "pre-header failure"
+    );
+    await drain(first, second, heldResponses);
+  });
+
+  // 5. A mid-stream upstream failure. Headers and one chunk reach the client,
+  // then the upstream socket is destroyed, so the response is torn down part
+  // way through the pipeline.
+  test("slot release after a mid-stream upstream failure admits the next request", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: "1" },
+      mode: "midabort",
+    });
+    const first = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    await first.then(
+      () => {},
+      () => {}
+    );
+    const second = await secondMustBeAdmitted(
+      proxy,
+      heldResponses,
+      receivedRequests,
+      "mid-stream failure"
+    );
+    await drain(first, second, heldResponses);
+  });
+
+  // Double release is the opposite failure: it inflates capacity past the
+  // ceiling. One request holds the only slot, the terminal path fires, and a
+  // single second request must not be admitted twice. The observable proof is
+  // that a third request still queues instead of riding on phantom capacity.
+  test("a terminal path releases the slot at most once, so capacity stays at the ceiling", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: "1", PROXY_MAX_QUEUE_SIZE: "2" },
+      mode: "hold",
+    });
+    const first = await takeSlot(proxy, heldResponses, receivedRequests);
+    heldResponses.shift().end();
+    await first;
+    // One slot, one admission. A second release would let a second request in
+    // alongside a third, which a one-slot ceiling forbids.
+    const second = await secondMustBeAdmitted(
+      proxy,
+      heldResponses,
+      receivedRequests,
+      "single release"
+    );
+    assert.equal(heldResponses.length, 1, "exactly one response is held after admission");
+    const third = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    third.catch(() => {});
+    await settle(150);
+    assert.equal(
+      receivedRequests.length,
+      2,
+      "a third request is queued behind the held slot rather than admitted on phantom capacity"
+    );
+    await drain(second, third, heldResponses);
+  });
+
+  // The queue-timeout rejection. A wait that expires while the slot stays busy
+  // answers 429 with the same fixed body and a Retry-After carrying the
+  // configured wait, and it never contacts the upstream.
+  test("a queue timeout rejection answers 429, carries the configured wait, and never touches the upstream", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "1",
+      },
+      mode: "hold",
+    });
+    const holder = await takeSlot(proxy, heldResponses, receivedRequests);
+    const waiting = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    const waitingRes = await waiting;
+    assert.equal(waitingRes.status, 429);
+    assert.equal(waitingRes.headers.get("content-type"), "application/json; charset=utf-8");
+    const retryAfter = waitingRes.headers.get("retry-after");
+    assert.ok(
+      /^1[0-9]*$/.test(retryAfter),
+      "retry-after must be a positive integer, got " + JSON.stringify(retryAfter)
+    );
+    // The configured wait is 1s, and a client that already waited that long
+    // must not be told to retry immediately.
+    assert.equal(retryAfter, "1", "retry-after carries the configured queue wait");
+    const body = await waitingRes.text();
+    assert.equal(body, '{"error":"Too many requests"}');
+    assert.equal(receivedRequests.length, 1, "the rejected waiter never contacted the upstream");
+    const forbidden = ["PROXY", "maxConcurrent", "admission", String(proxy.port), "127.0.0.1"];
+    for (const part of forbidden) assert.ok(!body.includes(part), "body must not leak " + part);
+    for (const part of forbidden)
+      assert.ok(!retryAfter.includes(part), "retry-after must not leak " + part);
+
+    // The rejected waiter must not have taken its slot when it timed out:
+    // free the holder's slot and the next request must be admitted rather
+    // than stranded behind a ticket that already went away.
+    heldResponses.shift().end();
+    const after = await secondMustBeAdmitted(
+      proxy,
+      heldResponses,
+      receivedRequests,
+      "queue timeout"
+    );
+    await drain(holder, after, heldResponses);
+  });
+
+  // The configured wait is 3 here, and the rejection must carry 3. This is
+  // what separates the value from the hardcoded 1 a full queue sends.
+  test("a queue timeout rejection carries a configured wait other than 1", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "3",
+      },
+      mode: "hold",
+    });
+    const holder = await takeSlot(proxy, heldResponses, receivedRequests);
+    const waiting = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    const waitingRes = await waiting;
+    assert.equal(waitingRes.status, 429);
+    assert.equal(
+      waitingRes.headers.get("retry-after"),
+      "3",
+      "retry-after carries the configured queue wait, not a fixed 1"
+    );
+    assert.equal(await waitingRes.text(), '{"error":"Too many requests"}');
+    heldResponses.shift().end();
+    const after = await secondMustBeAdmitted(
+      proxy,
+      heldResponses,
+      receivedRequests,
+      "queue timeout 3s"
+    );
+    await drain(holder, after, heldResponses);
   });
 });
