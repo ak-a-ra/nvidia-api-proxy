@@ -2672,3 +2672,170 @@ describe("admission concurrency ceiling", () => {
     assert.equal(proxy.child.exitCode, null, "proxy child still alive after releasing");
   });
 });
+
+// Strict FIFO over the admission queue. Order is proved from the stub's
+// recorded arrival list, never from a clock: each request carries a distinct
+// body, and the order the stub received those bodies is the order the queue
+// admitted them. A one-slot ceiling keeps exactly one request in flight, so
+// every other request is a waiter whose position is observable.
+describe("admission queue FIFO", () => {
+  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function waitForCount(what, check, expected, timeoutMs = 10_000) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const seen = check();
+      if (seen === expected) return;
+      if (Date.now() >= deadline) {
+        assert.fail(
+          `timed out after ${timeoutMs}ms waiting for ${what} (was ${seen}, wanted ${expected})`
+        );
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+
+  // Fire one request per tag, in the order given, so the tags are also the
+  // arrival order a caller chose. The POST body carries the tag, which is the
+  // field the stub records and this block asserts on.
+  const sendTagged = (proxy, tag) =>
+    proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer pt" },
+      body: JSON.stringify({ tag }),
+    });
+
+  // The order the stub recorded the tags in, which is the admission order.
+  const arrivalOrder = (receivedRequests) =>
+    receivedRequests
+      .map((r) => r.body)
+      .filter((b) => typeof b === "string" && b.includes('"tag"'))
+      .map((b) => JSON.parse(b).tag);
+
+  // A one-slot ceiling, three requests behind the holder. The holder occupies
+  // the slot and stays open, so the other three are ordered waiters; releasing
+  // in one batch must admit them in their arrival order, and the stub must
+  // record exactly that order.
+  test("strict FIFO admits three waiters in arrival order with a one-slot ceiling", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        // The holder is not a waiter, so the queue must hold three waiters or
+        // the third would be rejected instead of ordered.
+        PROXY_MAX_QUEUE_SIZE: "3",
+        // The wait must outlive the test, so the timeout cannot end it and
+        // turn an ordering test into a rejection test.
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    const fetches = [0, 1, 2, 3].map((i) => sendTagged(proxy, "tag-" + i));
+    fetches.forEach((f) => f.catch(() => {}));
+
+    // Holder is tag-0: first out of the gate, so it is the one in flight.
+    await waitForCount("the holder to occupy the single slot", () => heldResponses.length, 1);
+    assert.deepEqual(
+      arrivalOrder(receivedRequests),
+      ["tag-0"],
+      "only the holder reached the upstream"
+    );
+
+    // Release the holder. Its slot frees, the oldest waiter is admitted, and
+    // that waiter's own response is held — so drain in a loop driven by the
+    // recorded arrivals rather than by an assumed number of releases. The
+    // target is the holder plus all three waiters.
+    const deadline = Date.now() + 10_000;
+    while (arrivalOrder(receivedRequests).length < 4) {
+      while (heldResponses.length > 0) heldResponses.shift().end();
+      if (arrivalOrder(receivedRequests).length >= 4) break;
+      if (Date.now() >= deadline) {
+        assert.fail(
+          "only " +
+            (arrivalOrder(receivedRequests).length - 1) +
+            " waiters were admitted after 10000ms: " +
+            JSON.stringify(arrivalOrder(receivedRequests))
+        );
+      }
+      await settle(10);
+    }
+
+    // Exactly the assertion the task asks for: the stub recorded the same
+    // three bodies in the same order the client sent them.
+    assert.deepEqual(
+      arrivalOrder(receivedRequests),
+      ["tag-0", "tag-1", "tag-2", "tag-3"],
+      "the three waiters were admitted strictly in arrival order"
+    );
+
+    while (heldResponses.length > 0) heldResponses.shift().end();
+    const results = await Promise.all(fetches);
+    for (const r of results) assert.equal(r.status, 200, "every queued request completes 200");
+  });
+
+  // No bypass: while tag-1 waits, tag-2 arrives. The slot is free the moment
+  // the holder releases, but the release belongs to tag-1, so tag-2 must still
+  // wait behind it. If the queue were LIFO, or if a fresh arrival could jump
+  // the line, tag-2 would reach the upstream first and this order would flip.
+  test("no bypass: a request that arrives after a waiter is admitted still waits behind it", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "4",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    const holder = sendTagged(proxy, "holder");
+    const firstWaiter = sendTagged(proxy, "first");
+    [holder, firstWaiter].forEach((f) => f.catch(() => {}));
+    // Pin both in position: the slot is busy and the queue holds first.
+    await waitForCount("the holder to occupy the single slot", () => heldResponses.length, 1);
+    await waitForCount(
+      "the first waiter to be queued",
+      () => heldResponses.length + receivedRequests.length,
+      2
+    );
+
+    // The late arrival joins the queue behind first, while the slot is still
+    // held, so its position is fixed before any release happens.
+    const late = sendTagged(proxy, "late");
+    late.catch(() => {});
+    await settle(100);
+    assert.deepEqual(
+      arrivalOrder(receivedRequests),
+      ["holder"],
+      "the late arrival must not reach the upstream while a waiter is queued"
+    );
+
+    // Free the slot. first was waiting before late, so first goes first.
+    heldResponses.shift().end();
+    await waitForCount("the first waiter to be admitted", () => receivedRequests.length, 2);
+    assert.deepEqual(
+      arrivalOrder(receivedRequests),
+      ["holder", "first"],
+      "the older waiter is admitted before the newer one"
+    );
+
+    // Drain the rest so every request completes and the teardown never hangs.
+    const deadline = Date.now() + 10_000;
+    while (arrivalOrder(receivedRequests).length < 3) {
+      while (heldResponses.length > 0) heldResponses.shift().end();
+      if (arrivalOrder(receivedRequests).length >= 3) break;
+      if (Date.now() >= deadline) {
+        assert.fail(
+          "only " +
+            arrivalOrder(receivedRequests).length +
+            " requests were admitted after 10000ms: " +
+            JSON.stringify(arrivalOrder(receivedRequests))
+        );
+      }
+      await settle(10);
+    }
+    while (heldResponses.length > 0) heldResponses.shift().end();
+    const [holderRes, firstRes, lateRes] = await Promise.all([holder, firstWaiter, late]);
+    for (const r of [holderRes, firstRes, lateRes]) {
+      assert.equal(r.status, 200, "every request completes 200");
+    }
+    assert.deepEqual(arrivalOrder(receivedRequests), ["holder", "first", "late"]);
+  });
+});
