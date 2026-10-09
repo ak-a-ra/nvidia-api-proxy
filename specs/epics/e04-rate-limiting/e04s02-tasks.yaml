@@ -24,7 +24,7 @@ tasks:
     verify: "npm test && node -e \"const s=require('fs').readFileSync('admission.js','utf8'); if(!/maxConcurrentRequests/.test(s)){console.error('admission.js does not read the configured ceiling');process.exit(1);} const v=require('fs').readFileSync('server.js','utf8'); if(/export\\s*{[^}]*\\b(createAdmission|admission|acquire)\\b/.test(v)){console.error('server.js must not re-export limiter internals');process.exit(1);} if(/setInterval/.test(s)){console.error('admission must be event-driven, never polled');process.exit(1);} console.log('no new security findings in affected paths: no new export, no polling');\""
     risk: P0
     security: low
-    status: failing
+    status: passing
     allure:
       severity: critical
       categories:
