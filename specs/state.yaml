@@ -7,7 +7,7 @@
 ```yaml
 vcs:
   kind: git
-  commit: 2dc2901
+  commit: b4d7873
   branch: feat/e04-admission-control
   worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
 workflow_mode: solo-git
@@ -20,11 +20,22 @@ handoff:
   next_skill: execute-plan
   source: issue-15
   note: >-
-    Paused by user request. Task 1 of e04s02 landed in commit f1968c6 (root-level
-    admission.js created, verified, and reviewed with verdict PASS). Task 2 brief
-    is ready at specs/epics/e04-rate-limiting/briefs/e04s02-t02.md. Stash stash@{0}
-    holds wip server.js wiring. Next session resumes execute-plan for task 2
-    via the orchestrator role in AGENTS.md.
+    Paused by user request. e04s02 tasks 1-4 are landed and committed on
+    feat/e04-admission-control: f1968c6 admission.js (reviewed PASS), cd4dc83 the
+    admission gate wired into server.js with its 429 path, 8d295e4 strict FIFO
+    and no-bypass, b4d7873 terminal-path slot release plus the queue-timeout
+    Retry-After. Suite is 113 passing and npm run check is clean. Task 5 is next:
+    /health must still answer 200 under full saturation, the 429 body must be the
+    fixed string naming no model, path, queue depth, budget, or upstream host, and
+    enabling the ceiling must change no pass-through behavior once a request is
+    admitted (path mapping, query forwarding, credential swap, header fidelity,
+    byte-identical body, SSE streaming). Working tree is clean; the earlier wip
+    stash stash@{0} is superseded by cd4dc83 and can be dropped. Orchestrator
+    ledger with per-round detail is at
+    .superpowers/sdd/05-admission-wiring/ORCHESTRATOR-LEDGER.md. The orchestrator
+    role in AGENTS.md was set aside at the user's instruction for this branch;
+    implementation has been done inline and each task dispatched to a subagent
+    before that change.
 decisions:
   - decision: Plan only the unblocked slice of the rate limiting epic
     rationale: >-
