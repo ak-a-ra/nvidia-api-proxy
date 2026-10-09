@@ -7,8 +7,8 @@
 ```yaml
 vcs:
   kind: git
-  commit: 9d663d9
-  branch: main
+  commit: c98ac05
+  branch: feat/e04-admission-control
   worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
 workflow_mode: solo-git
 active_flow: plan
@@ -17,7 +17,7 @@ active_story: e04s02
 session_start: 2026-09-23T08:14:23Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: kickoff-branch
+  next_skill: execute-plan
   source: issue-15
   note: >-
     e04s02 is planned, not implemented. The capsule landed on main: the story spec is
