@@ -15,6 +15,9 @@ function startStubUpstream(status, body, headers, mode) {
     // entry (not in the `end` handler) so a request aborted mid-body still
     // produces a record.
     const teardowns = [];
+    // Responses held open by the `hold` mode, in arrival order. The test
+    // triggers them to release admitted requests and observe queueing.
+    const heldResponses = [];
     const srv = http.createServer((req, res) => {
       let resolveClosed;
       const record = {
@@ -97,11 +100,23 @@ function startStubUpstream(status, body, headers, mode) {
           res.write("part1-");
           return;
         }
+        if (mode === "hold") {
+          // Send a real 200 header set, then hold the body open until the test
+          // releases it. flushHeaders() is required: writeHead() only queues
+          // headers and undici's fetch does not settle on queued headers, so
+          // without the flush the proxy's own connect timeout fires and it
+          // answers 502. Used to observe a concurrency ceiling: the proxy
+          // admits up to the ceiling and holds those responses; the rest wait
+          // or are rejected, and releasing lets the waiters proceed.
+          res.flushHeaders();
+          heldResponses.push(res);
+          return;
+        }
         if (body !== undefined) res.end(body, "utf8");
         else res.end();
       });
     });
-    srv.listen(0, "127.0.0.1", () => resolve({ srv, receivedRequests, teardowns }));
+    srv.listen(0, "127.0.0.1", () => resolve({ srv, receivedRequests, teardowns, heldResponses }));
   });
 }
 
@@ -233,6 +248,7 @@ async function withProxy(
     srv: stub,
     receivedRequests,
     teardowns,
+    heldResponses,
   } = await startStubUpstream(
     stubOpts.status ?? 200,
     stubOpts.body,
@@ -249,7 +265,7 @@ async function withProxy(
   }
   const proxy = await startProxyServer(base, key, token, proxyEnv, proxyOpts);
   t.after(() => proxy.child.kill());
-  return { proxy, receivedRequests, teardowns, base };
+  return { proxy, receivedRequests, teardowns, heldResponses, base };
 }
 
 // Wait for the first arriving upstream request's response to be torn down
@@ -2460,5 +2476,199 @@ describe("request logging", () => {
     assert.equal(lines[0].status, 0, "no status reached the client, so none is reported");
     assert.equal(lines[0].path, "/v1/models");
     assert.equal(proxy.child.exitCode, null, "the process survives the disconnect");
+  });
+});
+
+// The hold mode holds responses open, so a ceiling can be observed from the
+// client side: the stub's heldResponses grow only when the proxy admits, and
+// the recorded upstream arrivals tell the test exactly how many got through.
+describe("admission concurrency ceiling", () => {
+  // Releasing an admitted request admits the next waiter, whose response is in
+  // turn held, so draining a ceiling is a loop, not a fixed number of releases.
+  // The pump ends every held response as it appears until the test stops it.
+  function startDrainPump(heldResponses) {
+    const stopped = { value: false };
+    const done = (async () => {
+      while (!stopped.value) {
+        while (heldResponses.length > 0) heldResponses.shift().end();
+        await new Promise((r) => setTimeout(r, 5));
+      }
+    })();
+    return { stopped, done };
+  }
+
+  // Bounded wait: a regression in the gate must fail with a nameable message,
+  // not spin the suite forever or pass on a fixed sleep. What is waited for is
+  // the thing the next assertion checks.
+  async function waitForCount(what, check, expected, timeoutMs = 10_000) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const seen = check();
+      if (seen === expected) return;
+      if (Date.now() >= deadline) {
+        assert.fail(
+          `timed out after ${timeoutMs}ms waiting for ${what} (was ${seen}, wanted ${expected})`
+        );
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+
+  // The ceiling is parsed but not applied by config.js — a later slice enforces
+  // it — so this block is a black-box probe of server.js's admission gate, not
+  // of config.js. Absent, blank, and "0" are the three ways the gate can be
+  // disabled and each must admit every concurrent request with no wait and no
+  // rejection. Five simultaneous requests, five held responses, five 200s.
+  test('concurrency ceiling absent, blank, and "0" admits every concurrent request, no wait, no rejection', async (t) => {
+    for (const value of [undefined, "", "   ", "0"]) {
+      const proxyEnv = value === undefined ? {} : { PROXY_MAX_CONCURRENT_REQUESTS: value };
+      const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+        proxyEnv,
+        mode: "hold",
+      });
+      // Fire five in parallel and drive to the moment all are in flight:
+      // heldResponses grows only when the proxy admitted the request and held
+      // it open, so length five is the proof that none was queued or rejected.
+      const fetches = Array.from({ length: 5 }, () =>
+        proxiedFetch(proxy.port, "/v1/models", {
+          headers: { authorization: "Bearer pt" },
+        })
+      );
+      fetches.forEach((f) => f.catch(() => {}));
+      await waitForCount(
+        "every request admitted with the ceiling " + JSON.stringify(value),
+        () => heldResponses.length,
+        5
+      );
+      assert.equal(receivedRequests.length, 5, "all five arrived upstream");
+      // Release in arrival order and drain the five client responses.
+      for (const res of heldResponses) res.end();
+      const results = await Promise.all(fetches);
+      assert.equal(results.length, 5);
+      for (const r of results) assert.equal(r.status, 200, "each held response becomes 200");
+      heldResponses.length = 0;
+    }
+  });
+
+  // Positive ceiling admits up to N and stalls the rest; N is observable as
+  // exactly N upstream arrivals at the moment the gate is saturated.
+  test("positive concurrency ceiling admits up to the ceiling, the rest wait (PROXY_MAX_CONCURRENT_REQUESTS=2)", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: "2" },
+      mode: "hold",
+    });
+    // Fire five in parallel. Release until the stub records five arrivals:
+    // each release admits one waiter, whose held response is appended to
+    // heldResponses, which in turn is released — loop drives on arrivals, not
+    // on an assumed release count.
+    const fetches = Array.from({ length: 5 }, () =>
+      proxiedFetch(proxy.port, "/v1/models", {
+        headers: { authorization: "Bearer pt" },
+      })
+    );
+    fetches.forEach((f) => f.catch(() => {}));
+    await waitForCount("the ceiling to saturate at two admissions", () => heldResponses.length, 2);
+    assert.equal(
+      receivedRequests.length,
+      2,
+      "only the ceiling arrived upstream while the rest waited"
+    );
+    // Drain the ceiling: every release frees a slot, the next waiter is
+    // admitted, its response is held, and the pump releases that in turn, so
+    // all five arrive upstream. Driven by the recorded arrivals, so a faster
+    // or slower admission order cannot break it.
+    const pump = startDrainPump(heldResponses);
+    try {
+      await waitForCount(
+        "each waiter to be admitted after a release",
+        () => receivedRequests.length,
+        5
+      );
+    } finally {
+      pump.stopped.value = true;
+      await pump.done;
+    }
+    assert.equal(receivedRequests.length, 5, "all five eventually arrived upstream");
+    // Release the remaining held responses and confirm every fetch resolves 200.
+    while (heldResponses.length > 0) heldResponses.shift().end();
+    const results = await Promise.all(fetches);
+    assert.equal(results.length, 5);
+    for (const r of results) assert.equal(r.status, 200, "each waiter completes 200");
+  });
+
+  // Full queue exceeds both capacity and the queue, so the third request must
+  // be rejected at the gate: 429, fixed body, positive Retry-After, and zero
+  // upstream bytes. Arrival order is pinned by receivedRequests (one holder),
+  // and the 429 leaves the stub's arrival list exactly as long as the holder's.
+  test("full queue answers 429 with fixed body, positive Retry-After, and zero upstream requests", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "1",
+        // The queued waiter must survive until the holder releases, so the
+        // per-waiter queue timeout has to exceed the test's own duration;
+        // the default 30s would reject it before this test can release the
+        // holder and observe the admission.
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    // Holder takes the single slot.
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    holder.catch(() => {});
+    // Second request queues (not rejected, queue is not yet full).
+    const queued = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    queued.catch(() => {});
+    // Third request: queue full now (1 active + 1 queued), must be rejected.
+    const rejected = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    rejected.catch(() => {});
+    await waitForCount("the holder to occupy the slot", () => heldResponses.length, 1);
+    const rejectedRes = await rejected;
+    // The 429 arrives before any upstream contact from the rejected request,
+    // so receivedRequests must still be length one regardless of ordering.
+    assert.equal(
+      receivedRequests.length,
+      1,
+      "holder alone reached the upstream; rejected call made zero upstream requests"
+    );
+    assert.equal(rejectedRes.status, 429);
+    assert.equal(rejectedRes.headers.get("content-type"), "application/json; charset=utf-8");
+    const retryAfter = rejectedRes.headers.get("retry-after");
+    assert.ok(
+      /^1[0-9]*$/.test(retryAfter),
+      "retry-after must be a positive integer, got " + JSON.stringify(retryAfter)
+    );
+    const body = await rejectedRes.text();
+    assert.equal(body, '{"error":"Too many requests"}', "rejection body must be the fixed string");
+    // The leak check names things the rejection must not reference: the
+    // ceiling variable, the admission module, the queue, the port the test
+    // chose, and the loopback address it talks to.
+    const forbidden = [
+      "PROXY",
+      "maxConcurrent",
+      "admission",
+      "queue",
+      String(proxy.port),
+      "127.0.0.1",
+    ];
+    for (const part of forbidden) assert.ok(!body.includes(part), "body must not leak " + part);
+    for (const part of forbidden)
+      assert.ok(!retryAfter.includes(part), "retry-after must not leak " + part);
+    // Release the holder: the queued waiter is admitted, so its response is
+    // appended to heldResponses. Drain that too.
+    heldResponses.shift().end();
+    await waitForCount("the released waiter to be admitted", () => receivedRequests.length, 2);
+    while (heldResponses.length > 0) heldResponses.shift().end();
+    const [holderRes, queuedRes] = await Promise.all([holder, queued]);
+    assert.equal(holderRes.status, 200, "holder completes 200");
+    assert.equal(queuedRes.status, 200, "queued waiter admitted after release");
+    assert.equal(receivedRequests.length, 2, "holder + queued waiter arrived upstream");
+    assert.equal(proxy.child.exitCode, null, "proxy child still alive after releasing");
   });
 });

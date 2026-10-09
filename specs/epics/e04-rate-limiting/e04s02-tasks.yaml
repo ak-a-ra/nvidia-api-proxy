@@ -45,7 +45,7 @@ tasks:
     verify: "out=$(node --test --test-reporter=tap --test-name-pattern 'concurrency ceiling|full queue' server.test.js 2>&1); rc=$?; test $rc -eq 0 && t=$(printf '%s\\n' \"$out\" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(concurrency ceiling|full queue)') && test \"$t\" -ge 3 && node -e \"const s=require('fs').readFileSync('server.js','utf8'); if(!/retry-after|Retry-After/i.test(s)){console.error('429 must carry Retry-After');process.exit(1);} if(!/Too many requests/.test(s)){console.error('rejection body missing');process.exit(1);} console.log('no new security findings in affected paths: rejection body is a fixed string');\""
     risk: P0
     security: high
-    status: failing
+    status: passing
     allure:
       severity: critical
       categories:

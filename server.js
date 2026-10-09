@@ -2,10 +2,12 @@ import http from "node:http";
 import { pipeline, Readable } from "node:stream";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { parseConfig, CONNECT_TIMEOUT_SECONDS, IDLE_TIMEOUT_SECONDS } from "./config.js";
+import { createAdmission } from "./admission.js";
 
 const PORT = Number(process.env.PORT || 10000);
 
 const config = parseConfig(process.env);
+const admission = createAdmission(config.limits);
 
 // Compare SHA-256 digests rather than raw bytes: equal-length inputs mean
 // timingSafeEqual never throws on length mismatch, and a throw-vs-compare
@@ -42,12 +44,13 @@ const STRIPPED_HEADERS = new Set([
 // request bodies are not decompressed and must retain their encoding header.
 const RESPONSE_STRIPPED_HEADERS = new Set([...STRIPPED_HEADERS, "content-encoding"]);
 
-function sendJson(req, res, status, body) {
+function sendJson(req, res, status, body, extraHeaders = {}) {
   req.resume(); // drain so keep-alive connections survive early rejections
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(payload),
+    ...extraHeaders,
   });
   res.end(payload);
 }
@@ -136,6 +139,12 @@ const server = http.createServer(async (req, res) => {
     if (config.unconfigured) {
       return sendJson(req, res, 503, { error: "Proxy is not configured" });
     }
+
+    const ticket = await admission.acquire();
+    if (!ticket.admitted) {
+      return sendJson(req, res, 429, { error: "Too many requests" }, { "retry-after": "1" });
+    }
+    res.on("close", ticket.release);
 
     // Node's req.headers values are string | string[]. undici accepts an array
     // but silently collapses it into one comma-joined value, so normalize to a
