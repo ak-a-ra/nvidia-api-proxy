@@ -124,7 +124,7 @@ tasks:
     verify: "node --test --test-reporter=tap --test-name-pattern 'PROXY_MAX_CONCURRENT_REQUESTS' server.test.js 2>&1 | grep -cE '^[[:space:]]*ok [0-9]+ - .*PROXY_MAX_CONCURRENT_REQUESTS' && node -e \"const s=require('fs').readFileSync('server.test.js','utf8'); const stale=s.split('\\n').filter((l)=>/values validated, not applied/.test(l)&&/MAX_CONCURRENT/.test(l)); if(stale.length){console.error('stale concurrency title remains: '+stale[0].trim());process.exit(1);} const keep=s.split('\\n').filter((l)=>/values validated, not applied/.test(l)); if(keep.length<3){console.error('the three stored-only tests must keep their titles, found '+keep.length);process.exit(1);} console.log('titles reconciled: one corrected, three stored-only claims intact');\""
     risk: P1
     security: none
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:

@@ -1281,7 +1281,15 @@ describe("operational limit config", () => {
   // one-slot ceiling over a one-deep queue must still pass a request through,
   // so a later slice that starts acting on them has to change this test
   // deliberately.
-  test("PROXY_MAX_CONCURRENT_REQUESTS=1 over a one-slot queue still proxies normally (values validated, not applied)", async (t) => {
+  // ADR 0002 recorded that a later enforcing slice would have to change this
+  // test deliberately, and e04s02 is that slice: the concurrency ceiling is now
+  // live, so the old title's claim that the value changes no traffic is false.
+  // What survives is the narrower claim the assertions already prove — a single
+  // request under a one-slot ceiling is admitted and proxied normally — and the
+  // three sibling stored-only titles below (the rate pair, the body-buffer
+  // cap, and the per-model map) are untouched: those limits are still parsed
+  // and stored only.
+  test("PROXY_MAX_CONCURRENT_REQUESTS=1 over a one-slot queue admits a single request and proxies it normally", async (t) => {
     const { proxy, receivedRequests } = await withProxy(t, {
       proxyEnv: {
         PROXY_MAX_CONCURRENT_REQUESTS: "1",
