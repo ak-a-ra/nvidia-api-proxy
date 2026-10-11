@@ -82,11 +82,11 @@ Example — destructive op:
 
 ## Part 2 — Repository knowledge
 
-Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `server.js` (~283 lines), configuration parsing in `config.js` (~352 lines); tests in `server.test.js` (~2464 lines). Runtime is dependency-free; lint/typecheck/format are dev-only (`devDependencies`) and are configured — see `eslint.config.js`, `tsconfig.json`, `.prettierrc.json`.
+Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `server.js` (~304 lines), configuration parsing in `config.js` (~352 lines), admission state in `admission.js` (~111 lines); tests in `server.test.js` (~3476 lines). Runtime is dependency-free; lint/typecheck/format are dev-only (`devDependencies`) and are configured — see `eslint.config.js`, `tsconfig.json`, `.prettierrc.json`.
 
 ### Commands
 
-- `npm test` — full suite (100 tests, Node built-in `node --test` runner, no deps to install)
+- `npm test` — full suite (116 tests, Node built-in `node --test` runner, no deps to install)
 - `node --test --test-name-pattern "SIGTERM"` — run single test by name (needs Node ≥ 20)
 - `npm run check` — **lint + typecheck + format:check in one command. Run this before every commit and before every push.** It is the same gate CI enforces.
 - `npm run lint` / `npm run lint:fix` — ESLint 9, flat config
@@ -110,9 +110,9 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `s
 - The suite is hermetic: `childEnv()` in `server.test.js` strips every variable `server.js`/`config.js` read (see `CONFIG_ENV_VARS`) from the inherited `process.env` before applying a test's overrides, so an operator's exported value cannot decide a result. A new operational variable must be added to `CONFIG_ENV_VARS` in the same commit that adds it to `config.js`
 - Each test gets stub upstream HTTP server; cleanups register via `t.after` (LIFO: proxy child killed before stub closed)
 - Stub upstream modes: `sse`, `stall`, `slowfinish`, `silent`, `activelong`, `midabort`, `abortable`
-- Test count synced in **every** living doc that states one (currently 100) — grep, never trust this list or its line numbers: `grep -rnE 'tests(-| )?[0-9]{2,4}|[0-9]{2,4}[ -]?tests?|\(currently [0-9]+\)' --include='*.md' --include='*.yaml' .`
+- Test count synced in **every** living doc that states one (currently 116) — grep, never trust this list or its line numbers: `grep -rnE 'tests(-| )?[0-9]{2,4}|[0-9]{2,4}[ -]?tests?|\(currently [0-9]+\)' --include='*.md' --include='*.yaml' .`
   The `\(currently [0-9]+\)` alternative exists because this bullet states a count that the first two alternatives do not match. Sweep for the stale number afterwards too — `grep -rnE '\b(85|99)\b' --include='*.md' --include='*.yaml' .` — since a site can state the count in a form the pattern above misses.
-  Sites as of 2026-10-02: `README.md:9` badge `tests-100%20passing`, `README.md:86` tip, this bullet (count + `npm test` bullet), `CONVENTIONS.md:17`, `specs/README.md:19`, `specs/tech-architecture/tech-stack.md:155`, `specs/tech-architecture/TEST_PLAN_LATEST.md:44,294,351`, `specs/product/VISION_LATEST.yaml:20`, `specs/state.yaml` handoff note, `specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md:345`. `plans/*.md` hold historical per-plan numbers — not living docs.
+  Sites as of 2026-10-11: `README.md:9` badge `tests-116%20passing`, `README.md:86` tip, this bullet (count + `npm test` bullet), `CONVENTIONS.md:17`, `specs/README.md:19`, `specs/tech-architecture/tech-stack.md:168`, `specs/tech-architecture/TEST_PLAN_LATEST.md:44,294,351`, `specs/product/VISION_LATEST.yaml:20`, `specs/state.yaml` handoff note, `specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md:345`. `plans/*.md` hold historical per-plan numbers — not living docs.
   `docs/research/config-invariant-guard-tests.md` is a dated historical note — do **not** update it.
 
 ### Proxy invariants (tests assert these)

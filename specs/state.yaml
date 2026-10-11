@@ -20,23 +20,27 @@ handoff:
   next_skill: execute-plan
   source: issue-15
   note: >-
-    Paused after e04s02 task 7. Tasks 1-7 are landed and committed on
-    feat/e04-admission-control: f1968c6 admission.js, cd4dc83 the admission gate
-    wired into server.js with its 429 path, 8d295e4 strict FIFO and no-bypass,
-    b4d7873 terminal-path slot release plus the queue-timeout Retry-After,
-    9809b6e health bypass plus the inert 429 body plus pass-through parity,
-    edc0283 the stale concurrency test title renamed to the surviving claim, and
-    0d124ba the six living documents corrected (README.md, tech-stack.md,
-    CONTEXT.md, ADR 0002, SCOPE_LATEST.yaml, CONVENTIONS.md) so the ceiling trio
-    is documented as enforced and the five budgets stay stored-only. Suite is 116
-    passing and npm run check is clean. Task 8 is last: run the full suite with
-    the default export still the only seam, then sync the total into every
-    living doc that states a count — README badge to tests-116%20passing,
-    CONVENTIONS.md, AGENTS.md, the four specs docs, and this handoff note, which
-    task 8 names explicitly because its scan cannot see state.yaml. The gate
-    fails at or below the pre-story floor of 100, so the docs cannot be synced
-    to an unchanged count. Task 7 details are in
-    specs/epics/e04-rate-limiting/briefs/e04s02-t07-report.md. The orchestrator
+    e04s02 is complete: all eight tasks passing, suite 116 green, and the count
+    synced into every living doc (README badge and tip, AGENTS.md, CONVENTIONS.md,
+    specs/README.md, VISION_LATEST.yaml, TEST_PLAN_LATEST.md, tech-stack.md,
+    e04s01's section 21 risk line). Committed on feat/e04-admission-control:
+    f1968c6 admission.js, cd4dc83 the gate wired into server.js with its 429 path,
+    8d295e4 strict FIFO and no-bypass, b4d7873 terminal-path slot release plus the
+    queue-timeout Retry-After, 9809b6e health bypass + inert 429 body +
+    pass-through parity, edc0283 the stale test title renamed, 0d124ba the six
+    living documents corrected, and the task 8 count-sync commit. The suite grew
+    100 to 116 with one production behavior change beyond admission.js itself
+    (the 429 Retry-After carrying the configured wait) and no new runtime
+    dependency, seam, or env var. e04s03 (issue #16, Make admission abort-aware
+    and shutdown-safe) is now the head of the #14-#22 chain and needs a capsule
+    before execution; per the bigpowers lifecycle the next step for this branch
+    is verify-work, then release-branch in solo-local mode. Issue #15 stays open
+    for the maintainer: closing it is a side effect outside the worktree, and
+    epic.yaml plus execution-status.yaml record the completion instead. Carried
+    gaps: a queued request whose client disconnects is not charged back, and the
+    timer-fires-mid-release race is handled by admission.js's settled flag but
+    not pinned by a test. Reports are in
+    specs/epics/e04-rate-limiting/briefs/e04s02-t01 through t08. The orchestrator
     role in AGENTS.md was set aside at the user's instruction for this branch;
     implementation has been done inline and each task dispatched to a subagent
     before that change.
