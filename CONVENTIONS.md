@@ -24,15 +24,16 @@ exist in `server.js`.
 
 - **Timeout** — implemented: `UPSTREAM_CONNECT_TIMEOUT_SECONDS` (30), `UPSTREAM_IDLE_TIMEOUT_SECONDS` (120)
 - **Graceful degradation** — implemented: missing key/token yields 503, not a crash
-- Rate limit — planned, not implemented. Opt-in admission subsystem, issues #13–#22
+- Rate limit — partially implemented: the admission half (`PROXY_MAX_CONCURRENT_REQUESTS`, `PROXY_MAX_QUEUE_SIZE`, `PROXY_QUEUE_TIMEOUT_SECONDS`) is enforced through `admission.js`; the budget half (`PROXY_RPM`, `PROXY_TPM`, `PROXY_SAFETY_MARGIN_PCT`, `PROXY_MAX_BUFFERED_BODY_BYTES`, `PROXY_MODEL_LIMITS_JSON`) is validated and stored, not enforced — issues #17–#22
 - Retry — not implemented. Deliberately rejected: replaying a non-idempotent request is unsafe
 - Circuit breaker — not implemented
 
 ## Architecture
 
-- `server.js` — HTTP handling: server lifecycle, auth, path mapping, upstream fetch and streaming, timeouts, shutdown (~283 lines)
+- `server.js` — HTTP handling: server lifecycle, auth, path mapping, upstream fetch and streaming, timeouts, shutdown (~304 lines)
 - `config.js` — Configuration: parsing and validation for every environment variable (~352 lines)
-- `server.test.js` — Test suite (~2464 lines)
+- `admission.js` — Admission control: the active count, the FIFO wait queue, and per-ticket settled state behind `createAdmission`, `acquire`, and `release`. The only reader of `config.limits` at request time; `server.js` calls it and re-exports none of it
+- `server.test.js` — Test suite (~3476 lines)
 - Modules split by concern; `config.js` imports nothing from `server.js`, so configuration can be read without starting a listener
 
 ## Naming Conventions
@@ -49,6 +50,7 @@ exist in `server.js`.
 - No `src/` directory
 - `config.js` owns all configuration parsing — every environment variable is read and validated there, and `server.js` keeps no parsing logic
 - `server.js` owns HTTP handling and calls into `config.js` once at startup
+- `admission.js` owns all admission state — the active count, the FIFO queue, and the released flag — and `server.js` holds none of it; a slot is acquired after authentication and the unconfigured check, and released on response close, so no terminal branch manages capacity
 - `render.yaml` for deployment config
 - No `tests/` directory - tests inline in `server.test.js`
 

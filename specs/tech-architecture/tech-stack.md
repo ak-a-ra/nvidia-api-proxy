@@ -62,13 +62,19 @@ Client → server.js/http.createServer
 | `PROXY_SAFETY_MARGIN_PCT` | No | `5` | Fatal, exit 1 | Integer `0`–`50`, decimal digits only |
 | `PROXY_MAX_BUFFERED_BODY_BYTES` | No | `8388608` (8 MiB) | Fatal, exit 1 | Positive integer, decimal digits only; `0` is fatal |
 | `PROXY_MODEL_LIMITS_JSON` | No | unset | Fatal, exit 1 | Rejected whole, never partially, when supplied: bad JSON, non-object root, blank/padded/control-character model key, non-object entry, entry supplying neither `rpm` nor `tpm`, unknown field in an entry, non-positive-integer budget |
-| `PROXY_LOG_REQUESTS` | No | off | Fatal, exit 1 | Closed vocabulary, case-insensitive after trimming: `1`/`true`/`yes`/`on` enable, `0`/`false`/`no`/`off` disable, unset or blank is off. Anything else is fatal — `maybe` must not start a feature nobody asked for. The only `PROXY_*` variable that is live rather than stored |
+| `PROXY_LOG_REQUESTS` | No | off | Fatal, exit 1 | Closed vocabulary, case-insensitive after trimming: `1`/`true`/`yes`/`on` enable, `0`/`false`/`no`/`off` disable, unset or blank is off. Anything else is fatal — `maybe` must not start a feature nobody asked for. A live flag, like the concurrency ceiling trio above |
 
-The eight rate-limiting `PROXY_*` limits above are **validated and stored, not
-enforced**. Only `config.host` and `config.logRequests` are read after parsing, the first by
-`server.listen` and the second by the request logger; the rate pair, ceilings, and per-model map
-sit on the config object until the later slices act on them. An operator who sets a limit today
-sees no change in traffic. Regime rationale: `docs/adr/0002-config-operational-fail-fast.md`.
+The concurrency ceiling is enforced at request time. `config.limits.maxConcurrentRequests`,
+`config.limits.maxQueueSize`, and `config.limits.queueTimeoutSeconds` are read by the admission gate
+in `server.js` — a root-level `admission.js` owns the active count and the FIFO queue — and a full
+queue or an expired wait rejects with `429 {"error":"Too many requests"}` and a `Retry-After` header.
+The other five rate-limiting limits above (`PROXY_RPM`, `PROXY_TPM`,
+`PROXY_SAFETY_MARGIN_PCT`, `PROXY_MAX_BUFFERED_BODY_BYTES`, `PROXY_MODEL_LIMITS_JSON`) are
+**validated and stored, not enforced**. `config.host` and `config.logRequests` are the other two
+fields read after parsing, the first by `server.listen` and the second by the request logger; the
+five budgets sit on the config object until the later slices act on them. An operator who sets a
+budget today sees no change in traffic. Regime rationale:
+`docs/adr/0002-config-operational-fail-fast.md`.
 
 ## Path Mapping
 
@@ -151,7 +157,7 @@ SIGTERM handler:
 - **Type Safety**: None — JavaScript dynamic typing
 - **Observability**: Startup `console.log`; opt-in per-request JSON lines when `PROXY_LOG_REQUESTS` is on; `console.error` for config failures, caught errors, stream errors
 - **Request Size Limits**: None imposed — `PROXY_MAX_BUFFERED_BODY_BYTES` is validated and stored, not applied
-- **Rate Limiting**: Not implemented — the eight limit variables are validated at startup and never read again; `PROXY_HOST` only selects the bind address
+- **Rate Limiting**: Admission enforced since e04s02 — the concurrency-ceiling trio (`PROXY_MAX_CONCURRENT_REQUESTS`, `PROXY_MAX_QUEUE_SIZE`, `PROXY_QUEUE_TIMEOUT_SECONDS`) gates traffic through the root-level `admission.js` queue; the five budgets (`PROXY_RPM`, `PROXY_TPM`, `PROXY_SAFETY_MARGIN_PCT`, `PROXY_MAX_BUFFERED_BODY_BYTES`, `PROXY_MODEL_LIMITS_JSON`) are validated at startup and never read again; `PROXY_HOST` only selects the bind address
 - **Retries**: Not implemented
 - **Circuit Breaker**: Not implemented
 - **Metrics**: Not implemented

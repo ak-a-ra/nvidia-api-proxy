@@ -5,6 +5,9 @@
 * Amended: 2026-10-01 — e03s01 adds `PROXY_LOG_REQUESTS`, the tenth `PROXY_*` operational variable
   and the first one that is a flag rather than a ceiling. The regime does not move; the parsing
   rule is a closed vocabulary. See *Decision* §1.5, §2, and *Compliance*.
+* Amended: 2026-10-11 — e04s02 enforces the concurrency ceiling, so three of the eight
+  rate-limiting limits are now read at request time and the rest stay stored. Decision §1.4 and
+  the Coverage section are amended. See *Decision* §1.4 and *Consequences*.
 * Amended: 2026-10-01 — counts corrected against `config.js`: eight rate-limiting limits (the epic
   added nine `PROXY_*` variables, `PROXY_HOST` being the ninth and not a limit), ten variables on
   the fatal path. See *Context* and *Consequences*.
@@ -68,14 +71,21 @@ a rule that could not have been written for the other nine.
    fallback for an empty, whitespace, non-finite, or negative value. Tightening them is a
    behavior change outside this decision's scope. Nothing else may use `readSeconds`; the
    leniency is a named exception, not a general parsing mode.
-4. **The eight rate-limiting limits above are validated and stored, not enforced.** Nothing reads
-   them at request time; they are dead weight on the config object until the later slices (#15–#22)
-   act on them. The epic's ninth variable, `config.host`, is the exception that does get read, by
-   `server.listen`. This story changes nothing about request handling.
-5. **`PROXY_LOG_REQUESTS` is under the same regime, and is the one operational variable that is
+4. **The concurrency-ceiling trio is enforced; the other five rate-limiting limits stay validated
+   and stored.** Since e04s02, `config.limits.maxConcurrentRequests`, `config.limits.maxQueueSize`,
+   and `config.limits.queueTimeoutSeconds` are read at request time: a root-level `admission.js`
+   owns the active count and the FIFO queue, and `server.js` acquires a slot after authentication
+   and the unconfigured check. Nothing about the tiers moved — the parsing rules, the fatal regime,
+   and the stored defaults are exactly what §1.1–§1.3 settled — but the claim "nothing reads them"
+   is now true of five limits, not eight. `config.host` (read by `server.listen`) and
+   `config.logRequests` (read by the request logger) remain the other live fields. The five stored
+   budgets — `PROXY_RPM`, `PROXY_TPM`, `PROXY_SAFETY_MARGIN_PCT`,
+   `PROXY_MAX_BUFFERED_BODY_BYTES`, `PROXY_MODEL_LIMITS_JSON` — become live in #17–#22, each under
+   this same ADR.
+5. **`PROXY_LOG_REQUESTS` is under the same regime, and is the first operational variable that is
    live.** Anything outside its vocabulary is fatal at startup, exactly like a mistyped ceiling:
    the failure shape is identical — a value the operator wrote and the proxy did not honor, noticed
-   by nobody. Unlike the eight stored limits, it *is* read at request time, so `config.logRequests`
+   by nobody. Unlike the five stored limits, it *is* read at request time, so `config.logRequests`
    gates one stdout line per request rather than sitting unread. The variable is new, so this fatal path
    cannot break a deployment that predates it. Absent, blank, or falsy it is off, which is what
    keeps a deployment that never sets it byte-identical to a build without the feature.
@@ -232,6 +242,17 @@ without a second config seam, which no earlier field managed. What stays *review
 value's own identity — that `true` is `true` — and nothing asserts it separately, because the
 stdout difference is the stronger claim and the two cannot disagree.
 
+**The concurrency-ceiling trio is the second field the harness can pin, through behavior rather
+than state.** e04s02's tests observe the ceiling's effect over HTTP — a saturated gate rejects with
+`429` and a positive `Retry-After`, waiters are admitted in arrival order, a slot is released on
+every terminal path, `/health` bypasses the gate, and an admitted request is proxied byte-identically
+to an ungated one — so "stored but unread" is no longer the honest description of
+`config.limits.maxConcurrentRequests`, `config.limits.maxQueueSize`, or
+`config.limits.queueTimeoutSeconds`. What the harness still cannot see is the stored *value*: that
+an absent ceiling is `null` rather than `0`, that a blank and a `0` produce the same observable
+startup, and that `32`/`30` are the defaults rather than accepted boundaries. Those remain
+reviewed by eye, exactly as before.
+
 Two consequences follow, and both are already visible in the test comments:
 
 * A blank `PROXY_MAX_CONCURRENT_REQUESTS` cannot be distinguished from an explicit `0` through
@@ -240,7 +261,11 @@ Two consequences follow, and both are already visible in the test comments:
   would exit 1 and the test would fail. No test claims more than that.
 * A test name that says "validated, not applied" is doing something specific: it pins that a
   configuration extreme does not *change* traffic, so a later slice that starts enforcing has to
-  change that test deliberately rather than discover the change in production.
+  change that test deliberately rather than discover the change in production. That has now
+  happened once: e04s02 renamed the concurrency variant — `PROXY_MAX_CONCURRENT_REQUESTS=1 over a
+  one-slot queue admits a single request and proxies it normally` — and left the three budget
+  variants (rate pair, body-buffer cap, per-model map) untouched, because those limits are still
+  stored only.
 
 ### Standing rule: re-prove a fatal message by test, not by reading it
 
@@ -322,7 +347,8 @@ otherwise normalized — and case sensitivity is load-bearing: `Gpt` and `gpt` a
   and the later slices that need it inherit both instead of writing a ninth parsing dialect.
 * The validated-but-unenforced state is cheap to reverse: the values are already parsed, validated,
   and shaped for the fields the later slices read, so #15–#22 add enforcement without revisiting
-  parsing.
+  parsing. e04s02 is the proof — the ceiling went live with no parsing change at all, and the first
+  slice to enforce a budget (#17) inherits the same property.
 * The request log line's field set is closed *by construction*, not by filtering: the object
   literal in `logRequestOnClose` names `ts`, `method`, `path`, `status`, and `ms` and nothing else,
   so a header, a body, a credential, or the upstream host cannot reach the line even if a future
@@ -359,11 +385,16 @@ otherwise normalized — and case sensitivity is load-bearing: `Gpt` and `gpt` a
   starting with logging off. The strict reading buys an unambiguous signal at the price of the one
   variable whose failure costs nothing operationally, so the trade is deliberate and is the one
   place where this ADR's regime is arguably harsher than the stakes justify.
-* **A configured limit is currently invisible in behavior.** Until enforcement lands, setting
-  `PROXY_RPM=1` changes nothing an operator can see in traffic; the only honest reading today is
-  "validated and stored". The four tests named "validated, not applied" exist so that a later
-  slice has to change them deliberately, but a reader who takes the variables as enforcement today
-  is wrong. This is the story's known risk, accepted per #13.
+* **Five of the eight rate-limiting limits are still invisible in behavior.** Since e04s02 the
+  concurrency-ceiling trio is not: `PROXY_MAX_CONCURRENT_REQUESTS=1` with a full queue answers
+  `429` with a `Retry-After` header, and that behavior is pinned by the admission tests. The
+  remaining five — `PROXY_RPM`, `PROXY_TPM`, `PROXY_SAFETY_MARGIN_PCT`,
+  `PROXY_MAX_BUFFERED_BODY_BYTES`, `PROXY_MODEL_LIMITS_JSON` — stay invisible until #17–#22:
+  setting one today changes nothing an operator can see in traffic, and the only honest reading
+  for those is "validated and stored". The four tests named "validated, not applied" (three remain
+  for the budgets) exist so a later slice has to change them deliberately, but a reader who takes
+  the budget variables as enforcement today is wrong. This is the story's known risk, accepted
+  per #13.
 * **`PROXY_HOST` is the security-relevant variable and is the least validated one.** It is the only
   one that changes what the process is reachable from, and it is the only one with no rule at all:
   no allowlist, no parse, passed through verbatim. That is deliberate — rejecting an unfamiliar but
@@ -489,8 +520,9 @@ Pinned by tests in `server.test.js`. Every name below is quoted from the suite.
   ordering for all four, including the one whose `0` is a legal disable;
 * `PROXY_MAX_CONCURRENT_REQUESTS blank (spaces or tab) starts and serves /health` — the
   concurrency ceiling's own blank case;
-* `PROXY_MAX_CONCURRENT_REQUESTS=1 over a one-slot queue still proxies normally (values validated,
-  not applied)`.
+* `PROXY_MAX_CONCURRENT_REQUESTS=1 over a one-slot queue admits a single request and proxies it
+  normally` — renamed by e04s02 from the "validated, not applied" title it carried while the ceiling
+  was stored; the assertions are unchanged, and the rename is this ADR's own standing rule applied.
 
 **Buffered body ceiling and per-model limits:**
 
@@ -574,9 +606,10 @@ Pinned by tests in `server.test.js`. Every name below is quoted from the suite.
 **Reviewed by eye, not by test** — the stored defaults `32`, `30`, `5`, `8388608`; the `null` that
 disables the concurrency ceiling; the `null` that means "no per-model budgets"; the empty-object
 case and the `null`-prototype map; the `rateLimit`, `limits`, and `modelLimits` shapes; and every
-config field a later slice adds. See *Coverage* above for why the harness cannot reach them, and for
-what it does pin instead. `config.logRequests` is deliberately absent from this list: its effect is
-stdout, so it is pinned rather than reviewed by eye.
+config field a later slice adds. See *Coverage* above for why the harness cannot reach the stored
+values, and for what it does pin instead — since e04s02 the ceiling's *behavior* is pinned over
+HTTP even though its stored value is not. `config.logRequests` is deliberately absent from this
+list: its effect is stdout, so it is pinned rather than reviewed by eye.
 
 Rationale and test design documented in
 [`docs/research/config-invariant-guard-tests.md`](../research/config-invariant-guard-tests.md).

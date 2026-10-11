@@ -109,21 +109,26 @@ const client = new OpenAI({
 | `UPSTREAM_IDLE_TIMEOUT_SECONDS`    | no | Seconds a response stream may stay silent before it is cut (default `120`, `0` disables; resets on every chunk) |
 | `PROXY_RPM`        | no | Requests per minute, paired with `PROXY_TPM` (default `unset`; both absent or blank leaves rate limiting disabled) |
 | `PROXY_TPM`        | no | Tokens per minute, paired with `PROXY_RPM` (default `unset`; exactly one of the pair set is fatal) |
-| `PROXY_MAX_CONCURRENT_REQUESTS` | no | Requests allowed to run at once (default disabled — absent, blank, or `0`) |
-| `PROXY_MAX_QUEUE_SIZE` | no | Requests that may wait for capacity (default `32`) |
-| `PROXY_QUEUE_TIMEOUT_SECONDS` | no | Seconds a request may wait before rejection (default `30`) |
+| `PROXY_MAX_CONCURRENT_REQUESTS` | no | Requests allowed to run at once (default disabled — absent, blank, or `0`) — **enforced** |
+| `PROXY_MAX_QUEUE_SIZE` | no | Requests that may wait for capacity (default `32`) — **enforced** |
+| `PROXY_QUEUE_TIMEOUT_SECONDS` | no | Seconds a request may wait before rejection (default `30`) — **enforced** |
 | `PROXY_SAFETY_MARGIN_PCT` | no | Headroom reserved against the rate budgets, `0`–`50` (default `5`) |
 | `PROXY_MAX_BUFFERED_BODY_BYTES` | no | Ceiling on a buffered request body in rate-limit mode (default `8388608`, 8 MiB) |
 | `PROXY_MODEL_LIMITS_JSON` | no | JSON object of per-model budgets keyed by exact model ID, e.g. `{"meta/llama-3.1-8b-instruct":{"rpm":10,"tpm":20000}}` (default `unset`) |
 | `PROXY_LOG_REQUESTS` | no | Write one JSON line per request to stdout (default `off`; accepts `1`/`true`/`yes`/`on` or `0`/`false`/`no`/`off`, case-insensitive — any other value is fatal) |
 
 > [!IMPORTANT]
-> Every `PROXY_*` row above except `PROXY_HOST` and `PROXY_LOG_REQUESTS` is **validated and stored,
-> not enforced** — the proxy parses them at startup and nothing reads them at request time, so
-> setting a limit changes no traffic yet. A supplied value its rule rejects is fatal: the process
-> exits with code 1 and a line on stderr naming the variable. The two exceptions are live:
-> `PROXY_HOST` selects the address `server.listen` binds, and `PROXY_LOG_REQUESTS` writes the
-> request lines described below.
+> **The concurrency ceiling is enforced at request time.** `PROXY_MAX_CONCURRENT_REQUESTS` (with
+> `PROXY_MAX_QUEUE_SIZE` and `PROXY_QUEUE_TIMEOUT_SECONDS`) gates traffic: requests beyond the
+> ceiling wait in a bounded FIFO queue, and a full queue or an expired wait is rejected with `429`
+> `{"error":"Too many requests"}` plus a `Retry-After` header. Every other `PROXY_*` row above is
+> **validated and stored, not enforced** — the proxy parses them at startup and does not consult
+> them while serving a request, so setting one changes no traffic yet. A supplied value its rule
+> rejects is fatal: the process exits with code 1 and a line on stderr naming the variable. Two
+> exceptions are live regardless of enforcement: `PROXY_HOST` selects the address `server.listen`
+> binds, and `PROXY_LOG_REQUESTS` writes the request lines described below. The live set is
+> `PROXY_HOST`, `PROXY_LOG_REQUESTS`, and the ceiling trio — `PROXY_MAX_CONCURRENT_REQUESTS` with
+> `PROXY_MAX_QUEUE_SIZE` and `PROXY_QUEUE_TIMEOUT_SECONDS`; every other row waits for its slice.
 
 Copy-paste-ready local setup — fill in the two values marked `FIXME`:
 
@@ -138,12 +143,14 @@ export PROXY_AUTH_TOKEN="FIXME"  # token your clients will send
 # export UPSTREAM_CONNECT_TIMEOUT_SECONDS="30"  # 0 disables
 # export UPSTREAM_IDLE_TIMEOUT_SECONDS="120"    # 0 disables; resets on every chunk
 
-# ---- rate limiting (stored, not enforced yet; PROXY_RPM and PROXY_TPM are a mandatory pair) ----
-# export PROXY_RPM="60"                   # requests per minute
-# export PROXY_TPM="200000"                # tokens per minute
+# ---- rate limiting ----
+# ---- admission (enforced): ceiling, queue, queue wait ----
 # export PROXY_MAX_CONCURRENT_REQUESTS="16"  # absent, blank, or 0 disables the ceiling
 # export PROXY_MAX_QUEUE_SIZE="32"         # requests that may wait for capacity
 # export PROXY_QUEUE_TIMEOUT_SECONDS="30"  # how long a request may wait
+# ---- budgets (validated and stored, not enforced yet; PROXY_RPM and PROXY_TPM are a mandatory pair) ----
+# export PROXY_RPM="60"                   # requests per minute
+# export PROXY_TPM="200000"                # tokens per minute
 # export PROXY_SAFETY_MARGIN_PCT="5"       # headroom reserved against the budgets, 0-50
 # export PROXY_MAX_BUFFERED_BODY_BYTES="8388608"  # buffered-body ceiling in rate-limit mode, 8 MiB
 # export PROXY_MODEL_LIMITS_JSON='{"meta/llama-3.1-8b-instruct":{"rpm":10,"tpm":20000}}'  # per-model budgets
