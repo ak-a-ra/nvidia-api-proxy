@@ -7,7 +7,7 @@
 ```yaml
 vcs:
   kind: git
-  commit: b4d7873
+  commit: 9809b6e
   branch: feat/e04-admission-control
   worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
 workflow_mode: solo-git
