@@ -20,19 +20,19 @@ handoff:
   next_skill: execute-plan
   source: issue-15
   note: >-
-    Paused by user request. e04s02 tasks 1-4 are landed and committed on
-    feat/e04-admission-control: f1968c6 admission.js (reviewed PASS), cd4dc83 the
-    admission gate wired into server.js with its 429 path, 8d295e4 strict FIFO
-    and no-bypass, b4d7873 terminal-path slot release plus the queue-timeout
-    Retry-After. Suite is 113 passing and npm run check is clean. Task 5 is next:
-    /health must still answer 200 under full saturation, the 429 body must be the
-    fixed string naming no model, path, queue depth, budget, or upstream host, and
-    enabling the ceiling must change no pass-through behavior once a request is
-    admitted (path mapping, query forwarding, credential swap, header fidelity,
-    byte-identical body, SSE streaming). Working tree is clean; the earlier wip
-    stash stash@{0} is superseded by cd4dc83 and can be dropped. Orchestrator
-    ledger with per-round detail is at
-    .superpowers/sdd/05-admission-wiring/ORCHESTRATOR-LEDGER.md. The orchestrator
+    Paused after e04s02 task 5. Tasks 1-5 are landed and committed on
+    feat/e04-admission-control: f1968c6 admission.js, cd4dc83 the admission gate
+    wired into server.js with its 429 path, 8d295e4 strict FIFO and no-bypass,
+    b4d7873 terminal-path slot release plus the queue-timeout Retry-After, and
+    the task 5 commit (health bypass, inert 429 body, pass-through parity).
+    Suite is 116 passing and npm run check is clean. The living docs still state
+    100 tests; task 8 owns that sync. Task 6 is next: rename
+    "PROXY_MAX_CONCURRENT_REQUESTS=1 over a one-slot queue still proxies normally
+    (values validated, not applied)" in server.test.js so it states the
+    surviving claim — a single request under a one-slot ceiling is admitted and
+    proxied normally — with its assertion verbatim, leaving the three sibling
+    stored-only titles untouched. Task 5 details are in
+    specs/epics/e04-rate-limiting/briefs/e04s02-t05-report.md. The orchestrator
     role in AGENTS.md was set aside at the user's instruction for this branch;
     implementation has been done inline and each task dispatched to a subagent
     before that change.

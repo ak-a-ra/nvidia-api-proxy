@@ -103,7 +103,7 @@ tasks:
     verify: "out=$(node --test --test-reporter=tap --test-name-pattern 'health bypass|leak|429 body' server.test.js 2>&1); rc=$?; test $rc -eq 0 && t=$(printf '%s\\n' \"$out\" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(health bypass|leak|429 body)') && test \"$t\" -ge 2 && node -e \"const s=require('fs').readFileSync('server.js','utf8'); if(/health[\\s\\S]{0,400}acquire/.test(s)){console.error('/health must not pass through admission');process.exit(1);} console.log('no new security findings in affected paths: overload response is inert');\""
     risk: P0
     security: high
-    status: failing
+    status: passing
     allure:
       severity: critical
       categories:

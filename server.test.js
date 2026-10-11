@@ -3157,3 +3157,312 @@ describe("admission slot release on terminal paths", () => {
     await drain(holder, after, heldResponses);
   });
 });
+
+// Task 5 proves the three properties of the first traffic-changing slice that
+// can regress silently: /health never waits at the gate, the 429 is inert, and
+// an admitted request is proxied exactly as it was before the gate existed. The
+// saturation state is the one task 2 built — a one-slot ceiling with a one-slot
+// queue, one request holding the slot and one queued behind it — so the gate is
+// provably rejecting at the moment each property is observed.
+describe("admission gate: local endpoints and pass-through parity", () => {
+  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function waitForCount(what, check, expected, timeoutMs = 10_000) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const seen = check();
+      if (seen === expected) return;
+      if (Date.now() >= deadline) {
+        assert.fail(
+          `timed out after ${timeoutMs}ms waiting for ${what} (was ${seen}, wanted ${expected})`
+        );
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+
+  // One-slot ceiling, one-slot queue, `hold` mode upstream. Returns the stub
+  // handles plus a saturate() that puts the gate into its rejecting state: the
+  // holder occupies the slot, the queued request fills the queue, and the
+  // further request is rejected — which is the proof the gate is saturated.
+  const saturatedProxy = (t) =>
+    withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "1",
+        // The holders must survive the whole test, so the timeout cannot be
+        // what ends a wait and turns these into rejection tests.
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+
+  // Bounded: a saturated gate rejects a third request, and the rejection
+  // resolves, so observing it needs no clock.
+  const rejectAtGate = async (proxy, path, opts) => {
+    const rejected = proxiedFetch(proxy.port, path, opts);
+    const res = await rejected;
+    assert.equal(res.status, 429, "the gate is saturated: a further request is rejected");
+    return res;
+  };
+
+  // Release the holder so the queued waiter is admitted, then drain everything
+  // so every fetch resolves and the child teardown is clean.
+  const drainAll = async (holder, queued, heldResponses, receivedRequests) => {
+    heldResponses.shift().end();
+    await waitForCount("the released waiter to be admitted", () => receivedRequests.length, 2);
+    while (heldResponses.length > 0) heldResponses.shift().end();
+    await Promise.allSettled([holder, queued]);
+  };
+
+  // /health is answered from before the gate: same status, same body, no queue
+  // wait, no 429, and no upstream request — while the gate is rejecting.
+  test("health bypass: /health answers 200 under full saturation", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await saturatedProxy(t);
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    holder.catch(() => {});
+    const queued = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    queued.catch(() => {});
+    await waitForCount("the holder to occupy the slot", () => heldResponses.length, 1);
+    await settle(100); // the second request has reached the gate by now
+    await rejectAtGate(proxy, "/v1/models", { headers: { authorization: "Bearer pt" } });
+
+    // The gate is saturated and rejecting; /health must still be its usual 200.
+    const health = await proxiedFetch(proxy.port, "/health");
+    assert.equal(health.status, 200, "/health is not queued or rejected at a saturated gate");
+    assert.deepEqual(await health.json(), { status: "ok" }, "existing health body is unchanged");
+    assert.equal(receivedRequests.length, 1, "the health request never reaches the upstream");
+    assert.equal(
+      heldResponses.length,
+      1,
+      "health answered while the slot was still held, so it did not wait for capacity"
+    );
+    assert.equal(proxy.child.exitCode, null, "proxy child still alive after saturation");
+
+    await drainAll(holder, queued, heldResponses, receivedRequests);
+  });
+
+  // The rejection is a fixed string and carries nothing else: not the model the
+  // caller asked for, not the path it sent, not the queue state, not the budget
+  // variable names, and not the upstream host or port.
+  test("429 body is the fixed string and leaks no model, path, queue depth, budget, or upstream host", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await saturatedProxy(t);
+    const postOpts = {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer pt" },
+      body: JSON.stringify({ model: "nemotron", messages: [{ role: "user", content: "hi" }] }),
+    };
+    const holder = proxiedFetch(proxy.port, "/v1/chat/completions", postOpts);
+    holder.catch(() => {});
+    const queued = proxiedFetch(proxy.port, "/v1/chat/completions", postOpts);
+    queued.catch(() => {});
+    await waitForCount("the holder to occupy the slot", () => heldResponses.length, 1);
+    await settle(100);
+    const rejectedRes = await rejectAtGate(proxy, "/v1/chat/completions", postOpts);
+
+    const body = await rejectedRes.text();
+    assert.equal(
+      body,
+      '{"error":"Too many requests"}',
+      "the rejection body must be exactly the fixed string"
+    );
+    const retryAfter = rejectedRes.headers.get("retry-after");
+    assert.ok(
+      /^1[0-9]*$/.test(retryAfter),
+      "retry-after must be a positive integer, got " + JSON.stringify(retryAfter)
+    );
+    // The forbidden list names every fact the rejection could plausibly carry:
+    // the rejected request's own target and body, the upstream host and port
+    // the holder reached, and the gate's variable and module vocabulary.
+    const forbidden = [
+      "nemotron", // the model the caller asked for
+      "chat/completions", // the path the caller sent
+      "/v1", // the mapped path prefix
+      "PROXY", // budget variable names
+      "maxConcurrent", // ceiling field name
+      "admission", // module name
+      "queue", // gate state
+      "depth", // queue depth
+      "budget", // budget values
+      "Too Many", // casing drift from the fixed string
+      "127.0.0.1", // the upstream host
+      String(proxy.port), // the port this test chose
+    ];
+    for (const part of forbidden) assert.ok(!body.includes(part), "body must not leak " + part);
+    for (const part of forbidden)
+      assert.ok(!retryAfter.includes(part), "retry-after must not leak " + part);
+    assert.equal(receivedRequests.length, 1, "the rejected request never contacted the upstream");
+
+    await drainAll(holder, queued, heldResponses, receivedRequests);
+  });
+
+  // Parity: the same request shape goes through two children — one with the
+  // ceiling absent (today's path) and one with it enabled. Both the
+  // client-visible response and the stub's record of what arrived upstream
+  // must match, so admitting a request through the gate is provably the same
+  // as not gating it at all.
+  test("pass-through parity with the ceiling enabled leaks no behavior change", async (t) => {
+    const observe = async (port, path, opts) => {
+      const res = await proxiedFetch(port, path, opts);
+      const text = await res.text();
+      return {
+        status: res.status,
+        body: text,
+        cookies: res.headers.getSetCookie(),
+        // date is the wall clock, not the response; set-cookie is compared
+        // through getSetCookie above, since iterating merges the values.
+        headers: [...res.headers].filter(([name]) => name !== "date" && name !== "set-cookie"),
+      };
+    };
+    const upstreamRecord = (receivedRequests) =>
+      receivedRequests.map((r) => ({
+        method: r.method,
+        path: r.path,
+        body: r.body,
+        authorization: r.authorization,
+        contentEncoding: r.contentEncoding,
+        setCookie: r.setCookie,
+        rawBody: r.rawBody,
+      }));
+
+    const payload = JSON.stringify({
+      model: "nemotron",
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    // Group 1 — JSON pass-through: path mapping, query forwarding, credential
+    // swap, byte-identical body, and response header fidelity (content-type, a
+    // custom upstream header, and multi-value set-cookie).
+    {
+      const off = await withProxy(t, {
+        key: "sk-test",
+        token: "pt-secret",
+        body: JSON.stringify({ ok: true }),
+        headers: {
+          "content-type": "application/json",
+          "x-upstream-marker": "kept",
+          "set-cookie": ["a=1; Path=/", "b=2; Path=/"],
+        },
+      });
+      const on = await withProxy(t, {
+        key: "sk-test",
+        token: "pt-secret",
+        proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: "1" },
+        body: JSON.stringify({ ok: true }),
+        headers: {
+          "content-type": "application/json",
+          "x-upstream-marker": "kept",
+          "set-cookie": ["a=1; Path=/", "b=2; Path=/"],
+        },
+      });
+      const path = "/v1/chat/completions?stream=true";
+      const opts = {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer pt-secret" },
+        body: payload,
+      };
+      const onRes = await observe(on.proxy.port, path, opts);
+      const offRes = await observe(off.proxy.port, path, opts);
+      assert.deepEqual(onRes, offRes, "the proxied response is identical with the ceiling enabled");
+      assert.equal(onRes.status, 200);
+      assert.deepEqual(
+        onRes.cookies,
+        ["a=1; Path=/", "b=2; Path=/"],
+        "multi-value set-cookie survives the gate"
+      );
+      assert.equal(
+        onRes.headers.find(([name]) => name === "x-upstream-marker")?.[1],
+        "kept",
+        "a custom upstream header survives the gate"
+      );
+      assert.deepEqual(
+        upstreamRecord(on.receivedRequests),
+        upstreamRecord(off.receivedRequests),
+        "the upstream sees the identical request with the ceiling enabled"
+      );
+      const [req] = on.receivedRequests;
+      assert.equal(
+        req.path,
+        "/v1/chat/completions?stream=true",
+        "path and query forwarded verbatim"
+      );
+      assert.equal(req.method, "POST");
+      assert.equal(
+        req.authorization,
+        "Bearer sk-test",
+        "the caller's token is swapped for the API key"
+      );
+      assert.equal(req.body, payload, "the request body is forwarded byte-identical");
+    }
+
+    // Group 2 — a gzip request body: content-encoding passes through untouched
+    // and the upstream receives the compressed bytes verbatim.
+    {
+      const off = await withProxy(t, {
+        key: "sk-test",
+        body: JSON.stringify({ ok: true }),
+        headers: { "content-type": "application/json" },
+      });
+      const on = await withProxy(t, {
+        key: "sk-test",
+        proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: "1" },
+        body: JSON.stringify({ ok: true }),
+        headers: { "content-type": "application/json" },
+      });
+      const gz = zlib.gzipSync(payload);
+      const opts = {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "content-encoding": "gzip",
+          authorization: "Bearer pt",
+        },
+        body: gz,
+      };
+      assert.deepEqual(
+        await observe(on.proxy.port, "/v1/chat/completions", opts),
+        await observe(off.proxy.port, "/v1/chat/completions", opts),
+        "a gzip request proxied through the gate answers identically"
+      );
+      const [req] = on.receivedRequests;
+      assert.equal(req.contentEncoding, "gzip", "the request content-encoding is not stripped");
+      assert.deepEqual(req.rawBody, gz, "the compressed bytes arrive verbatim");
+      assert.deepEqual(
+        upstreamRecord(on.receivedRequests),
+        upstreamRecord(off.receivedRequests),
+        "the gzip request record is identical with the ceiling enabled"
+      );
+    }
+
+    // Group 3 — SSE streaming through the gate: both chunks arrive, and the
+    // response is byte-identical to the ungated one.
+    {
+      const off = await withProxy(t, {
+        headers: { "content-type": "text/event-stream" },
+        mode: "sse",
+      });
+      const on = await withProxy(t, {
+        proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: "1" },
+        headers: { "content-type": "text/event-stream" },
+        mode: "sse",
+      });
+      const opts = {
+        method: "POST",
+        headers: { authorization: "Bearer pt", "content-type": "application/json" },
+        body: JSON.stringify({ stream: true }),
+      };
+      const sse = await observe(on.proxy.port, "/v1/chat/completions", opts);
+      assert.ok(sse.body.includes("data: chunk1"), "first SSE chunk received through the gate");
+      assert.ok(sse.body.includes("data: chunk2"), "second SSE chunk received through the gate");
+      assert.deepEqual(
+        sse,
+        await observe(off.proxy.port, "/v1/chat/completions", opts),
+        "the SSE response is identical with the ceiling enabled"
+      );
+    }
+  });
+});
