@@ -7,43 +7,41 @@
 ```yaml
 vcs:
   kind: git
-  commit: 3566698
+  commit: 5b3c04a
   branch: feat/e04-admission-control
   worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
 workflow_mode: solo-git
-active_flow: execute-plan
+active_flow: verify-work
 active_epic: e04
 active_story: e04s02
 session_start: 2026-09-23T08:14:23Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: execute-plan
-  source: issue-15
+  next_skill: release-branch
+  source: verify-work
   note: >-
-    e04s02 is complete: all eight tasks passing, suite 116 green, and the count
-    synced into every living doc (README badge and tip, AGENTS.md, CONVENTIONS.md,
-    specs/README.md, VISION_LATEST.yaml, TEST_PLAN_LATEST.md, tech-stack.md,
-    e04s01's section 21 risk line). Committed on feat/e04-admission-control:
-    f1968c6 admission.js, cd4dc83 the gate wired into server.js with its 429 path,
-    8d295e4 strict FIFO and no-bypass, b4d7873 terminal-path slot release plus the
-    queue-timeout Retry-After, 9809b6e health bypass + inert 429 body +
-    pass-through parity, edc0283 the stale test title renamed, 0d124ba the six
-    living documents corrected, and the task 8 count-sync commit. The suite grew
-    100 to 116 with one production behavior change beyond admission.js itself
-    (the 429 Retry-After carrying the configured wait) and no new runtime
-    dependency, seam, or env var. e04s03 (issue #16, Make admission abort-aware
-    and shutdown-safe) is now the head of the #14-#22 chain and needs a capsule
-    before execution; per the bigpowers lifecycle the next step for this branch
-    is verify-work, then release-branch in solo-local mode. Issue #15 stays open
-    for the maintainer: closing it is a side effect outside the worktree, and
-    epic.yaml plus execution-status.yaml record the completion instead. Carried
-    gaps: a queued request whose client disconnects is not charged back, and the
-    timer-fires-mid-release race is handled by admission.js's settled flag but
-    not pinned by a test. Reports are in
-    specs/epics/e04-rate-limiting/briefs/e04s02-t01 through t08. The orchestrator
-    role in AGENTS.md was set aside at the user's instruction for this branch;
-    implementation has been done inline and each task dispatched to a subagent
-    before that change.
+    verify-work for e04s02 passed on 2026-10-11: all eight task verifies re-run
+    green, terminal verdict npm test exit 0 with 116/116, security-review of
+    main...HEAD PASS with no findings at confidence >= 8, and a standalone UAT
+    script (specs/verifications/e04s02/uat-e04s02.mjs) plus an NFR probe
+    (nfr-probe.mjs) drove every Gherkin scenario over real HTTP against a fresh
+    child process: cold-start health, ceiling-absent admission, full-queue 429
+    with the fixed body and positive Retry-After, /health 200 under saturation,
+    FIFO admission after release, queue-timeout 429 carrying the configured
+    wait, byte-identical pass-through with the credential swap, and SIGTERM
+    exiting 0 after an in-flight stream finishes. NFR numbers under a saturated
+    gate: /health p50 5.86 ms max 26.48 ms, rejection p50 5.36 ms max 11.16 ms,
+    exactly one upstream arrival across 40 probe calls (rejections stay local).
+    No thresholds exist in TEST_PLAN_LATEST.md, so the NFR gate records
+    measurements rather than pass/fail. scripts/check-blind-spots.sh and
+    scripts/lib/completeness-critic.sh do not exist in this repo, so those two
+    phases were skipped and recorded as not_run; bp-timing.sh likewise absent.
+    Evidence: specs/verifications/e04s02-verify.yaml. verify-work's own handoff
+    names audit-code next, but audit-code is not in the current skill catalog;
+    the chosen path is release-branch in solo-local mode (land-branch.sh), with
+    request-review available as an optional fresh-context review before it.
+    Gaps closed: zero. Carried to e04s03 (#16): queued client-disconnect not
+    charged back, and the timer-mid-release race unpinned by test.
 decisions:
   - decision: Plan only the unblocked slice of the rate limiting epic
     rationale: >-
