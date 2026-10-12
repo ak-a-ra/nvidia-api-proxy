@@ -99,8 +99,20 @@ phases:
         cancel() and SIGTERM-rejecting-waiters to #16, unref'd-timer and suite-duration notes
         documented, default-32-queue observation skipped as unobtainable black-box.
     - round: 2
-      result: pending
-      detail: "both reviewers re-dispatched after the fixes; AND-gate pending"
+      result: PASS
+      detail: >
+        Both blind reviewers re-dispatched after the fix delta (044d960..HEAD) and the whole
+        branch. AND-gate passed: Reviewer A 100/100 (23 items, 0 must-fix, 0 should-fix),
+        Reviewer B 100/100 (0 must-fix, 0 should-fix). Both traced releaseOnce through every
+        ordering (close during wait then admission, close after admission, rejected tickets,
+        double-release), confirmed the new tests fail on the pre-fix code, and confirmed the
+        round-1 should-fix set landed. Consider items, non-blocking: the 429 rejection arm
+        lacks the res.destroyed guard the admitted path has (pre-existing pattern shared by
+        401/404/503; Node tolerates writeHead/end on a destroyed response, empirically
+        probed); releaseOnce is never removeListener'ed (harmless — it dies with the
+        per-request res); the no-bypass window's fixed settle(250) could false-fail on very
+        slow CI (raise to 500ms if flakes observed); a disconnected waiter keeps its queue
+        slot until its own timeout (known, deferred to #16).
   manual:
     steps:
       - step: "Cold start: boot fresh child, GET /health"

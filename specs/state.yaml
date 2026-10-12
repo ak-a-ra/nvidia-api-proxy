@@ -18,30 +18,25 @@ session_start: 2026-09-23T08:14:23Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
   next_skill: release-branch
-  source: verify-work
+  source: request-review
   note: >-
-    verify-work for e04s02 passed on 2026-10-11: all eight task verifies re-run
-    green, terminal verdict npm test exit 0 with 116/116, security-review of
-    main...HEAD PASS with no findings at confidence >= 8, and a standalone UAT
-    script (specs/verifications/e04s02/uat-e04s02.mjs) plus an NFR probe
-    (nfr-probe.mjs) drove every Gherkin scenario over real HTTP against a fresh
-    child process: cold-start health, ceiling-absent admission, full-queue 429
-    with the fixed body and positive Retry-After, /health 200 under saturation,
-    FIFO admission after release, queue-timeout 429 carrying the configured
-    wait, byte-identical pass-through with the credential swap, and SIGTERM
-    exiting 0 after an in-flight stream finishes. NFR numbers under a saturated
-    gate: /health p50 5.86 ms max 26.48 ms, rejection p50 5.36 ms max 11.16 ms,
-    exactly one upstream arrival across 40 probe calls (rejections stay local).
-    No thresholds exist in TEST_PLAN_LATEST.md, so the NFR gate records
-    measurements rather than pass/fail. scripts/check-blind-spots.sh and
-    scripts/lib/completeness-critic.sh do not exist in this repo, so those two
-    phases were skipped and recorded as not_run; bp-timing.sh likewise absent.
-    Evidence: specs/verifications/e04s02-verify.yaml. verify-work's own handoff
-    names audit-code next, but audit-code is not in the current skill catalog;
-    the chosen path is release-branch in solo-local mode (land-branch.sh), with
-    request-review available as an optional fresh-context review before it.
-    Gaps closed: zero. Carried to e04s03 (#16): queued client-disconnect not
-    charged back, and the timer-mid-release race unpinned by test.
+    request-review round 2 passed the AND-gate: both blind reviewers at 100/100 with
+    zero must-fix and zero should-fix. Round 1 failed on the shared must-fix (queued
+    client disconnect leaked the admission slot); the fix, its black-box pins, the
+    should-fix set, and the count sync are in 3ba8e0e, e76a2fb, 90285e7, 59112f4.
+    Suite is 118 green, npm run check clean, all nine task verifies green, UAT 10/10,
+    M1 probe FIXED. e04s02 is passing; task 9 owns the review round. Next is
+    release-branch in solo-local mode — note scripts/land-branch.sh, profiles/, and
+    specs/WORKFLOW-solo-git.md do not exist in this repo, so the land is a manual
+    local merge of feat/e04-admission-control into main plus push; the push to main
+    is the one remote-state action in that step and wants explicit confirmation.
+    Non-blocking reviewer notes carried to the land or a follow-up: the 429 arm lacks
+    the res.destroyed guard the admitted path has (pre-existing pattern for all local
+    rejections), releaseOnce is never removeListener'ed (harmless), and the
+    no-bypass window's fixed settle(250) should become 500ms if CI flakes. Carried to
+    e04s03 (#16): waiter removal / cancel(), SIGTERM-rejecting-waiters, the
+    timer-mid-release race, and the default-32-queue observation. Evidence:
+    specs/verifications/e04s02-verify.yaml.
 decisions:
   - decision: Plan only the unblocked slice of the rate limiting epic
     rationale: >-
