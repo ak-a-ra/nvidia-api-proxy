@@ -4,7 +4,7 @@
 
 ```yaml
 story_id: e04s02
-verified_at: "2026-10-11T17:05:00Z"
+verified_at: "2026-10-12T02:10:00Z"
 verifier: verify-work
 branch: feat/e04-admission-control
 risk: P0
@@ -17,9 +17,9 @@ phases:
   task_verify_rerun:
     passed: true
     detail: >
-      All eight task verify commands re-run after the doc changes. Tasks 1, 2, 3, 5, 6, 7
-      pass on re-run; task 4 exits 0 (its verify ends with npm test); task 8 exits 0 with
-      "count ok: 116 tests across the living docs".
+      All nine task verify commands re-run after the review-round fixes. Tasks 1, 2, 3, 5, 6, 7,
+      9 pass on re-run; task 4 exits 0 (its verify ends with npm test); task 8 exits 0 with
+      "count ok: 118 tests across the living docs".
   smoke:
     passed: true
     command: "node specs/verifications/e04s02/uat-e04s02.mjs"
@@ -39,25 +39,22 @@ phases:
   tests:
     passed: true
     command: "npm test"
-    count: 116
+    count: 118
   terminal_verdict:
     command: "npm test"
     exit_code: 0
-    captured_at: "2026-10-11T17:00:00Z"
-    stdout_summary: "tests 116 / pass 116 / fail 0"
+    captured_at: "2026-10-12T02:05:00Z"
+    stdout_summary: "tests 118 / pass 118 / fail 0"
     note: "Single contiguous run — no output merged from other attempts"
   security:
     passed: true
     detail: >
-      security-review of git diff main...HEAD (server.js, admission.js; test and doc changes
-      excluded from scope). VERDICT PASS — no findings at confidence >= 8. Cleared sinks:
-      authorized() unchanged (SHA-256 + timingSafeEqual); admission placed after auth and
-      the unconfigured check so unauthenticated requests never consume capacity; 429 body is
-      the fixed string with no reflected input; retry-after is String(positive int) or the
-      literal 1, so no CRLF/header injection; sendJson extraHeaders has one static caller;
-      SSRF surface unchanged (host from trusted NVIDIA_BASE_URL, client controls path/query
-      only); credential swap overwrites authorization before fetch; ticket.release is
-      idempotent via the settled flag; queue timers are unref'd and cleared on drain.
+      Round 1: security-review of git diff main...HEAD PASS, no findings at confidence >= 8
+      (gate after auth and unconfigured; fixed 429 body; retry-after is a validated positive
+      integer or the literal 1; credential swap before fetch; SSRF surface unchanged). Round 2
+      dispatch re-reviews the fix commit: releaseOnce is guarded on ticket.admitted (a rejected
+      ticket carries no release handle), the pre-await listener changes no auth ordering, and
+      the named constants carry no user input.
   blind_spots:
     status: not_run
     detail: "scripts/check-blind-spots.sh does not exist in this repository (scripts/ holds only check-state-yaml.py)"
@@ -70,7 +67,7 @@ phases:
       evidence: >
         NFR probe (specs/verifications/e04s02/nfr-probe.mjs), gate saturated with one holder
         plus a filled queue: /health p50 5.86 ms, max 26.48 ms over 20 calls; gate rejection
-        p50 5.36 ms, max 11.16 ms over 20 calls. No thresholds are defined in
+        p50 3.27 ms, max 6.83 ms over 20 calls. No thresholds are defined in
         specs/tech-architecture/TEST_PLAN_LATEST.md, so these are recorded measurements, not
         pass/fail against a target.
       thresholds_source: "none defined"
@@ -85,6 +82,25 @@ phases:
         /health answers 200 {\"status\":\"ok\"} under full saturation (also pinned by the UAT
         and by the suite); the rejection is a fixed string with a positive Retry-After;
         SIGTERM with an in-flight stream exits 0 after the stream completes.
+  review_rounds:
+    - round: 1
+      result: FAIL
+      detail: >
+        request-review dispatched two blind reviewers; both independently reproduced the same
+        must-fix (M1): a client disconnect while queued leaked the admission slot permanently,
+        because the release listener was registered after await admission.acquire(). Reviewer
+        A 71/100 (2 must-fix, 5 should-fix), Reviewer B 88.9/100 (1 must-fix, 4 should-fix).
+      resolution: >
+        M1 fixed in 3ba8e0e (pre-await releaseOnce listener, post-acquire destroyed/writableEnded
+        release, admitted-guard so a rejected ticket never calls a release handle); should-fix
+        applied in e76a2fb (disconnect-while-queued test, HEAD-through-gate test, exact
+        retry-after assertion, observable no-bypass window) and 90285e7 (hoisted waitForCount,
+        settle, endHeld to module scope); deferred per the grilling session: waiter removal /
+        cancel() and SIGTERM-rejecting-waiters to #16, unref'd-timer and suite-duration notes
+        documented, default-32-queue observation skipped as unobtainable black-box.
+    - round: 2
+      result: pending
+      detail: "both reviewers re-dispatched after the fixes; AND-gate pending"
   manual:
     steps:
       - step: "Cold start: boot fresh child, GET /health"
@@ -123,14 +139,22 @@ phases:
         expected: "stream finishes, child exits 0"
         actual: "exit=0, client received the full stream"
         passed: true
+      - step: "M1 regression: holder + aborted queued waiter + third request (m1-probe.mjs)"
+        expected: "third request admitted 200 with exactly 3 arrivals, no wasted call, no ERR_STREAM_UNABLE_TO_PIPE"
+        actual: "verdict FIXED, third_status 200, arrivals 3, wasted_call false, stderr clean"
+        passed: true
   gaps:
     closed: true
     detail: >
-      No gaps found. Two known limitations are out of this story's scope and are recorded as
-      e04s03 (#16): a queued request whose client disconnects is not charged back, and the
-      timer-fires-mid-release race in admission.js's release loop is handled by the settled
-      flag but not pinned by a test.
+      M1 closed and pinned by the suite (slot release on client disconnect while queued) and by
+      the standalone m1-probe. Carried, all owned by e04s03 (#16) or documented: waiter removal
+      so a disconnect also cancels the queue entry with no wasted upstream call; SIGTERM
+      rejecting queued waiters with 503; the timer-fires-mid-release race handled by the
+      consumed flag but not pinned by a test; the default queue size of 32 not exercised under
+      an active ceiling (32 distinct black-box waiters); unref'd timers (no concrete path in
+      this server); suite duration ~205s.
 artifacts:
   - specs/verifications/e04s02/uat-e04s02.mjs
   - specs/verifications/e04s02/nfr-probe.mjs
+  - specs/verifications/e04s02/m1-probe.mjs
 ```

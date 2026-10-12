@@ -1,6 +1,6 @@
 story_id: e04s02
 title: Admit and queue work with bounded concurrency
-status: failing
+status: passing
 bcps: 8
 issue: 15
 type: feat
@@ -220,7 +220,7 @@ tasks:
     verify: "out=$(node --test --test-reporter=tap --test-name-pattern 'disconnect while queued|HEAD through' server.test.js 2>&1); rc=$?; test $rc -eq 0 && t=$(printf '%s\\n' \"$out\" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(disconnect while queued|HEAD through)') && test \"$t\" -ge 2 && node -e \"const fs=require('fs');const s=fs.readFileSync('server.js','utf8');const acq=s.indexOf('admission.acquire()');const rel=s.indexOf('releaseOnce');if(rel===-1||acq===-1||rel>acq){console.error('release must be registered before acquire');process.exit(1);}const a=fs.readFileSync('admission.js','utf8');if(/\\?\\? 32|\\?\\? 30/.test(a)){console.error('unreachable defaults remain in admission.js');process.exit(1);}console.log('queued disconnect releases the slot; admission has no unreachable defaults');\""
     risk: P0
     security: high
-    status: failing
+    status: passing
     allure:
       severity: critical
       categories:

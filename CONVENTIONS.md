@@ -14,7 +14,7 @@ Zero-dependency Node.js reverse proxy for NVIDIA NIM API. Client apps call the p
 ## Commands
 
 - `npm start` — runs the proxy server
-- `npm test` — runs all 116 tests
+- `npm test` — runs all 118 tests
 - `node --test --test-name-pattern "TEST_NAME"` — run single test by name
 
 ## Defensive Code Categories
@@ -33,7 +33,7 @@ exist in `server.js`.
 - `server.js` — HTTP handling: server lifecycle, auth, path mapping, upstream fetch and streaming, timeouts, shutdown (~304 lines)
 - `config.js` — Configuration: parsing and validation for every environment variable (~352 lines)
 - `admission.js` — Admission control: the active count, the FIFO wait queue, and per-ticket settled state behind `createAdmission`, `acquire`, and `release`. The only reader of `config.limits` at request time; `server.js` calls it and re-exports none of it
-- `server.test.js` — Test suite (~3476 lines)
+- `server.test.js` — Test suite (~3539 lines)
 - Modules split by concern; `config.js` imports nothing from `server.js`, so configuration can be read without starting a listener
 
 ## Naming Conventions
