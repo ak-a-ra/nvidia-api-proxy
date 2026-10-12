@@ -2,9 +2,14 @@ import http from "node:http";
 import { pipeline, Readable } from "node:stream";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { parseConfig, CONNECT_TIMEOUT_SECONDS, IDLE_TIMEOUT_SECONDS } from "./config.js";
-import { createAdmission } from "./admission.js";
+import { createAdmission, REJECTION_REASONS } from "./admission.js";
 
 const PORT = Number(process.env.PORT || 10000);
+
+// What a caller is told to retry after when the queue — not the configured
+// wait — turned it away. A slot frees on its own, so the honest advice is
+// "very soon"; the configured wait is the answer to a different question.
+const FULL_QUEUE_RETRY_AFTER_SECONDS = 1;
 
 const config = parseConfig(process.env);
 const admission = createAdmission(config.limits);
@@ -140,14 +145,40 @@ const server = http.createServer(async (req, res) => {
       return sendJson(req, res, 503, { error: "Proxy is not configured" });
     }
 
-    const ticket = await admission.acquire();
+    // The release handle is registered BEFORE the wait, and that order is the
+    // whole fix for a queued client disconnect: `res` emits "close" during the
+    // await when the caller gives up, and a listener attached afterwards would
+    // be dead on arrival. The drain would then hand the slot to that dead
+    // ticket, its release would never fire, and the ceiling would be
+    // permanently reduced — every later request queueing to the timeout and
+    // answering 429. One listener covers both timelines: it releases the
+    // ticket the moment one exists and does nothing when none was ever handed
+    // out. Removing the waiter from the queue entirely (so a disconnect also
+    // cancels its queue entry, with no wasted upstream call) is e04s03,
+    // issue #16.
+    let ticket = null;
+    const releaseOnce = () => {
+      // A rejected ticket (queue full or expired wait) carries no release
+      // handle — calling one would throw inside this close handler and kill
+      // the process over a 429. Only an admitted ticket owns capacity.
+      if (!ticket || !ticket.admitted) return;
+      const held = ticket;
+      ticket = null;
+      held.release();
+    };
+    res.on("close", releaseOnce);
+
+    ticket = await admission.acquire();
     if (!ticket.admitted) {
       // Both rejections share one body and one status. The wait differs: a
       // full queue retries very soon, because a slot frees on its own, while a
       // client that already waited out the configured timeout should not be
       // told to retry immediately — sending it around the loop to wait the
       // whole bound again is the failure the value exists to prevent.
-      const retryAfter = ticket.reason === "queue_timeout" ? config.limits.queueTimeoutSeconds : 1;
+      const retryAfter =
+        ticket.reason === REJECTION_REASONS.QUEUE_TIMEOUT
+          ? config.limits.queueTimeoutSeconds
+          : FULL_QUEUE_RETRY_AFTER_SECONDS;
       return sendJson(
         req,
         res,
@@ -156,7 +187,13 @@ const server = http.createServer(async (req, res) => {
         { "retry-after": String(retryAfter) }
       );
     }
-    res.on("close", ticket.release);
+    if (res.destroyed || res.writableEnded) {
+      // The client left while this request waited, and its "close" fired
+      // before any ticket existed. Release here — one call, idempotent — and
+      // return rather than proxying to a socket nobody is reading.
+      releaseOnce();
+      return;
+    }
 
     // Node's req.headers values are string | string[]. undici accepts an array
     // but silently collapses it into one comma-joined value, so normalize to a
