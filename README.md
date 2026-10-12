@@ -8,13 +8,15 @@
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](package.json)
 [![Tests](https://img.shields.io/badge/tests-118%20passing-blue?style=flat-square)](server.test.js)
 
-[Features](#features) • [Quick start](#quick-start) • [Configuration](#configuration) • [Endpoints](#endpoints) • [Deploy](#deploy-to-render)
+[Features](#features) • [How it works](#how-it-works) • [Quick start](#quick-start) • [Configuration](#configuration) • [Endpoints](#endpoints) • [Deploy](#deploy-to-render)
 
 </div>
 
 A zero-dependency Node.js reverse proxy for the [NVIDIA NIM API](https://docs.api.nvidia.com/).
 Client apps call the proxy exactly like `https://integrate.api.nvidia.com/v1` — same paths, same
 bodies — but authenticate with **your** token. The real key stays server-side, never shipped to clients.
+
+*Last reviewed: 2026-10-12*
 
 ```mermaid
 flowchart LR
@@ -44,9 +46,32 @@ flowchart LR
 - ⚡ **Streaming first** — SSE responses pass through unbuffered, chunk by chunk
 - 📨 **Header fidelity** — multi-value `set-cookie` preserved, hop-by-hop headers stripped both ways
 - 🛡️ **Constant-time auth** — token comparison via `timingSafeEqual`, no timing side channels
+- 🚦 **Concurrency ceiling** — `PROXY_MAX_CONCURRENT_REQUESTS` bounds simultaneous upstream work; excess requests wait in one bounded FIFO queue, and a full queue or an expired wait gets an explicit `429` with `Retry-After` instead of piling onto the upstream
 - 🚀 **Deploy ready** — Render config included, graceful SIGTERM shutdown for zero-downtime deploys
 - ✂️ **Client disconnect cancels upstream** — if a client aborts or disconnects mid-request, the upstream fetch is cancelled too, so abandoned calls don't hold sockets or quota
 - 📦 **Zero dependencies** — Node.js built-ins only (Node >= 18.14)
+
+## How it works
+
+Three modules, one responsibility each:
+
+| Module | Owns |
+| ------ | ---- |
+| `config.js` | Every environment variable: parsing, validation, fatal-vs-degrade rules. Read once at startup |
+| `admission.js` | The active count, the FIFO wait queue, and release handles — the only reader of `config.limits` at request time |
+| `server.js` | HTTP handling: auth, path mapping, upstream fetch and streaming, timeouts, logging, shutdown |
+
+A request's path through the proxy:
+
+1. `/health` — answered locally, before the gate, never queued
+2. `/v1` or `/v1/` alone, and non-`/v1` paths — `404`
+3. `Authorization: Bearer <PROXY_AUTH_TOKEN>` — `401` before anything else, so an unauthenticated caller never consumes capacity
+4. Unconfigured check (missing key or token) — `503`
+5. **Admission gate** — admitted at once, queued behind older waiters, or rejected `429` (see [Configuration](#configuration))
+6. Proxied upstream — client's path and query verbatim, token swapped for `NVIDIA_API_KEY`, body streamed, hop-by-hop headers stripped, `set-cookie` preserved
+
+Tests are black-box: each test spawns `server.js` as a child process with its own environment and a
+stub upstream, so every claim above is asserted over real HTTP rather than against internals.
 
 ## Quick start
 
@@ -143,7 +168,6 @@ export PROXY_AUTH_TOKEN="FIXME"  # token your clients will send
 # export UPSTREAM_CONNECT_TIMEOUT_SECONDS="30"  # 0 disables
 # export UPSTREAM_IDLE_TIMEOUT_SECONDS="120"    # 0 disables; resets on every chunk
 
-# ---- rate limiting ----
 # ---- admission (enforced): ceiling, queue, queue wait ----
 # export PROXY_MAX_CONCURRENT_REQUESTS="16"  # absent, blank, or 0 disables the ceiling
 # export PROXY_MAX_QUEUE_SIZE="32"         # requests that may wait for capacity
@@ -177,8 +201,27 @@ npm start
 > with code 1 and one stderr line naming the variable, the rule, and the value, rather than
 > starting up with the typo reinterpreted as "on".
 
-### Request logging
+### Concurrency ceiling
 
+Set `PROXY_MAX_CONCURRENT_REQUESTS` to a positive integer to bound how many requests reach the
+upstream at once. `PROXY_MAX_QUEUE_SIZE` bounds how many wait for capacity; `PROXY_QUEUE_TIMEOUT_SECONDS`
+bounds how long one may wait. Absent, blank, or `0` disables the ceiling — every request admits at once.
+
+With the ceiling active, a request beyond it waits in one FIFO queue — strictly in arrival order,
+never overtaking an older waiter — and is admitted the moment a slot frees. Two outcomes end a wait
+locally, without contacting the upstream:
+
+- **Full queue** → `429 {"error":"Too many requests"}` with `Retry-After: 1`. A slot frees on its
+  own, so "retry very soon" is the honest advice.
+- **Expired wait** → the same `429` body, with `Retry-After` carrying the configured wait. A client
+  that already waited out the bound should not be sent around the loop to wait it again.
+
+`/health` never waits: `200` (or `503` when unconfigured) even with the queue full. Once admitted,
+a request is proxied exactly as an ungated one — same path, query, credential swap, body bytes, and
+streaming. A slot is released exactly once on every terminal path, including a client that
+disconnects while queued, so the ceiling cannot silently drift to zero.
+
+### Request logging
 Set `PROXY_LOG_REQUESTS` to `1`, `true`, `yes`, or `on` to write one JSON object per request to
 stdout. `0`, `false`, `no`, and `off` keep it off, and unset or blank is off — an unset variable is
 indistinguishable from today's build.
@@ -218,6 +261,7 @@ no level setting, no format setting, and no rotation — the platform log owns t
 | ------------- | ------------------------------------------------------------------------------------- |
 | `GET /health` | `200 { status: "ok" }` when configured, `503 { status: "unconfigured" }` otherwise     |
 | `ANY /v1/*`   | Proxied to upstream; requires `Authorization: Bearer <PROXY_AUTH_TOKEN>`               |
+| saturated `/v1/*` | `429 { error: "Too many requests" }` with `Retry-After` when the ceiling's queue is full or a wait expires — never contacts the upstream |
 | bare `/v1` or `/v1/` | `404 { error: "Not found" }` — the proxy forwards `/v1/*` paths, not the `/v1` prefix itself |
 | anything else | `404 { error: "Not found" }`                                                          |
 
@@ -253,3 +297,7 @@ Set `NVIDIA_API_KEY` and `PROXY_AUTH_TOKEN` as secret environment variables when
 > [!WARNING]
 > Anyone holding `PROXY_AUTH_TOKEN` can spend your NVIDIA quota. Use a long random token and share
 > it only with clients you trust.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
