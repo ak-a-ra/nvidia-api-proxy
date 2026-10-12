@@ -2664,6 +2664,11 @@ describe("admission concurrency ceiling", () => {
       /^1[0-9]*$/.test(retryAfter),
       "retry-after must be a positive integer, got " + JSON.stringify(retryAfter)
     );
+    // Exact, not just positive: the configured wait in this test is 120s, so
+    // returning the queue-timeout value for a full queue would still satisfy
+    // the pattern above. A full queue frees a slot on its own; the advice is
+    // "very soon", not the configured bound.
+    assert.equal(retryAfter, "1", "a full queue retries after 1s, not the configured wait");
     const body = await rejectedRes.text();
     assert.equal(body, '{"error":"Too many requests"}', "rejection body must be the fixed string");
     // The leak check names things the rejection must not reference: the
@@ -2808,12 +2813,19 @@ describe("admission queue FIFO", () => {
     const holder = sendTagged(proxy, "holder");
     const firstWaiter = sendTagged(proxy, "first");
     [holder, firstWaiter].forEach((f) => f.catch(() => {}));
-    // Pin both in position: the slot is busy and the queue holds first.
+    // Pin both in position: the slot is busy and the queue holds first. The
+    // count below is not a wait for an event — a queued request is invisible
+    // to the stub until admitted, and heldResponses(1) + receivedRequests(1)
+    // is already 2 the moment the holder's wait returns. What the next
+    // assertion actually pins is the absence of a second upstream arrival
+    // over a bounded window, which is the observable form of "first is
+    // queued": a bypassed or LIFO queue would have admitted it already.
     await waitForCount("the holder to occupy the single slot", () => heldResponses.length, 1);
-    await waitForCount(
-      "the first waiter to be queued",
-      () => heldResponses.length + receivedRequests.length,
-      2
+    await settle(250);
+    assert.equal(
+      receivedRequests.length,
+      1,
+      "the first waiter is queued, not admitted: no second upstream arrival while the slot is held"
     );
 
     // The late arrival joins the queue behind first, while the slot is still
@@ -3164,6 +3176,70 @@ describe("admission slot release on terminal paths", () => {
     );
     await drain(holder, after, heldResponses);
   });
+
+  // 6. A client disconnect while queued — the review round's must-fix. The
+  // release listener used to be registered only after the acquire resolved, so
+  // a caller that gave up mid-wait left it dead on arrival: the drain handed
+  // the slot to that dead ticket, the release never fired, and the ceiling was
+  // permanently reduced. Both blind reviewers reproduced it; this test is the
+  // black-box pin. The abort is driven through a raw http request whose socket
+  // is destroyed mid-wait, the way the pre-existing disconnect tests do it —
+  // a queued request is invisible to the stub, so a bounded settle is the only
+  // cheap signal that it reached the gate.
+  test("slot release on client disconnect while queued admits the next request", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: "1" },
+      mode: "hold",
+    });
+    const first = await takeSlot(proxy, heldResponses, receivedRequests);
+    await new Promise((resolve, reject) => {
+      const waiting = http.request(
+        {
+          host: "127.0.0.1",
+          port: proxy.port,
+          path: "/v1/models",
+          headers: { authorization: "Bearer pt" },
+        },
+        () => {}
+      );
+      waiting.on("error", reject);
+      waiting.end();
+      setTimeout(() => {
+        waiting.destroy();
+        resolve();
+      }, 150);
+    });
+    await settle(50);
+    // The holder completes; its release admits the next ticket in line, which
+    // is the dead one. Pre-fix it was admitted upstream, never released, and
+    // the ceiling stayed at zero: the second request below never arrived and
+    // its fetch never resolved.
+    heldResponses.shift().end();
+    await first;
+    const second = secondMustBeAdmitted(
+      proxy,
+      heldResponses,
+      receivedRequests,
+      "client disconnect while queued"
+    );
+    // Bounded completion: a leaked slot queues the second request forever, so
+    // an unbounded await would hang the suite instead of failing it. The
+    // rejection arm also covers secondMustBeAdmitted's own timeout.
+    const secondRes = await Promise.race([
+      second.then(
+        (r) => r,
+        () => null
+      ),
+      settle(5000).then(() => null),
+    ]);
+    assert.ok(secondRes, "the next request completed (a leaked slot would queue it forever)");
+    assert.equal(secondRes.status, 200, "the next request is admitted and proxied normally");
+    assert.equal(
+      receivedRequests.length,
+      2,
+      "the dead ticket never reached the upstream: admitted onto a destroyed response and released at once"
+    );
+  });
 });
 
 // Task 5 proves the three properties of the first traffic-changing slice that
@@ -3472,5 +3548,30 @@ describe("admission gate: local endpoints and pass-through parity", () => {
         "the SSE response is identical with the ceiling enabled"
       );
     }
+  });
+
+  // HEAD through the gate. The ceiling-disabled HEAD test pins content-length
+  // preservation with no body; this is the same invariant with a live gate,
+  // which both reviewers' gap lists named as missing. A HEAD request must not
+  // hold the slot past its response either, so a following GET is admitted.
+  test("HEAD through a one-slot ceiling preserves content-length without a body", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: "1" },
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    const head = await proxiedFetch(proxy.port, "/v1/models", {
+      method: "HEAD",
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(head.status, 200);
+    assert.equal(head.headers.get("content-length"), "2", "the upstream content-length survives");
+    assert.equal(await head.text(), "", "a HEAD response carries no body");
+    assert.equal(receivedRequests.length, 1, "the request reached the upstream exactly once");
+    const after = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(after.status, 200, "the slot a HEAD held is released");
+    assert.equal(receivedRequests.length, 2, "the following GET is admitted, not queued");
   });
 });
