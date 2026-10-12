@@ -7,11 +7,11 @@
 ```yaml
 vcs:
   kind: git
-  commit: 531ab40
+  commit: 59112f4
   branch: feat/e04-admission-control
   worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
 workflow_mode: solo-git
-active_flow: verify-work
+active_flow: request-review
 active_epic: e04
 active_story: e04s02
 session_start: 2026-09-23T08:14:23Z
