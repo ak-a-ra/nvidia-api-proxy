@@ -1,6 +1,6 @@
 story_id: e04s02
 title: Admit and queue work with bounded concurrency
-status: passing
+status: failing
 bcps: 8
 issue: 15
 type: feat
@@ -197,3 +197,33 @@ tasks:
       categories:
         - "Regression"
         - "Documentation"
+
+  - id: 9
+    description: >
+      Review round 1 of request-review failed the AND-gate: two blind reviewers independently
+      reproduced the same must-fix. server.js registers `res.on("close", ticket.release)` only
+      after `await admission.acquire()`, so a client that disconnects while its request waits in
+      the queue leaves that listener dead on arrival; when a later release hands the slot to the
+      dead ticket, the release never fires and the ceiling is permanently reduced — the
+      reviewers measured all later traffic queueing to the configured timeout and answering 429,
+      plus one wasted upstream call and ERR_STREAM_UNABLE_TO_PIPE on stderr. This is the story's
+      own §2 invariant ("a wait ends either by admission or by the configured timeout"), not the
+      #16 deferral, which covers only removing the waiter from the queue. Fix by registering one
+      release handler before the await and releasing synchronously when the response is already
+      destroyed or ended after admission; add black-box tests for the queued disconnect and for
+      HEAD through the gate; tighten the full-queue Retry-After assertion to the exact value and
+      replace the vacuous no-bypass wait with an observable no-second-arrival window; remove
+      admission.js's unreachable `?? 32` / `?? 30` defaults so config.js stays the only default
+      owner; rename the overloaded `settled` flag (`released` for the handle, `consumed` for the
+      ticket) and `makeRelease` to `createReleaseHandle`; and name the two rejection reasons plus
+      the full-queue retry value. cancel() and waiter removal stay in e04s03 (#16).
+    verify: "out=$(node --test --test-reporter=tap --test-name-pattern 'disconnect while queued|HEAD through' server.test.js 2>&1); rc=$?; test $rc -eq 0 && t=$(printf '%s\\n' \"$out\" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(disconnect while queued|HEAD through)') && test \"$t\" -ge 2 && node -e \"const fs=require('fs');const s=fs.readFileSync('server.js','utf8');const acq=s.indexOf('admission.acquire()');const rel=s.indexOf('releaseOnce');if(rel===-1||acq===-1||rel>acq){console.error('release must be registered before acquire');process.exit(1);}const a=fs.readFileSync('admission.js','utf8');if(/\\?\\? 32|\\?\\? 30/.test(a)){console.error('unreachable defaults remain in admission.js');process.exit(1);}console.log('queued disconnect releases the slot; admission has no unreachable defaults');\""
+    risk: P0
+    security: high
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Admission"
+        - "Security Review"
+        - "Regression"

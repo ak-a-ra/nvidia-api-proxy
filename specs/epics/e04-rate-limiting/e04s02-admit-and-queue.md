@@ -3,7 +3,7 @@
 * Story: `e04s02`
 * Epic: `e04` — Rate limiting and admission control
 * Issue: [#15](https://github.com/ak-a-ra/nvidia-api-proxy/issues/15) (slice 2 of 9)
-* Status: passing
+* Status: failing
 * BCPs: 8
 * Type: feat | Risk: P0 | Context: infra
 * Maturity: 3 (Countable)
