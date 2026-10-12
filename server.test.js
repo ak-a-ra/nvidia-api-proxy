@@ -309,6 +309,35 @@ function proxiedFetch(port, path, opts = {}) {
   return fetch(`http://127.0.0.1:${port}${path}`, opts);
 }
 
+// Bounded sleep, shared by the admission blocks.
+function settle(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// Bounded wait: a regression in the gate must fail with a nameable message,
+// not spin the suite forever or pass on a fixed sleep. What is waited for is
+// the thing the next assertion checks.
+async function waitForCount(what, check, expected, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const seen = check();
+    if (seen === expected) return;
+    if (Date.now() >= deadline) {
+      assert.fail(
+        `timed out after ${timeoutMs}ms waiting for ${what} (was ${seen}, wanted ${expected})`
+      );
+    }
+    await settle(10);
+  }
+}
+
+// End every response the stub is holding, in arrival order. Releasing an
+// admitted request admits the next waiter, whose response is held in turn, so
+// draining a ceiling is a loop, not a fixed number of releases.
+function endHeld(heldResponses) {
+  while (heldResponses.length > 0) heldResponses.shift().end();
+}
+
 // Run server.js once as a bare child (no IPC) and collect how it exits —
 // for asserting startup validation failures.
 function runProxyOnce(envOverrides) {
@@ -1968,8 +1997,6 @@ describe("request logging", () => {
     return lines;
   }
 
-  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
-
   // Off is four different states of the same variable, and all four must be
   // indistinguishable from a build without the feature: no line, no listener,
   // no clock. Unset is passed as undefined because withProxy merges proxyEnv
@@ -2510,28 +2537,11 @@ describe("admission concurrency ceiling", () => {
     const stopped = { value: false };
     const done = (async () => {
       while (!stopped.value) {
-        while (heldResponses.length > 0) heldResponses.shift().end();
+        endHeld(heldResponses);
         await new Promise((r) => setTimeout(r, 5));
       }
     })();
     return { stopped, done };
-  }
-
-  // Bounded wait: a regression in the gate must fail with a nameable message,
-  // not spin the suite forever or pass on a fixed sleep. What is waited for is
-  // the thing the next assertion checks.
-  async function waitForCount(what, check, expected, timeoutMs = 10_000) {
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-      const seen = check();
-      if (seen === expected) return;
-      if (Date.now() >= deadline) {
-        assert.fail(
-          `timed out after ${timeoutMs}ms waiting for ${what} (was ${seen}, wanted ${expected})`
-        );
-      }
-      await new Promise((r) => setTimeout(r, 10));
-    }
   }
 
   // The ceiling is parsed but not applied by config.js — a later slice enforces
@@ -2610,7 +2620,7 @@ describe("admission concurrency ceiling", () => {
     }
     assert.equal(receivedRequests.length, 5, "all five eventually arrived upstream");
     // Release the remaining held responses and confirm every fetch resolves 200.
-    while (heldResponses.length > 0) heldResponses.shift().end();
+    endHeld(heldResponses);
     const results = await Promise.all(fetches);
     assert.equal(results.length, 5);
     for (const r of results) assert.equal(r.status, 200, "each waiter completes 200");
@@ -2689,7 +2699,7 @@ describe("admission concurrency ceiling", () => {
     // appended to heldResponses. Drain that too.
     heldResponses.shift().end();
     await waitForCount("the released waiter to be admitted", () => receivedRequests.length, 2);
-    while (heldResponses.length > 0) heldResponses.shift().end();
+    endHeld(heldResponses);
     const [holderRes, queuedRes] = await Promise.all([holder, queued]);
     assert.equal(holderRes.status, 200, "holder completes 200");
     assert.equal(queuedRes.status, 200, "queued waiter admitted after release");
@@ -2704,22 +2714,6 @@ describe("admission concurrency ceiling", () => {
 // admitted them. A one-slot ceiling keeps exactly one request in flight, so
 // every other request is a waiter whose position is observable.
 describe("admission queue FIFO", () => {
-  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
-
-  async function waitForCount(what, check, expected, timeoutMs = 10_000) {
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-      const seen = check();
-      if (seen === expected) return;
-      if (Date.now() >= deadline) {
-        assert.fail(
-          `timed out after ${timeoutMs}ms waiting for ${what} (was ${seen}, wanted ${expected})`
-        );
-      }
-      await new Promise((r) => setTimeout(r, 10));
-    }
-  }
-
   // Fire one request per tag, in the order given, so the tags are also the
   // arrival order a caller chose. The POST body carries the tag, which is the
   // field the stub records and this block asserts on.
@@ -2771,7 +2765,7 @@ describe("admission queue FIFO", () => {
     // target is the holder plus all three waiters.
     const deadline = Date.now() + 10_000;
     while (arrivalOrder(receivedRequests).length < 4) {
-      while (heldResponses.length > 0) heldResponses.shift().end();
+      endHeld(heldResponses);
       if (arrivalOrder(receivedRequests).length >= 4) break;
       if (Date.now() >= deadline) {
         assert.fail(
@@ -2792,7 +2786,7 @@ describe("admission queue FIFO", () => {
       "the three waiters were admitted strictly in arrival order"
     );
 
-    while (heldResponses.length > 0) heldResponses.shift().end();
+    endHeld(heldResponses);
     const results = await Promise.all(fetches);
     for (const r of results) assert.equal(r.status, 200, "every queued request completes 200");
   });
@@ -2851,7 +2845,7 @@ describe("admission queue FIFO", () => {
     // Drain the rest so every request completes and the teardown never hangs.
     const deadline = Date.now() + 10_000;
     while (arrivalOrder(receivedRequests).length < 3) {
-      while (heldResponses.length > 0) heldResponses.shift().end();
+      endHeld(heldResponses);
       if (arrivalOrder(receivedRequests).length >= 3) break;
       if (Date.now() >= deadline) {
         assert.fail(
@@ -2863,7 +2857,7 @@ describe("admission queue FIFO", () => {
       }
       await settle(10);
     }
-    while (heldResponses.length > 0) heldResponses.shift().end();
+    endHeld(heldResponses);
     const [holderRes, firstRes, lateRes] = await Promise.all([holder, firstWaiter, late]);
     for (const r of [holderRes, firstRes, lateRes]) {
       assert.equal(r.status, 200, "every request completes 200");
@@ -2883,22 +2877,6 @@ describe("admission queue FIFO", () => {
 // that is admitted arrives upstream exactly once and is itself held. Counts
 // therefore come from the stub's recorded arrivals, never from a clock.
 describe("admission slot release on terminal paths", () => {
-  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
-
-  async function waitForCount(what, check, expected, timeoutMs = 10_000) {
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-      const seen = check();
-      if (seen === expected) return;
-      if (Date.now() >= deadline) {
-        assert.fail(
-          `timed out after ${timeoutMs}ms waiting for ${what} (was ${seen}, wanted ${expected})`
-        );
-      }
-      await new Promise((r) => setTimeout(r, 10));
-    }
-  }
-
   // Fire the request that takes the slot under a one-slot ceiling and wait
   // until the stub has actually held it, so the slot is provably occupied
   // before a terminal path is triggered.
@@ -2935,7 +2913,7 @@ describe("admission slot release on terminal paths", () => {
   // Every terminal path below leaves exactly one held response open (the
   // second request), so release it to close the test out cleanly.
   const drain = async (first, second, heldResponses) => {
-    while (heldResponses.length > 0) heldResponses.shift().end();
+    endHeld(heldResponses);
     await Promise.allSettled([first, second]);
   };
 
@@ -3249,22 +3227,6 @@ describe("admission slot release on terminal paths", () => {
 // queue, one request holding the slot and one queued behind it — so the gate is
 // provably rejecting at the moment each property is observed.
 describe("admission gate: local endpoints and pass-through parity", () => {
-  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
-
-  async function waitForCount(what, check, expected, timeoutMs = 10_000) {
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-      const seen = check();
-      if (seen === expected) return;
-      if (Date.now() >= deadline) {
-        assert.fail(
-          `timed out after ${timeoutMs}ms waiting for ${what} (was ${seen}, wanted ${expected})`
-        );
-      }
-      await new Promise((r) => setTimeout(r, 10));
-    }
-  }
-
   // One-slot ceiling, one-slot queue, `hold` mode upstream. Returns the stub
   // handles plus a saturate() that puts the gate into its rejecting state: the
   // holder occupies the slot, the queued request fills the queue, and the
@@ -3295,7 +3257,7 @@ describe("admission gate: local endpoints and pass-through parity", () => {
   const drainAll = async (holder, queued, heldResponses, receivedRequests) => {
     heldResponses.shift().end();
     await waitForCount("the released waiter to be admitted", () => receivedRequests.length, 2);
-    while (heldResponses.length > 0) heldResponses.shift().end();
+    endHeld(heldResponses);
     await Promise.allSettled([holder, queued]);
   };
 
