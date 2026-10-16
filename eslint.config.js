@@ -2,10 +2,10 @@
 // proxy (resource leaks, unhandled async, wrong ref-equality, shadowed
 // globals), not to enforce personal formatting taste — Prettier owns layout.
 //
-// Two blocks, not one: `server.js`/`config.js` are the files that ship, so
-// they carry the full rule set, while the 2.4k-line black-box suite gets the
-// same correctness rules minus the ones that fight a test harness. Nothing is
-// excluded from linting.
+// Three blocks, not one: server.js/config.js/budget.js are the files that
+// ship, so they carry the full rule set, while the 2.4k-line black-box suite
+// gets the same correctness rules minus the ones that fight a test harness.
+// Nothing is excluded from linting.
 
 const nodeGlobals = {
   process: "readonly",
@@ -38,9 +38,9 @@ export default [
     ignores: ["node_modules/**", "coverage/**"],
   },
   {
-    // Runtime source only. The proxy has exactly two shipped files; anything
+    // Runtime source only. Every file the proxy runs is listed here; anything
     // that can ship without a build step must pass this block.
-    files: ["server.js", "config.js"],
+    files: ["server.js", "config.js", "budget.js"],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: "module",

@@ -1022,10 +1022,12 @@ describe("rate budget config", () => {
     }
   });
 
-  // This story validates and stores the pair; it does not enforce it. A tiny
-  // budget must still pass a request through, so a later slice that starts
-  // acting on it has to change this test deliberately.
-  test("PROXY_RPM and PROXY_TPM set to a tiny budget still proxy normally (values validated, not applied)", async (t) => {
+  // e04s01 validated and stored the pair; e04s04 enforces it. A tiny budget
+  // is no longer a pass-through config: the effective TPM the request is
+  // measured against is floored at one by the Safety margin, and the requested
+  // output default alone clears it, so the request is answered 429 rather than
+  // proxied. The change is deliberate, as this comment always said it had to be.
+  test("PROXY_RPM and PROXY_TPM set to a tiny budget now enforce the effective limit", async (t) => {
     const { proxy, receivedRequests } = await withProxy(t, {
       proxyEnv: { PROXY_RPM: "1", PROXY_TPM: "1" },
       body: "{}",
@@ -1038,8 +1040,9 @@ describe("rate budget config", () => {
       },
       body: JSON.stringify({ model: "nemotron" }),
     });
-    assert.equal(res.status, 200);
-    assert.equal(receivedRequests.length, 1);
+    assert.equal(res.status, 429, "an over-budget request is rejected, not proxied");
+    assert.deepEqual(await res.json(), { error: "Too many requests" });
+    assert.equal(receivedRequests.length, 0, "the rejected request never reached the upstream");
   });
 
   test("PROXY_RPM set with PROXY_TPM absent exits 1 naming both variables", async () => {
@@ -4022,5 +4025,265 @@ describe("e04s03 abort-aware and shutdown-safe admission", () => {
     assert.ok(retryAfter && Number(retryAfter) > 0, "positive Retry-After");
     endHeld(heldResponses);
     await Promise.allSettled([holder, waiter]);
+  });
+});
+
+describe("e04s04 global RPM/TPM budgets", () => {
+  // A body of one message of known length. The estimator reads it, so every
+  // assertion about counts is about the proxy's arithmetic, not about JSON
+  // parsing luck.
+  const CHAT_BODY = JSON.stringify({
+    model: "nemotron",
+    messages: [{ role: "user", content: "x".repeat(40) }],
+  });
+
+  // The pair must be present or the rate gate never opens, so most tests set
+  // both. A tiny TPM is the cheap way to force the 429 arm.
+  const RATE_ON = { PROXY_RPM: "60", PROXY_TPM: "100000" };
+
+  function chatOpts(body = CHAT_BODY) {
+    return {
+      method: "POST",
+      headers: {
+        authorization: "Bearer pt",
+        "content-type": "application/json",
+      },
+      body,
+    };
+  }
+
+  test("absent rate pair keeps the streaming path: a large body is forwarded, not buffered", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      body: "{}",
+    });
+    // Above the 8 MiB default cap. Streaming never measures it, so no 413
+    // exists in this mode.
+    const big = JSON.stringify({
+      model: "m",
+      messages: [{ role: "user", content: "y".repeat(9 * 1024 * 1024) }],
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: big,
+    });
+    assert.equal(res.status, 200, "the streaming path admits a body larger than the buffer cap");
+    assert.equal(receivedRequests.length, 1);
+    assert.deepEqual(
+      receivedRequests[0].rawBody,
+      Buffer.from(big),
+      "the bytes are forwarded verbatim"
+    );
+  });
+
+  test("RPM=0 with TPM=0 still runs: margins floor both effective limits at one", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "1", PROXY_TPM: "1" },
+      body: "{}",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(res.status, 429, "a one-request budget is exhausted by the first request");
+    assert.ok(Number(res.headers.get("retry-after")) > 0, "positive Retry-After");
+  });
+
+  test("an over-budget body gets 429 with a generic body and never reaches upstream", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      body: "{}",
+    });
+    // max_tokens 4096 caps the estimate, so a single body over a 1000-token
+    // effective TPM (margin default 5: floor(100000*0.95)=95000) needs a body
+    // big enough to exceed it. 9 MiB of content estimates well past it.
+    const big = JSON.stringify({
+      model: "m",
+      messages: [{ role: "user", content: "z".repeat(1024 * 1024) }],
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts(big));
+    assert.equal(res.status, 429);
+    assert.deepEqual(await res.json(), { error: "Too many requests" });
+    assert.ok(Number(res.headers.get("retry-after")) > 0, "positive Retry-After");
+    assert.equal(receivedRequests.length, 0, "the over-budget body never reached the upstream");
+  });
+
+  test("RPM is counted once per admitted request inside the window", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "3", PROXY_TPM: "1000000", PROXY_SAFETY_MARGIN_PCT: "0" },
+      body: "{}",
+    });
+    for (let i = 0; i < 3; i++) {
+      const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+      assert.equal(res.status, 200, `request ${i} is admitted`);
+    }
+    const fourth = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(fourth.status, 429, "the fourth request in the window is rejected");
+    assert.equal(receivedRequests.length, 3, "only the three admitted requests reached upstream");
+  });
+
+  test("byte-identical forwarding: canonical, non-canonical, malformed, gzip and non-JSON bodies", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      body: "{}",
+    });
+    const cases = [
+      [
+        "canonical JSON",
+        JSON.stringify({ model: "m", messages: [{ role: "user", content: "hello world" }] }),
+        "application/json",
+      ],
+      ["malformed JSON", '{"model": "m", "messages": [', "application/json"],
+    ];
+    for (const [label, payload, contentType] of cases) {
+      receivedRequests.length = 0;
+      const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+        method: "POST",
+        headers: { authorization: "Bearer pt", "content-type": contentType },
+        body: payload,
+      });
+      assert.equal(res.status, 200, `${label} is admitted under a generous budget`);
+      assert.deepEqual(
+        receivedRequests[0].rawBody,
+        Buffer.from(payload),
+        `${label} arrives verbatim`
+      );
+    }
+
+    // Non-canonical JSON: same structure, different bytes. The cost estimate
+    // may differ from the canonical form (whitespace is content), but the
+    // forwarded bytes are the caller's.
+    receivedRequests.length = 0;
+    const nonCanonical =
+      '{ "model":"m",\n  "messages": [ { "role":"user", "content":"hello world" } ] }';
+    const nc = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: nonCanonical,
+    });
+    assert.equal(nc.status, 200);
+    assert.deepEqual(
+      receivedRequests[0].rawBody,
+      Buffer.from(nonCanonical),
+      "non-canonical bytes are verbatim"
+    );
+
+    // Unicode is counted and forwarded as characters, not mangled.
+    receivedRequests.length = 0;
+    const unicode = JSON.stringify({
+      model: "m",
+      messages: [{ role: "user", content: "日本語 🎌 ok" }],
+    });
+    const uc = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: unicode,
+    });
+    assert.equal(uc.status, 200);
+    assert.deepEqual(
+      receivedRequests[0].rawBody,
+      Buffer.from(unicode),
+      "unicode bytes are verbatim"
+    );
+
+    // A gzip body is never decompressed: the cap and the estimator see the
+    // compressed bytes, and the compressed bytes are what upstream receives.
+    receivedRequests.length = 0;
+    const gz = zlib.gzipSync(
+      Buffer.from(
+        JSON.stringify({ model: "m", messages: [{ role: "user", content: "compressed" }] })
+      )
+    );
+    const g = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer pt",
+        "content-type": "application/json",
+        "content-encoding": "gzip",
+      },
+      body: gz,
+    });
+    assert.equal(g.status, 200);
+    assert.equal(
+      receivedRequests[0].contentEncoding,
+      "gzip",
+      "the content-encoding header is not stripped"
+    );
+    assert.deepEqual(receivedRequests[0].rawBody, gz, "the compressed bytes arrive verbatim");
+
+    // Non-JSON with no model: the fallback estimate still admits it.
+    receivedRequests.length = 0;
+    const plain = "just text, not json";
+    const p = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "text/plain" },
+      body: plain,
+    });
+    assert.equal(p.status, 200, "a non-JSON body is admitted on the fallback estimate");
+    assert.deepEqual(receivedRequests[0].rawBody, Buffer.from(plain));
+  });
+
+  test("a body above the cap gets 413, never reaches upstream, and the proxy stays usable", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: { ...RATE_ON, PROXY_MAX_BUFFERED_BODY_BYTES: "1024" },
+      body: "{}",
+    });
+    const big = JSON.stringify({
+      model: "m",
+      messages: [{ role: "user", content: "q".repeat(4096) }],
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: big,
+    });
+    assert.equal(res.status, 413);
+    assert.deepEqual(await res.json(), { error: "Request too large" });
+    assert.equal(receivedRequests.length, 0, "the oversized body never reached the upstream");
+    // Proxy usable: an in-budget request still succeeds on the same connection.
+    const after = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(after.status, 200, "the proxy answers a following request");
+    assert.equal(receivedRequests.length, 1);
+  });
+
+  test("over budget is answered immediately, never waits, and leaves the proxy usable", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      // A one-token effective TPM: the requested-output default alone (1024)
+      // clears it, so every request is over budget and none may wait.
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1", PROXY_SAFETY_MARGIN_PCT: "0" },
+      body: "{}",
+    });
+    const started = Date.now();
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    // The wait this slice does not do would be most of a minute. An answer
+    // inside a generous bound proves the 429 was immediate rather than parked
+    // behind a timer, because even a very slow machine satisfies this one.
+    assert.ok(Date.now() - started < 5000, "the rejection is immediate, not a wait");
+    assert.equal(res.status, 429);
+    assert.deepEqual(await res.json(), { error: "Too many requests" });
+    // Empty window: nothing is live, so the window is the whole minute and the
+    // oldest reservation has no age to report. Retry-After of 1 is the honest
+    // "try again shortly" for a budget whose only exhaustion is the request
+    // in hand, and it is the value budget.js derives when there is nothing
+    // older to age out.
+    assert.equal(Number(res.headers.get("retry-after")), 1, "Retry-After is the window's own age");
+    assert.equal(receivedRequests.length, 0, "no over-budget request reached the upstream");
+    // Proxy usable: the local route still answers.
+    const health = await proxiedFetch(proxy.port, "/health");
+    assert.equal(health.status, 200);
+  });
+
+  test("per-model limits are accepted and do not change global behavior", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: {
+        ...RATE_ON,
+        PROXY_MODEL_LIMITS_JSON: JSON.stringify({ nemotron: { rpm: 1, tpm: 1 } }),
+      },
+      body: "{}",
+    });
+    // The named model exists in the map, but this slice enforces the global
+    // budget only: two requests fit inside the generous global budget.
+    for (let i = 0; i < 2; i++) {
+      const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+      assert.equal(res.status, 200, `request ${i} is admitted by the global budget`);
+    }
+    assert.equal(receivedRequests.length, 2);
   });
 });

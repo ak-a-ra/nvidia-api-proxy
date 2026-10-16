@@ -9,11 +9,11 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "lint": "node ./node_modules/eslint/bin/eslint.js server.js config.js server.test.js",
-    "lint:fix": "node ./node_modules/eslint/bin/eslint.js --fix server.js config.js server.test.js",
+    "lint": "node ./node_modules/eslint/bin/eslint.js server.js config.js budget.js server.test.js",
+    "lint:fix": "node ./node_modules/eslint/bin/eslint.js --fix server.js config.js budget.js server.test.js",
     "typecheck": "node ./node_modules/typescript/bin/tsc -p tsconfig.json",
-    "format": "node ./node_modules/prettier/bin/prettier.cjs --write server.js config.js server.test.js eslint.config.js",
-    "format:check": "node ./node_modules/prettier/bin/prettier.cjs --check server.js config.js server.test.js eslint.config.js",
+    "format": "node ./node_modules/prettier/bin/prettier.cjs --write server.js config.js budget.js server.test.js eslint.config.js",
+    "format:check": "node ./node_modules/prettier/bin/prettier.cjs --check server.js config.js budget.js server.test.js eslint.config.js",
     "check": "npm run lint && npm run typecheck && npm run format:check"
   },
   "devDependencies": {
