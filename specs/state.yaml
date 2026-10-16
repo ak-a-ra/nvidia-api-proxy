@@ -11,26 +11,28 @@ vcs:
   branch: main
   worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
   landed:
-    story: e04s03
-    branch: feat/e04s03-abort-aware
-    commit: 255fdc1f711090f8f0019edefb069c2d022a80c1
-    ci_run: 38942882390
-    ci_status: success
+    story: e04s04
+    commit: pending
+    branch: main
+    ci_run: pending
 workflow_mode: solo-git
 active_flow: plan-release
 active_epic: e04
-active_story: e04s04
+active_story: e04s05
 session_start: 2026-10-16T18:02:00Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
   next_skill: plan-work
-  source: survey-context
+  source: verify-work
   note: >-
-    e04s03 landed on main at 255fdc1 (solo-git local merge; feature branch and
-    worktree pruned). Suite green 133/133, CI run 38942882390 success. state.yaml
-    was stale at 0009e24 / feat/e04s03-abort-aware; reconciled here. Chain head is
-    now e04s04 (issue #17, global RPM/TPM budgets) with no capsule yet. Next:
-    plan-work to cut e04s04 spec + tasks from the issue #17 body.
+    e04s04 landed on main: budget.js (rolling 60s RPM/TPM windows, Safety margin,
+    estimator), a rate gate in server.js (413 byte cap, 429 over budget with a
+    derived Retry-After), 8 new tests, budget.js added to the lint/format gate.
+    Suite 141 green, npm run check clean. Deliberate divergence from issue #17 AC
+    bullet 10 (budget waiting) recorded in ADR 0002 Decision 1.6: over budget is
+    answered immediately with a Retry-After derived from the window's oldest live
+    reservation; the early-release wait lands with the per-model budget. Chain
+    head is now e04s05 (issue #18, per-model budgets atomically). Next: plan-work.
 decisions:
   - decision: Plan only the unblocked slice of the rate limiting epic
     rationale: >-

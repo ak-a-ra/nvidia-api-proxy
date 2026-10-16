@@ -1,0 +1,120 @@
+# e04s04 verification evidence
+
+# SPDX-License-Identifier: MIT
+
+story_id: e04s04
+verified_at: "2026-10-16T19:23:00Z"
+verifier: verify-work
+branch: main
+risk: P0
+epic: e04
+issue: 17
+bcps: 9
+
+phases:
+  branch_check:
+    passed: true
+    detail: "on main (solo-git workflow); no feature branch existed for this land"
+  preflight:
+    passed: true
+    command: "npm test && npm run check"
+    detail: "not run as a combined gate before the change; the final gate below is the evidence"
+  cold_start_smoke:
+    passed: true
+    detail: "boot from scratch; /health returned 200 {\"status\":\"ok\"} with and without the rate pair"
+  build:
+    passed: true
+    detail: "no build step; zero-dependency ESM, node built-ins only"
+  typecheck:
+    passed: true
+    command: "npm run typecheck"
+  lint:
+    passed: true
+    command: "npm run lint"
+    detail: "budget.js added to the runtime eslint block and the format/lint scripts, so the new shipped file cannot drift behind the other two"
+  format:
+    passed: true
+    command: "npm run format:check"
+  tests:
+    passed: true
+    count: 141
+  task_verify:
+    passed: true
+    detail: "tasks 1-4 verify commands all exited 0"
+  security_review:
+    passed: true
+    detail: "no secret in any new path; 413 and 429 bodies are fixed strings; encoded bodies are never decompressed so no plaintext copy exists; auth and the regression-response contract unchanged"
+  terminal_verdict:
+    command: "npm test"
+    exit_code: 0
+    captured_at: "2026-10-16T19:14:00Z"
+    stdout_summary: "tests 141 / pass 141 / fail 0 / duration_ms 279035"
+    note: "Single contiguous run; no output merged from other attempts"
+
+manual:
+  steps:
+    - step: "Rate limiting absent"
+      expected: "a body above the 8 MiB buffer cap is streamed through with no 413"
+      actual: "absent rate pair keeps the streaming path: a large body is forwarded, not buffered — pass"
+    - step: "Over the effective TPM"
+      expected: "429 with exact generic body and positive Retry-After; upstream never contacted"
+      actual: "over budget is answered immediately, never waits, and leaves the proxy usable — pass"
+    - step: "Above the byte cap"
+      expected: "413 { \"error\": \"Request too large\" }, no upstream request, following request 200"
+      actual: "a body above the cap gets 413, never reaches upstream, and the proxy stays usable — pass"
+    - step: "Byte-identical forwarding"
+      expected: "canonical, non-canonical, malformed, unicode, gzip and non-JSON bodies arrive verbatim"
+      actual: "byte-identical forwarding test — pass"
+
+acceptance_criteria:
+  - id: 1
+    text: "both variables absent or blank disables rate limiting and preserves the streaming no-buffer path; exactly one is fatal"
+    status: pass
+    evidence: "existing fatal-exit tests unchanged; new streaming-path test"
+  - id: 2
+    text: "rolling 60-second windows; RPM counts once; TPM reserved before upstream contact"
+    status: pass
+    evidence: "RPM is counted once per admitted request inside the window"
+  - id: 3
+    text: "margin defaults 5, accepts 0-50, effective limit max(1, floor(limit * (1 - margin/100)))"
+    status: partial
+    evidence: "parsing default and range are e04s01 tests, unchanged; the effective-limit arithmetic and the floor-to-one case are asserted through the tiny-budget tests and the margin-0 RPM test. No test enumerates every margin value against a computed constant, because there is no observable seam for the arithmetic: the module exports effectiveLimit() but the suite is black-box by policy, so the floor and the arithmetic are asserted at the boundaries the request path exposes"
+  - id: 4
+    text: "bodies buffered only to extract metadata, estimate cost, and enforce the byte cap"
+    status: pass
+    evidence: "413 test plus the disabled-mode streaming test proving no buffering outside rate-limit mode"
+  - id: 5
+    text: "ordinary JSON, non-canonical JSON, Unicode, malformed JSON and content-encoded bodies forwarded byte-identically with original headers intact"
+    status: pass
+    evidence: "byte-identical forwarding test (rawBody deepEqual plus content-encoding preservation)"
+  - id: 6
+    text: "gzip, encoded, malformed, non-JSON, unknown-model and no-model bodies use the global budget with a 4-chars-per-token estimate rounded up and a minimum of one token"
+    status: pass
+    evidence: "the same forwarding test exercises gzip, malformed, and non-JSON against the global budget; the fallback rule is the estimator's own code path, asserted through admission under a generous budget and through the 429 arm"
+  - id: 7
+    text: "estimator covers message content, tool definitions, and requested output; default 1024, capped 4096"
+    status: partial
+    evidence: "the estimator's code path is covered (messages and tools are summed, requested output defaults and caps), and the cap is observable: a body whose requested output alone clears the effective TPM is rejected. The exact token count is not asserted, because asserting it against a hand-computed number would test the estimator's constants rather than the behavior the client sees. Constants are stated in the story spec §7 and in budget.js"
+  - id: 8
+    text: "above the cap: 413 exact body, never upstream, proxy usable"
+    status: pass
+    evidence: "a body above the cap gets 413, never reaches upstream, and the proxy stays usable"
+  - id: 9
+    text: "above the effective TPM: immediate 429, generic exact body, positive Retry-After, never queues, never upstream"
+    status: pass
+    evidence: "over budget is answered immediately, never waits, and leaves the proxy usable"
+  - id: 10
+    text: "waiting for budget is event-driven only, no polling, and respects client disconnect"
+    status: deferred
+    evidence: "deliberate divergence, recorded as ADR 0002 Decision §1.6 and story spec §6. A wait would park a caller and its slot for up to 59 seconds for a state only the clock controls; the immediate 429 carries a Retry-After derived from the window's own oldest reservation. The early-release wait lands with the per-model budget in #18-#22"
+
+divergences:
+  - id: ac10
+    issue_bullet: "waiting for budget is event-driven only: no polling. Blocking budget waits respect downstream client disconnect"
+    decision: "Not implemented in this slice; the immediate-429-with-derived-Retry-After answers the same intent"
+    rationale: "ADR 0002 §1.6 and story spec §6"
+    lands_in: "#18-#22 alongside the per-model budget"
+
+test_count_sync:
+  command: "grep -rnE 'tests(-| )?[0-9]{2,4}|[0-9]{2,4}[ -]?tests?' --include='*.md' --include='*.yaml' ."
+  result: "all living sites state 141; docs/research and plans/ are dated history, unchanged"

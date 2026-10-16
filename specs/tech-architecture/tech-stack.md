@@ -54,13 +54,13 @@ Client → server.js/http.createServer
 | `UPSTREAM_CONNECT_TIMEOUT_SECONDS` | No | `30` (`0` disables) | Falls back to default | Empty, whitespace, non-finite, or negative → fallback |
 | `UPSTREAM_IDLE_TIMEOUT_SECONDS` | No | `120` (resets per chunk, `0` disables) | Falls back to default | Same lenient `readSeconds` rule — the named exception to strict validation |
 | `PROXY_HOST` | No | `0.0.0.0` | Not parsed | Absent, empty, or whitespace-only → default; any other value reaches `listen()` verbatim, untrimmed. An unbindable address fails as a `listen()` error event, not as a named-variable message |
-| `PROXY_RPM` | No | unset | Fatal, exit 1 | Mandatory pair with `PROXY_TPM`. Non-blank must be a positive integer, decimal digits only. Both absent or blank → rate limiting disabled |
-| `PROXY_TPM` | No | unset | Fatal, exit 1 | Same pair rule, applied symmetrically |
+| `PROXY_RPM` | No | unset | Fatal, exit 1 | Mandatory pair with `PROXY_TPM`. Non-blank must be a positive integer, decimal digits only. Both absent or blank → rate limiting disabled. Read at request time since e04s04: the RPM ceiling of the rolling 60-second window |
+| `PROXY_TPM` | No | unset | Fatal, exit 1 | Same pair rule, applied symmetrically. Read at request time since e04s04: the TPM ceiling of the rolling 60-second window; an estimated cost above it is answered 429 with a positive Retry-After and never reaches the upstream |
 | `PROXY_MAX_CONCURRENT_REQUESTS` | No | disabled | Fatal, exit 1 | Absent, blank, or `0` disables the ceiling; otherwise a positive integer, decimal digits only |
 | `PROXY_MAX_QUEUE_SIZE` | No | `32` | Fatal, exit 1 | Positive integer, decimal digits only; `0` is fatal |
 | `PROXY_QUEUE_TIMEOUT_SECONDS` | No | `30` | Fatal, exit 1 | Positive integer, decimal digits only; `0` is fatal |
-| `PROXY_SAFETY_MARGIN_PCT` | No | `5` | Fatal, exit 1 | Integer `0`–`50`, decimal digits only |
-| `PROXY_MAX_BUFFERED_BODY_BYTES` | No | `8388608` (8 MiB) | Fatal, exit 1 | Positive integer, decimal digits only; `0` is fatal |
+| `PROXY_SAFETY_MARGIN_PCT` | No | `5` | Fatal, exit 1 | Integer `0`–`50`, decimal digits only. Read at request time since e04s04: each effective limit is `max(1, floor(limit * (1 - margin / 100)))` |
+| `PROXY_MAX_BUFFERED_BODY_BYTES` | No | `8388608` (8 MiB) | Fatal, exit 1 | Positive integer, decimal digits only; `0` is fatal. Read at request time since e04s04: the body cap in rate-limit mode only, above which the request is answered 413 |
 | `PROXY_MODEL_LIMITS_JSON` | No | unset | Fatal, exit 1 | Rejected whole, never partially, when supplied: bad JSON, non-object root, blank/padded/control-character model key, non-object entry, entry supplying neither `rpm` nor `tpm`, unknown field in an entry, non-positive-integer budget |
 | `PROXY_LOG_REQUESTS` | No | off | Fatal, exit 1 | Closed vocabulary, case-insensitive after trimming: `1`/`true`/`yes`/`on` enable, `0`/`false`/`no`/`off` disable, unset or blank is off. Anything else is fatal — `maybe` must not start a feature nobody asked for. A live flag, like the concurrency ceiling trio above |
 
@@ -160,8 +160,8 @@ SIGTERM handler:
 
 - **Type Safety**: None — JavaScript dynamic typing
 - **Observability**: Startup `console.log`; opt-in per-request JSON lines when `PROXY_LOG_REQUESTS` is on; `console.error` for config failures, caught errors, stream errors
-- **Request Size Limits**: None imposed — `PROXY_MAX_BUFFERED_BODY_BYTES` is validated and stored, not applied
-- **Rate Limiting**: Admission enforced since e04s02 — the concurrency-ceiling trio (`PROXY_MAX_CONCURRENT_REQUESTS`, `PROXY_MAX_QUEUE_SIZE`, `PROXY_QUEUE_TIMEOUT_SECONDS`) gates traffic through the root-level `admission.js` queue; the five budgets (`PROXY_RPM`, `PROXY_TPM`, `PROXY_SAFETY_MARGIN_PCT`, `PROXY_MAX_BUFFERED_BODY_BYTES`, `PROXY_MODEL_LIMITS_JSON`) are validated at startup and never read again; `PROXY_HOST` only selects the bind address
+- **Request Size Limits**: `PROXY_MAX_BUFFERED_BODY_BYTES` (default 8388608, 8 MiB) is enforced in rate-limit mode only; a body above it is answered `413 { "error": "Request too large" }` and never reaches the upstream. Outside rate-limit mode no limit is imposed and bodies stream untrimmed
+- **Rate Limiting**: Admission enforced since e04s02 — the concurrency-ceiling trio (`PROXY_MAX_CONCURRENT_REQUESTS`, `PROXY_MAX_QUEUE_SIZE`, `PROXY_QUEUE_TIMEOUT_SECONDS`) gates traffic through the root-level `admission.js` queue. Global budgets enforced since e04s04 — when the `PROXY_RPM`/`PROXY_TPM` pair is present, the root-level `budget.js` holds one rolling 60-second window per dimension, applies `PROXY_SAFETY_MARGIN_PCT` to both effective limits (floored at one), and enforces `PROXY_MAX_BUFFERED_BODY_BYTES` (bodies are buffered only in this mode, to estimate cost and cap size). `PROXY_MODEL_LIMITS_JSON` is still validated and stored only — per-model budgets are #18. `PROXY_HOST` only selects the bind address
 - **Retries**: Not implemented
 - **Circuit Breaker**: Not implemented
 - **Metrics**: Not implemented
@@ -169,7 +169,7 @@ SIGTERM handler:
 
 ## Testing
 
-- **Test Count**: 133 tests
+- **Test Count**: 141 tests
 - **Location**: `server.test.js`
 - **Runner**: `node --test` (integration tests, no coverage instrumentation/thresholds)
 - **Pattern**: Process-level integration tests with local HTTP stubs

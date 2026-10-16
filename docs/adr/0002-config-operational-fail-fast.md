@@ -8,6 +8,9 @@
 * Amended: 2026-10-11 — e04s02 enforces the concurrency ceiling, so three of the eight
   rate-limiting limits are now read at request time and the rest stay stored. Decision §1.4 and
   the Coverage section are amended. See *Decision* §1.4 and *Consequences*.
+* Amended: 2026-10-16 — e04s04 enforces the global budget pair, so four of the five remaining
+  rate-limiting limits are now read at request time and one still stays stored. Decision §1.4,
+  §1.6, and the Coverage section are amended. See *Decision* §1.4, §1.6, and *Consequences*.
 * Amended: 2026-10-01 — counts corrected against `config.js`: eight rate-limiting limits (the epic
   added nine `PROXY_*` variables, `PROXY_HOST` being the ninth and not a limit), ten variables on
   the fatal path. See *Context* and *Consequences*.
@@ -77,10 +80,10 @@ a rule that could not have been written for the other nine.
    owns the active count and the FIFO queue, and `server.js` acquires a slot after authentication
    and the unconfigured check. Nothing about the tiers moved — the parsing rules, the fatal regime,
    and the stored defaults are exactly what §1.1–§1.3 settled — but the claim "nothing reads them"
-   is now true of five limits, not eight. `config.host` (read by `server.listen`) and
-   `config.logRequests` (read by the request logger) remain the other live fields. The five stored
-   budgets — `PROXY_RPM`, `PROXY_TPM`, `PROXY_SAFETY_MARGIN_PCT`,
-   `PROXY_MAX_BUFFERED_BODY_BYTES`, `PROXY_MODEL_LIMITS_JSON` — become live in #17–#22, each under
+   is now true of one limit, not eight. `config.host` (read by `server.listen`),
+   `config.logRequests` (read by the request logger), and the four global budget fields (read by
+   the request gate, see §1.6) remain the other live fields. The one stored field is
+   `config.modelLimits` — `PROXY_MODEL_LIMITS_JSON` — which becomes live in #18–#22, each under
    this same ADR.
 5. **`PROXY_LOG_REQUESTS` is under the same regime, and is the first operational variable that is
    live.** Anything outside its vocabulary is fatal at startup, exactly like a mistyped ceiling:
@@ -89,6 +92,37 @@ a rule that could not have been written for the other nine.
    gates one stdout line per request rather than sitting unread. The variable is new, so this fatal path
    cannot break a deployment that predates it. Absent, blank, or falsy it is off, which is what
    keeps a deployment that never sets it byte-identical to a build without the feature.
+
+### 1.6 The global budget pair is enforced; waiting is not implemented in this land
+
+Since e04s04 the four global budget fields are read at request time. A new root module
+`budget.js` owns one rolling 60-second window per dimension (RPM and TPM), the Safety margin
+arithmetic (`max(1, floor(limit * (1 - margin / 100)))` on each effective limit), the estimator
+that turns a request body into a cost, and the reserve-or-reject decision. `config.js` is
+unchanged: the parsing rules, the fatal regime, and the defaults are exactly what §1.1–§1.5
+settled. The regime does not move — an operator who supplies a bad budget still fails fast at
+startup, before the feature could read it.
+
+The request gate answers over budget with `429 { "error": "Too many requests" }` and a positive
+`Retry-After` derived from the window's own oldest live reservation, and it never waits. This is
+the one place this land departs from its issue's acceptance criteria (bullet 10, "waiting for
+budget is event-driven only"), and the departure is a decision, not an omission:
+
+* A rolling 60-second window frees only when its oldest reservation ages out, so a wait parks
+  the caller — and its concurrency slot — for up to 59 seconds to reach a state only the clock
+  controls. Issue #13's own streaming model makes that a bad trade: an SSE client that waits a
+  minute for a first byte is a client that often will not be there when the byte arrives.
+* The immediate 429 is not a bare rejection: `Retry-After` is computed from the window's history,
+  so the caller is told when the state it cannot observe will change, and a retry after that
+  interval finds the window aged out. No polling, no held slot, no invented number.
+* The one wait worth having is a different thing: a reservation released *early*, by a client
+  that disconnected after its estimate was taken. That releases immediately and does not touch
+  the clock at all. It is deferred to #18–#22 with the per-model budget, because holding a client
+  for an early release is only worth a slot when the per-model budget gives that client a reason
+  to be held; an unobservable wait path is a path that cannot stay correct.
+
+`admission.js` is untouched — its knowledge stays concurrency. `budget.js` is the third shipped
+file, and the quality gate now covers it, so it cannot drift behind `server.js` and `config.js`.
 
 ### 2. Parsing rules, and why each exists
 

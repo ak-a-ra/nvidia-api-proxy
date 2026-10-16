@@ -1,0 +1,87 @@
+story_id: e04s04
+title: Enforce global RPM/TPM budgets with Safety margin
+status: passing
+bcps: 9
+issue: 17
+type: feat
+risk: P0
+context: infra
+tasks:
+  - id: 1
+    description: >
+      Add the root module budget.js: one rolling 60-second window pair, the Safety margin
+      effective-limit arithmetic floored at one, the cost estimator (messages, tools, requested
+      output default 1024 capped 4096) with a four-characters-per-token fallback for encoded,
+      malformed, non-JSON, unknown-model and no-model bodies, and a reserve/reserve-again
+      interface whose rejection carries a Retry-After derived from the window's oldest live
+      reservation. The module reads no environment, owns no default, and runs no timer; a null
+      rate pair builds a gate that fails open and allocates nothing. Cover it through server.test.js
+      with a new describe block plus additions to the existing stub modes, and add no test seam.
+    verify: >-
+      out=$(node --test --test-reporter=tap --test-name-pattern 'e04s04' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; count=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - '); test "$count" -ge 8 && printf '%s\n' "$out" | grep -qE '^# pass 8'
+    risk: P0
+    security: low
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "Rate Limiting"
+        - "Estimation"
+        - "Rolling Window"
+  - id: 2
+    description: >
+      Wire the rate gate into server.js between the configured check and admission, active only
+      when config.rateLimit is non-null: buffer the request body up to PROXY_MAX_BUFFERED_BODY_BYTES
+      (413 exact body on overflow, silent return when the client is gone), estimate the cost,
+      reserve against the window, and answer 429 with an exact generic body and a positive
+      Retry-After when the reservation fails. Forward the original buffer byte-identically with
+      the caller's headers intact, restoring content-length so undici does not reframe the request
+      as chunked, and leave the disabled mode's fully streaming no-buffer path unchanged. Close the
+      budget on SIGTERM beside admission so a request in flight during drain is not charged against
+      a window nothing reads again.
+    verify: >-
+      out=$(node --test --test-reporter=tap --test-name-pattern 'byte-identical forwarding|a body above the cap|over budget is answered immediately|absent rate pair keeps the streaming path' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; printf '%s\n' "$out" | grep -qE '^# pass 4' && printf '%s\n' "$out" | grep -qE '^[[:space:]]*ok [0-9]+ - a body above the cap' && printf '%s\n' "$out" | grep -qE '^[[:space:]]*ok [0-9]+ - byte-identical forwarding' && printf '%s\n' "$out" | grep -qE '^[[:space:]]*ok [0-9]+ - over budget is answered immediately'
+    risk: P0
+    security: medium
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "Rate Limiting"
+        - "Request Path"
+        - "Security Review"
+  - id: 3
+    description: >
+      Extend the quality gate so the new shipped file cannot drift behind the other two: add
+      budget.js to the eslint runtime block, the prettier and lint scripts in package.json, and the
+      "files that ship" comments in eslint.config.js. The gate must fail on an unformatted or
+      rule-breaking budget.js, which the previous two-file gate could not see.
+    verify: >-
+      npm run check
+    risk: P1
+    security: none
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "Tooling"
+        - "Quality Gate"
+  - id: 4
+    description: >
+      Sync the living docs and the test count with the enforcement reality: tech-stack.md's startup
+      config table and the Rate Limiting note (the five budgets are no longer "never read again"),
+      an ADR 0002 amendment recording that the four budget variables moved from stored to read at
+      request time and why budget waiting was deferred, README's budget comment block, CONVENTIONS'
+      Rate limit bullet (#17 done, #18-#22 outstanding), the epic manifest, and the execution
+      status ledger. The e04s01 test whose comment required a later slice to change it deliberately
+      is updated in the same land.
+    verify: >-
+      test "$(grep -c 'tests-141%20passing' README.md)" -eq 1 && test "$(grep -c 'all 141 tests' README.md)" -eq 1 && test "$(grep -c '141 tests' CONVENTIONS.md)" -eq 1 && test "$(grep -c '(currently 141)' AGENTS.md)" -eq 1 && grep -q 'e04s04' specs/execution-status.yaml && grep -q 'Amended: 2026-10-16' docs/adr/0002-config-operational-fail-fast.md
+    risk: P2
+    security: none
+    status: passing
+    allure:
+      severity: normal
+      categories:
+        - "Documentation"
+        - "Test Count Sync"

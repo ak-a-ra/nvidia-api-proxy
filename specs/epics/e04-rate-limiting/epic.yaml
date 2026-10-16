@@ -39,12 +39,12 @@ stories:
 
   - id: e04s04
     title: Enforce global RPM/TPM budgets with safety margin
-    bcps: 0
-    status: blocked
+    bcps: 9
+    status: passing
     issue: 17
     blocked_by: [e04s03]
-    spec: null
-    tasks: null
+    spec: e04s04-enforce-global-rpm-tpm-budgets.md
+    tasks: e04s04-tasks.yaml
 
   - id: e04s05
     title: Apply per-model budgets atomically
