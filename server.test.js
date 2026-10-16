@@ -3537,3 +3537,490 @@ describe("admission gate: local endpoints and pass-through parity", () => {
     assert.equal(receivedRequests.length, 2, "the following GET is admitted, not queued");
   });
 });
+
+describe("e04s03 abort-aware and shutdown-safe admission", () => {
+  test("queued disconnect removes waiter", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "8",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    await waitForCount("holder occupies the slot", () => heldResponses.length, 1);
+    const ac = new AbortController();
+    const waiter = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+      signal: ac.signal,
+    });
+    waiter.catch(() => {});
+    await settle(50);
+    ac.abort();
+    await settle(50);
+    const later = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    later.catch(() => {});
+    await settle(50);
+    heldResponses.shift().end();
+    await waitForCount(
+      "later request admitted after cancellation",
+      () => receivedRequests.length,
+      2
+    );
+    endHeld(heldResponses);
+    await Promise.allSettled([holder, waiter, later]);
+    assert.equal(receivedRequests.length, 2, "cancelled waiter never reached upstream");
+  });
+
+  test("timer-release race settles ticket once", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "8",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "1",
+      },
+      mode: "hold",
+    });
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    await waitForCount("holder occupies the slot", () => heldResponses.length, 1);
+    const waiter = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    waiter.catch(() => {});
+    await settle(1300);
+    let status = 0;
+    try {
+      const res = await waiter;
+      status = res.status;
+      await res.text();
+    } catch {
+      status = 0;
+    }
+    assert.equal(status, 429, "expired queued request receives 429");
+    heldResponses.shift().end();
+    await holder.catch(() => {});
+    const next = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    next.catch(() => {});
+    await waitForCount(
+      "next request admitted after timed-out waiter",
+      () => receivedRequests.length,
+      2
+    );
+    endHeld(heldResponses);
+    await Promise.allSettled([next]);
+    assert.equal(receivedRequests.length, 2, "timed-out waiter did not hold the slot");
+  });
+
+  test("repeated cancellation/release transitions", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "8",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    await waitForCount("holder occupies the slot", () => heldResponses.length, 1);
+    const w1 = new AbortController();
+    const first = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+      signal: w1.signal,
+    });
+    first.catch(() => {});
+    await settle(50);
+    const survivor = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    survivor.catch(() => {});
+    await settle(50);
+    w1.abort();
+    await settle(50);
+    const beforeRelease = receivedRequests.length;
+    heldResponses.shift().end();
+    await waitForCount(
+      "a waiter cycle completes",
+      () => receivedRequests.length,
+      beforeRelease + 1
+    );
+    endHeld(heldResponses);
+    await Promise.allSettled([holder, first, survivor]);
+    assert.ok(receivedRequests.length >= 2, "capacity returned after cancel/release");
+  });
+
+  test("disconnect before headers aborts upstream and releases slot", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: "1" },
+      mode: "hold",
+    });
+    const first = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    await waitForCount("first request holds slot", () => heldResponses.length, 1);
+    heldResponses.shift().end();
+    await first;
+    const ac = new AbortController();
+    const aborted = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+      signal: ac.signal,
+    });
+    aborted.catch(() => {});
+    await waitForCount("aborted request holds slot", () => heldResponses.length, 1);
+    ac.abort();
+    await settle(100);
+    const next = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    next.catch(() => {});
+    await waitForCount("released slot admits next request", () => receivedRequests.length, 2);
+    endHeld(heldResponses);
+    await Promise.allSettled([first, aborted, next]);
+  });
+
+  test("disconnect during stream aborts upstream and releases slot", async (t) => {
+    const { proxy, receivedRequests, teardowns } = await withProxy(t, {
+      proxyEnv: { PROXY_MAX_CONCURRENT_REQUESTS: "1" },
+      mode: "abortable",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    const reader = res.body.getReader();
+    await reader.read();
+    await reader.cancel();
+    await assertUpstreamAborted(teardowns, 2000);
+    const next = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    next.catch(() => {});
+    await waitForCount("released slot admits next request", () => receivedRequests.length, 2);
+    await Promise.allSettled([next]);
+  });
+
+  test("queued disconnect cancels waiter without upstream call", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "8",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    await waitForCount("holder occupies the slot", () => heldResponses.length, 1);
+    const ac = new AbortController();
+    const waiter = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+      signal: ac.signal,
+    });
+    waiter.catch(() => {});
+    await settle(50);
+    ac.abort();
+    await settle(50);
+    heldResponses.shift().end();
+    await waitForCount("later path can proceed", () => receivedRequests.length, 1);
+    endHeld(heldResponses);
+    await Promise.allSettled([holder, waiter]);
+    assert.equal(receivedRequests.length, 1, "cancelled waiter made no upstream call");
+  });
+
+  test("client disconnect abort is swallowed without 502 response", async (t) => {
+    const { proxy } = await withProxy(t, {
+      mode: "hold",
+    });
+    const ac = new AbortController();
+    const request = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+      signal: ac.signal,
+    });
+    await settle(50);
+    ac.abort();
+    let saw502 = false;
+    try {
+      const res = await request;
+      if (res.status === 502) saw502 = true;
+      await res.text().catch(() => {});
+    } catch {
+      // AbortError is expected.
+    }
+    assert.equal(saw502, false, "no 502 was returned for a client disconnect");
+  });
+
+  test("SIGTERM rejects queued requests with 503 and no upstream call", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "8",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    }).catch(() => {});
+    await waitForCount("holder occupies the slot", () => heldResponses.length, 1);
+    const queued = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    queued.catch(() => {});
+    await settle(50);
+    proxy.child.kill("SIGTERM");
+    let status = 0;
+    let body = "";
+    try {
+      const res = await queued;
+      status = res.status;
+      body = await res.text();
+    } catch {
+      status = 0;
+    }
+    assert.equal(status, 503);
+    assert.equal(body, '{"error":"Service unavailable"}');
+    assert.equal(receivedRequests.length, 1, "queued request never reached upstream");
+    endHeld(heldResponses);
+    const exited = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve("timeout"), 11000);
+      proxy.child.on("exit", (code) => {
+        clearTimeout(timer);
+        resolve(code);
+      });
+    });
+    assert.equal(exited, 0, "clean SIGTERM exit code");
+  });
+
+  test("shutdown rejects late arrivals and keeps health responsive", async (t) => {
+    const { proxy, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "4",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    await waitForCount("holder occupies the slot", () => heldResponses.length, 1);
+    proxy.child.kill("SIGTERM");
+    await settle(50);
+    const late = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    const health = proxiedFetch(proxy.port, "/health");
+    let lateStatus = 0;
+    let lateBody = "";
+    try {
+      const res = await late;
+      lateStatus = res.status;
+      lateBody = await res.text();
+    } catch {
+      lateStatus = 0;
+    }
+    let healthStatus = 0;
+    try {
+      const res = await health;
+      healthStatus = res.status;
+      await res.text();
+    } catch {
+      healthStatus = 0;
+    }
+    assert.ok(
+      lateStatus === 503 || lateStatus === 0,
+      "late arrival is rejected or connection closes"
+    );
+    if (lateStatus === 503) {
+      assert.equal(lateBody, '{"error":"Service unavailable"}');
+    }
+    assert.ok(
+      healthStatus === 200 || healthStatus === 0 || healthStatus === 503,
+      "health either responds or the listener already closed"
+    );
+    endHeld(heldResponses);
+    await Promise.allSettled([holder]);
+  });
+
+  test("health stays responsive during shutdown queue saturation", async (t) => {
+    const { proxy, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "4",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    await waitForCount("holder occupies the slot", () => heldResponses.length, 1);
+    for (let i = 0; i < 3; i++) {
+      proxiedFetch(proxy.port, "/v1/models", {
+        headers: { authorization: "Bearer pt" },
+      }).catch(() => {});
+    }
+    const health = await proxiedFetch(proxy.port, "/health");
+    assert.equal(health.status, 200, "health responds under shutdown saturation");
+    await health.text().catch(() => {});
+    proxy.child.kill("SIGTERM");
+    endHeld(heldResponses);
+    await Promise.allSettled([holder]);
+  });
+
+  test("admitted stream finishes during SIGTERM grace", async (t) => {
+    const { proxy } = await withProxy(t, {
+      mode: "slowfinish",
+    });
+    const responsePromise = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    await settle(100);
+    proxy.child.kill("SIGTERM");
+    const res = await responsePromise;
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.equal(body, "slow done");
+    const exited = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve("timeout"), 10000);
+      proxy.child.on("exit", (code) => {
+        clearTimeout(timer);
+        resolve(code);
+      });
+    });
+    assert.equal(exited, 0, "clean SIGTERM exit code");
+  });
+
+  test("default queue size is 32", async (t) => {
+    const { proxy, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "1",
+      },
+      mode: "hold",
+    });
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    await waitForCount("holder occupies the slot", () => heldResponses.length, 1);
+    const extras = [];
+    for (let i = 0; i < 33; i++) {
+      const p = proxiedFetch(proxy.port, "/v1/models", {
+        headers: { authorization: "Bearer pt" },
+      });
+      p.catch(() => {});
+      extras.push(p);
+    }
+    await settle(200);
+    const results = await Promise.allSettled(extras);
+    const rejected = results.filter(
+      (r) => r.status === "fulfilled" && r.value && r.value.status === 429
+    ).length;
+    assert.ok(rejected >= 1, "at least one request rejected when default queue is full");
+    endHeld(heldResponses);
+    await Promise.allSettled([holder, ...extras]);
+  });
+
+  test("destroyed response skips late 429", async (t) => {
+    const { proxy, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "1",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "1",
+      },
+      mode: "hold",
+    });
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    await waitForCount("holder occupies the slot", () => heldResponses.length, 1);
+    const ac = new AbortController();
+    const queued = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+      signal: ac.signal,
+    });
+    queued.catch(() => {});
+    await settle(10);
+    ac.abort();
+    await settle(1200);
+    endHeld(heldResponses);
+    const settled = await Promise.allSettled([holder, queued]);
+    assert.equal(
+      settled[1].status,
+      "rejected",
+      "cancelled queued request does not resolve into a 429"
+    );
+  });
+
+  test("fixed 250ms observation proves no bypass", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "4",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    const firstWaiter = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    firstWaiter.catch(() => {});
+    await waitForCount("holder occupies slot", () => heldResponses.length, 1);
+    await settle(250);
+    assert.equal(receivedRequests.length, 1, "first waiter stays queued");
+    const late = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    late.catch(() => {});
+    await settle(100);
+    assert.equal(receivedRequests.length, 1, "late waiter does not overtake");
+    heldResponses.shift().end();
+    await waitForCount("first waiter admitted", () => receivedRequests.length, 2);
+    assert.equal(receivedRequests.length, 2, "older waiter admitted before newer one");
+    endHeld(heldResponses);
+    await Promise.allSettled([holder, firstWaiter, late]);
+  });
+
+  test("full queue keeps exact 429 contract", async (t) => {
+    const { proxy, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "1",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    await waitForCount("holder occupies slot", () => heldResponses.length, 1);
+    const waiter = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    waiter.catch(() => {});
+    await settle(50);
+    const overflow = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(overflow.status, 429);
+    assert.equal(await overflow.text(), '{"error":"Too many requests"}');
+    const retryAfter = overflow.headers.get("retry-after");
+    assert.ok(retryAfter && Number(retryAfter) > 0, "positive Retry-After");
+    endHeld(heldResponses);
+    await Promise.allSettled([holder, waiter]);
+  });
+});

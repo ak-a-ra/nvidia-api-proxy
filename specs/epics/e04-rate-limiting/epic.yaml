@@ -30,7 +30,7 @@ stories:
   - id: e04s03
     title: Make admission abort-aware and shutdown-safe
     bcps: 8
-    status: planned
+    status: passing
     issue: 16
     blocked_by: [e04s02]
     delta: MODIFIED

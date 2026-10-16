@@ -7,9 +7,9 @@
 ```yaml
 vcs:
   kind: git
-  commit: dd389d2a3aed1e9b861292c5c0157a09fe27754b
-  branch: main
-  worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
+  commit: 0009e24f22338f2b7aec525df41e52bf9c9bc745
+  branch: feat/e04s03-abort-aware
+  worktree: /data/data/com.termux/files/home/workspace/feat-e04s03-abort-aware
   merged:
     from: feat/e04-admission-control
     landed: 4b15c1a
@@ -22,8 +22,8 @@ active_story: e04s03
 session_start: 2026-09-23T08:14:23Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: kickoff-branch
-  source: plan-work
+  next_skill: release-branch
+  source: request-review
   note: >-
     Story spec written: e04s03-make-admission-abort-aware-and-shutdown-safe.md.
     Tasks normalized to status failing pending implementation. Next: kickoff-branch.

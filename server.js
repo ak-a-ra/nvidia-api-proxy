@@ -156,11 +156,12 @@ const server = http.createServer(async (req, res) => {
     // out. Removing the waiter from the queue entirely (so a disconnect also
     // cancels its queue entry, with no wasted upstream call) is e04s03,
     // issue #16.
+    const ac = new AbortController();
+    const onDownstreamClose = () => ac.abort(new Error("client disconnected"));
+    res.on("close", onDownstreamClose);
+
     let ticket = null;
     const releaseOnce = () => {
-      // A rejected ticket (queue full or expired wait) carries no release
-      // handle — calling one would throw inside this close handler and kill
-      // the process over a 429. Only an admitted ticket owns capacity.
       if (!ticket || !ticket.admitted) return;
       const held = ticket;
       ticket = null;
@@ -168,13 +169,23 @@ const server = http.createServer(async (req, res) => {
     };
     res.on("close", releaseOnce);
 
-    ticket = await admission.acquire();
+    ticket = await admission.acquire(ac.signal);
     if (!ticket.admitted) {
-      // Both rejections share one body and one status. The wait differs: a
-      // full queue retries very soon, because a slot frees on its own, while a
-      // client that already waited out the configured timeout should not be
-      // told to retry immediately — sending it around the loop to wait the
-      // whole bound again is the failure the value exists to prevent.
+      // Clean up the downstream-close listeners before any early return so a
+      // rejected request cannot later abort a finished or unrelated stream.
+      res.removeListener("close", onDownstreamClose);
+      res.removeListener("close", releaseOnce);
+      if (ticket.reason === REJECTION_REASONS.CANCELLED || ac.signal.aborted) {
+        // Client went away while queued: consume no slot response and do not
+        // report overload/shutdown to a socket no-one is reading.
+        return;
+      }
+      if (res.destroyed || res.writableEnded) {
+        return;
+      }
+      if (ticket.reason === REJECTION_REASONS.SHUTTING_DOWN) {
+        return sendJson(req, res, 503, { error: "Service unavailable" });
+      }
       const retryAfter =
         ticket.reason === REJECTION_REASONS.QUEUE_TIMEOUT
           ? config.limits.queueTimeoutSeconds
@@ -188,9 +199,6 @@ const server = http.createServer(async (req, res) => {
       );
     }
     if (res.destroyed || res.writableEnded) {
-      // The client left while this request waited, and its "close" fired
-      // before any ticket existed. Release here — one call, idempotent — and
-      // return rather than proxying to a socket nobody is reading.
       releaseOnce();
       return;
     }
@@ -214,16 +222,10 @@ const server = http.createServer(async (req, res) => {
     const method = req.method;
     const body = method === "GET" || method === "HEAD" ? undefined : req;
 
-    // A single per-request AbortController owns both the connect window and
-    // the downstream lifecycle: if the client disconnects (before headers or
-    // mid-stream) the upstream fetch is aborted so abandoned work does not
-    // linger on the upstream socket. The listener is removed on normal
-    // completion — after the response pipeline finishes — so completed
-    // requests retain no lifecycle handlers.
-    const ac = new AbortController();
-    const onDownstreamClose = () => ac.abort(new Error("client disconnected"));
-    res.on("close", onDownstreamClose);
-
+    // The per-request AbortController was created before admission (above) so
+    // the same signal cancels a queued request. It also owns the connect
+    // window and downstream lifecycle here: remove its listener on normal
+    // completion so completed requests retain no lifecycle handlers.
     const connectTimer = CONNECT_TIMEOUT_SECONDS
       ? setTimeout(
           () => ac.abort(new Error("upstream connect timeout")),
@@ -333,6 +335,7 @@ server.listen(PORT, config.host, () => {
 // Render sends SIGTERM on deploys: stop accepting, drop idle keep-alive
 // sockets, let in-flight streams finish, force-exit after a grace period.
 process.on("SIGTERM", () => {
+  admission.close();
   server.closeIdleConnections();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 10_000).unref();

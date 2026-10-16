@@ -13,6 +13,12 @@
 //    repeated calls never double-release capacity.
 // 6. Waiting is strictly event-driven: resolved by release() or timeout timer,
 //    never polled.
+// 7. A ticket settles exactly once; cancellation, timeout, admission, and
+//    shutdown all funnel through one settle helper.
+// 8. A downstream abort while a ticket is queued removes that exact waiter,
+//    clears its timer and abort listener, and consumes no slot.
+// 9. close() is synchronous and idempotent: it refuses new tickets, drains
+//    queued ones as shutting-down rejections, and leaves admitted work alone.
 //
 // Every value arrives validated from config.js, which is the only owner of
 // defaults and parsing: a ceiling is null (disabled) or a positive integer, a
@@ -25,6 +31,8 @@
 export const REJECTION_REASONS = Object.freeze({
   QUEUE_FULL: "queue_full",
   QUEUE_TIMEOUT: "queue_timeout",
+  SHUTTING_DOWN: "shutting_down",
+  CANCELLED: "cancelled",
 });
 
 export function createAdmission(limits) {
@@ -34,19 +42,53 @@ export function createAdmission(limits) {
 
   // Disabled ceiling: immediate admission, zero queue allocation, no timers.
   if (maxConcurrent === null) {
+    let closed = false;
     const noopRelease = () => {};
     return {
-      acquire() {
+      acquire(signal) {
+        if (closed) {
+          return Promise.resolve({
+            admitted: false,
+            reason: REJECTION_REASONS.SHUTTING_DOWN,
+          });
+        }
         return Promise.resolve({
           admitted: true,
           release: noopRelease,
         });
+      },
+      close() {
+        closed = true;
       },
     };
   }
 
   let active = 0;
   const queue = [];
+  let closed = false;
+
+  // One terminal transition per ticket. The first caller wins; later ones are
+  // no-ops. Timer, listener, and queue removal are handled by callers that
+  // know whether the ticket is still listed, but the listener/promise settle
+  // always happens exactly once.
+  function settleTicket(ticket, outcome) {
+    if (ticket.settled) return false;
+    ticket.settled = true;
+    if (ticket.timer) {
+      clearTimeout(ticket.timer);
+      ticket.timer = null;
+    }
+    if (ticket.signal && ticket.abortListener) {
+      try {
+        ticket.signal.removeEventListener("abort", ticket.abortListener);
+      } catch {
+        // A detached signal still must not throw during teardown.
+      }
+      ticket.abortListener = null;
+    }
+    ticket.resolve(outcome);
+    return true;
+  }
 
   function createReleaseHandle() {
     let released = false;
@@ -54,26 +96,51 @@ export function createAdmission(limits) {
       if (released) return;
       released = true;
 
-      // Drain timed-out / cancelled tickets from front of FIFO queue
+      // Wake the oldest unsettled waiter, skipping any ticket that already
+      // settled (timed out, cancelled, or shut down) while this slot was
+      // held.
       while (queue.length > 0) {
         const next = queue.shift();
-        if (next.consumed) continue;
-        next.consumed = true;
-        clearTimeout(next.timer);
+        if (next.settled) continue;
         const nextRelease = createReleaseHandle();
-        next.resolve({
+        settleTicket(next, {
           admitted: true,
           release: nextRelease,
         });
         return;
       }
 
-      // No waiting ticket claimed the slot: decrement active count
+      // No waiting ticket claimed the slot: decrement active count.
       active--;
+      if (active < 0) active = 0;
     };
   }
 
-  function acquire() {
+  function removeTicket(ticket) {
+    const idx = queue.indexOf(ticket);
+    if (idx !== -1) queue.splice(idx, 1);
+  }
+
+  function close() {
+    if (closed) return;
+    closed = true;
+    for (const ticket of [...queue]) {
+      removeTicket(ticket);
+      settleTicket(ticket, {
+        admitted: false,
+        reason: REJECTION_REASONS.SHUTTING_DOWN,
+      });
+    }
+  }
+
+  function acquire(signal) {
+    if (closed) {
+      return Promise.resolve({
+        admitted: false,
+        reason: REJECTION_REASONS.SHUTTING_DOWN,
+      });
+    }
+
     if (active < maxConcurrent && queue.length === 0) {
       active++;
       return Promise.resolve({
@@ -91,26 +158,47 @@ export function createAdmission(limits) {
 
     return new Promise((resolve) => {
       const ticket = {
-        consumed: false,
+        settled: false,
         timer: null,
+        signal: signal || null,
+        abortListener: null,
         resolve,
       };
 
       ticket.timer = setTimeout(() => {
-        if (ticket.consumed) return;
-        ticket.consumed = true;
-        const idx = queue.indexOf(ticket);
-        if (idx !== -1) {
-          queue.splice(idx, 1);
-        }
-        resolve({
+        if (ticket.settled) return;
+        removeTicket(ticket);
+        settleTicket(ticket, {
           admitted: false,
           reason: REJECTION_REASONS.QUEUE_TIMEOUT,
         });
       }, timeoutMs);
 
-      // Unref timeout so it does not block node process exit
-      ticket.timer.unref();
+      if (ticket.timer && typeof ticket.timer.unref === "function") {
+        ticket.timer.unref();
+      }
+
+      if (signal) {
+        if (signal.aborted) {
+          // An already-aborted ticket is never queued: retro-firing is not
+          // guaranteed by EventTarget, so settle it now and free the slot path.
+          settleTicket(ticket, {
+            admitted: false,
+            reason: REJECTION_REASONS.CANCELLED,
+          });
+          return;
+        }
+        const listener = () => {
+          if (ticket.settled) return;
+          removeTicket(ticket);
+          settleTicket(ticket, {
+            admitted: false,
+            reason: REJECTION_REASONS.CANCELLED,
+          });
+        };
+        ticket.abortListener = listener;
+        signal.addEventListener("abort", listener, { once: true });
+      }
 
       queue.push(ticket);
     });
@@ -118,5 +206,6 @@ export function createAdmission(limits) {
 
   return {
     acquire,
+    close,
   };
 }

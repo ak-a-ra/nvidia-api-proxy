@@ -1,0 +1,70 @@
+# e04s03 verification evidence
+
+# SPDX-License-Identifier: MIT
+
+story_id: e04s03
+verified_at: "2026-10-16T14:33:00Z"
+verifier: verify-work
+branch: feat/e04s03-abort-aware
+risk: P0
+epic: e04
+issue: 16
+
+phases:
+  branch_check:
+    passed: true
+    detail: "on feat/e04s03-abort-aware, not main; feature branch verified"
+  preflight:
+    passed: true
+    command: "npm test && npm run check"
+    detail: "133 tests pass; lint, typecheck, format all clean"
+  cold_start_smoke:
+    passed: true
+    detail: "boot from scratch; /health returned 200 {\"status\":\"ok\"}"
+  build:
+    passed: true
+    detail: "no build step; zero-dependency ESM, node built-ins only"
+  typecheck:
+    passed: true
+    command: "npm run typecheck"
+  lint:
+    passed: true
+    command: "npm run lint"
+  format:
+    passed: true
+    command: "npm run format:check"
+  tests:
+    passed: true
+    count: 133
+  task_verify:
+    passed: true
+    detail: "tasks 1-6 verify commands all exited 0"
+  security_review:
+    passed: true
+    detail: "no HIGH findings at confidence >= 8 in changed paths; fixed response bodies, digest auth, and no secret logging preserved"
+  terminal_verdict:
+    command: "npm test"
+    exit_code: 0
+    captured_at: "2026-10-16T14:28:00Z"
+    stdout_summary: "tests 133 / pass 133 / fail 0"
+    note: "Single contiguous run; no output merged from other attempts"
+  manual:
+    steps:
+      - step: "Queued client disconnect"
+        expected: "waiter removed, timer cleared, no upstream call, slot reusable"
+        actual: "named tests pass and suite reaches 133"
+        passed: true
+      - step: "Client disconnect before headers and during stream"
+        expected: "upstream aborted and slot released exactly once; no 502"
+        actual: "named tests pass; no 502 path exercised as failure"
+        passed: true
+      - step: "SIGTERM with queued and admitted work"
+        expected: "queued clients get 503 {\"error\":\"Service unavailable\"}, admitted stream grace, exit 0"
+        actual: "named tests pass; /health remains responsive"
+        passed: true
+      - step: "Default queue boundary and late-429 guard"
+        expected: "32-waiter default, 429 contract preserved, no late write after destroy"
+        actual: "named tests pass"
+        passed: true
+  gaps:
+    closed: true

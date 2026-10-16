@@ -68,6 +68,10 @@ The concurrency ceiling is enforced at request time. `config.limits.maxConcurren
 `config.limits.maxQueueSize`, and `config.limits.queueTimeoutSeconds` are read by the admission gate
 in `server.js` — a root-level `admission.js` owns the active count and the FIFO queue — and a full
 queue or an expired wait rejects with `429 {"error":"Too many requests"}` and a `Retry-After` header.
+Since e04s03 the same admission owner also cancels a queued ticket on the downstream
+abort signal, closes admission before SIGTERM (`close()`), rejects queued clients with
+`503 {"error":"Service unavailable"}`, aborts admitted upstream work on client
+disconnect, and keeps `/health` answering during saturation or shutdown.
 The other five rate-limiting limits above (`PROXY_RPM`, `PROXY_TPM`,
 `PROXY_SAFETY_MARGIN_PCT`, `PROXY_MAX_BUFFERED_BODY_BYTES`, `PROXY_MODEL_LIMITS_JSON`) are
 **validated and stored, not enforced**. `config.host` and `config.logRequests` are the other two
@@ -165,7 +169,7 @@ SIGTERM handler:
 
 ## Testing
 
-- **Test Count**: 118 tests
+- **Test Count**: 133 tests
 - **Location**: `server.test.js`
 - **Runner**: `node --test` (integration tests, no coverage instrumentation/thresholds)
 - **Pattern**: Process-level integration tests with local HTTP stubs
