@@ -7,14 +7,15 @@
 ```yaml
 vcs:
   kind: git
-  commit: 255fdc1f711090f8f0019edefb069c2d022a80c1
+  commit: b31c455
   branch: main
   worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
   landed:
     story: e04s04
-    commit: pending
+    commit: b31c455
     branch: main
-    ci_run: pending
+    ci_run: 38955576847
+    ci_status: success
 workflow_mode: solo-git
 active_flow: plan-release
 active_epic: e04
