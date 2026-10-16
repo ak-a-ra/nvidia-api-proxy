@@ -7,7 +7,7 @@
 ```yaml
 vcs:
   kind: git
-  commit: 4b15c1a
+  commit: dd389d2a3aed1e9b861292c5c0157a09fe27754b
   branch: main
   worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
   merged:
@@ -22,26 +22,12 @@ active_story: e04s03
 session_start: 2026-09-23T08:14:23Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: slice-tasks
-  source: release-branch
+  next_skill: kickoff-branch
+  source: plan-work
   note: >-
-    e04s02 is released: feat/e04-admission-control fast-forward merged into main
-    at 4b15c1a, pushed, CI green (run 38212168338, 53s), branch deleted. The land
-    also carried the seven unpushed local-main prep commits (dev tooling, doc
-    updates, spec fixes from branch planning) — local main had simply never been
-    pushed after them. The concurrency ceiling is live on main with the suite at
-    118. Next is e04s03, issue #16 "Make admission abort-aware and shutdown-safe",
-    now the head of the #14-#22 chain: it needs a story capsule before execution,
-    so the planning spine runs slice-tasks then plan-work, or survey-context first
-    if returning after a break. It owns the four carried gaps: waiter removal /
-    cancel() on disconnect (no wasted upstream call), SIGTERM rejecting queued
-    waiters with 503, the timer-mid-release race, and the default-32-queue
-    observation. Non-blocking reviewer notes to close in e04s03 or a follow-up on
-    main: the 429 arm lacks the res.destroyed guard the admitted path has
-    (pre-existing pattern for all local rejections), releaseOnce is never
-    removeListener'ed (harmless), and the no-bypass window's fixed settle(250)
-    should become 500ms if CI flakes. Evidence:
-    specs/verifications/e04s02-verify.yaml.
+    Story spec written: e04s03-make-admission-abort-aware-and-shutdown-safe.md.
+    Tasks normalized to status failing pending implementation. Next: kickoff-branch.
+    Current VCS identity: main at dd389d2a3aed1e9b861292c5c0157a09fe27754b.
 decisions:
   - decision: Plan only the unblocked slice of the rate limiting epic
     rationale: >-
@@ -292,5 +278,5 @@ release:
   ci_run: 36979464322
   merged: 9d663d9
 metrics:
-  story_start: 2026-10-02T00:00:00Z
+  story_start: 2026-10-16T13:11:42Z
 ```

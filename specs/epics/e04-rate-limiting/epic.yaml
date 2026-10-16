@@ -1,7 +1,7 @@
 id: e04
 title: Rate limiting and admission control
 wsjf: 2.9
-total_bcps: 9
+total_bcps: 25
 status: in_progress
 issue: 13
 parent_issue: 13
@@ -29,12 +29,13 @@ stories:
 
   - id: e04s03
     title: Make admission abort-aware and shutdown-safe
-    bcps: 0
-    status: blocked
+    bcps: 8
+    status: planned
     issue: 16
     blocked_by: [e04s02]
-    spec: null
-    tasks: null
+    delta: MODIFIED
+    spec: e04s03-make-admission-abort-aware-and-shutdown-safe.md
+    tasks: e04s03-tasks.yaml
 
   - id: e04s04
     title: Enforce global RPM/TPM budgets with safety margin
