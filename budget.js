@@ -65,12 +65,13 @@ export function effectiveLimit(limit, safetyMarginPct) {
 
 // The estimator's own output shape: everything the caller needs to decide
 // whether a request can be admitted, and nothing about the caller's
-// decisions. Input cost, requested output, the one-request charge, and the
-// fallback flag for observability — never the body, which this module
-// deliberately does not retain.
+// decisions. Input cost, requested output, the one-request charge, the model
+// the request names, and the fallback flag for observability — never the
+// body, which this module deliberately does not retain.
 export function estimateCost(json, buffer) {
+  const model = modelFromJson(json);
   const parsed = parseRequestMetadata(json);
-  if (!parsed) return fallbackCostFromBuffer(buffer);
+  if (!parsed) return fallbackCostFromBuffer(buffer, model);
 
   // Input is summed per part; requested output is the one number the body can
   // name. Anything beyond the cap is flattened down to it, so a body asking
@@ -88,14 +89,17 @@ export function estimateCost(json, buffer) {
     requestCharge: 1,
     totalTokens: inputTokens + requested,
     fallback: false,
+    model,
   };
 }
 
 // Fallback estimate for a body the estimator could not open: encoded,
 // malformed, non-JSON, or with no inspectable content. Characters per token
 // rounds up, one token is the floor, and requested output keeps its default —
-// the fallback is a cost, not a guess about what the body asked for.
-function fallbackCostFromBuffer(buffer) {
+// the fallback is a cost, not a guess about what the body asked for. The
+// model the request names still travels with the cost, however its size was
+// measured.
+function fallbackCostFromBuffer(buffer, model) {
   const chars = buffer ? buffer.length : 0;
   return {
     inputTokens: Math.max(MIN_TOKENS, Math.ceil(chars / FALLBACK_CHARS_PER_TOKEN)),
@@ -105,6 +109,7 @@ function fallbackCostFromBuffer(buffer) {
       Math.max(MIN_TOKENS, Math.ceil(chars / FALLBACK_CHARS_PER_TOKEN)) +
       DEFAULT_REQUESTED_OUTPUT_TOKENS,
     fallback: true,
+    model,
   };
 }
 
@@ -127,10 +132,6 @@ function parseRequestMetadata(json) {
     toolChars += countTextChars(tool);
   }
 
-  // Models are named by the request; their pricing is not this module's
-  // business. A body naming no or an unknown model is estimated exactly like
-  // any other: the proxy holds no per-model table, so per-model distinctions
-  // are e04s05's job, not a special case bolted on here.
   const maxTokensRaw = json.max_tokens ?? json.max_completion_tokens ?? json.maxTokens;
   const maxTokens = Number(maxTokensRaw);
 
@@ -142,6 +143,22 @@ function parseRequestMetadata(json) {
     estimable: true,
     maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? maxTokens : null,
   };
+}
+
+// Models are named by the request; their pricing is not this module's
+// business. The estimator carries the name the body used through with the
+// cost, so the caller can resolve it against the operator's per-model
+// budget, and prices every model the same way: a per-model budget governs
+// how much of a model may be asked for, never what the request costs. The
+// name travels exactly as the body wrote it, with no trimming and no
+// case-folding, so a client matches a config key only the way the operator
+// wrote it.
+function modelFromJson(json) {
+  // A body that names no model, or names one that is not a string, names
+  // none: the caller then governs the request by the global budget alone.
+  if (!json || typeof json !== "object") return null;
+  const model = json.model;
+  return typeof model === "string" && model.length > 0 ? model : null;
 }
 
 function countMessageChars(message) {
