@@ -3,7 +3,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import zlib from "node:zlib";
-import { estimateCost } from "./budget.js";
+import { createBudget, estimateCost } from "./budget.js";
 
 // Stub upstream: records requests, returns canned responses, can be told to
 // stream SSE, return multi-value set-cookie, abort mid-stream, or be unreachable.
@@ -4352,5 +4352,86 @@ describe("e04s05 per-model budgets", () => {
     const nameless = estimateCost({ note: "no model here" }, Buffer.from("{}"));
     assert.equal(nameless.model, null, "a parsed body that names no model carries none");
     assert.equal(nameless.fallback, true, "a body with no messages is priced by its bytes");
+  });
+
+  // The per-model windows live inside budget.js, so they are unit-tested here
+  // like the estimator: the black-box harness cannot observe a window that
+  // nothing consults yet.
+  test("per-model windows are built for every configured model", () => {
+    const modelMap = Object.assign(Object.create(null), {
+      nemotron: { rpm: 60, tpm: 100000 },
+      llama: { rpm: 30 },
+    });
+    const budget = createBudget({ rpm: 60, tpm: 100000 }, { safetyMarginPct: 0 }, modelMap);
+    // One entry per configured model, carrying the effective limits. The map
+    // is null-prototype like the config map it came from, so the expected
+    // value is built the same way.
+    const expected = Object.assign(Object.create(null), {
+      nemotron: { rpm: 60, tpm: 100000 },
+      llama: { rpm: 30 },
+    });
+    assert.deepStrictEqual(budget.modelEffective, expected);
+    assert.equal(Object.keys(budget.modelEffective).length, 2, "one entry per configured model");
+  });
+
+  test("per-model windows are built with the same safety margin as the global windows", () => {
+    const modelMap = Object.assign(Object.create(null), { nemotron: { rpm: 60 } });
+    const budget = createBudget({ rpm: 60, tpm: 100000 }, { safetyMarginPct: 5 }, modelMap);
+    assert.equal(budget.effective.rpm, 57, "the global rpm carries the margin");
+    assert.equal(
+      budget.modelEffective.nemotron.rpm,
+      budget.effective.rpm,
+      "the model rpm carries the same margin as the global rpm"
+    );
+    assert.equal(budget.modelEffective.nemotron.rpm, 57, "floor(60 * 0.95) is 57");
+  });
+
+  test("per-model windows are built only when the global budget is enabled", () => {
+    const modelMap = Object.assign(Object.create(null), { nemotron: { rpm: 5 } });
+    const disabled = createBudget(null, { safetyMarginPct: 0 }, modelMap);
+    assert.equal(disabled.modelEffective, null, "a disabled global budget builds no model windows");
+    const noModels = createBudget({ rpm: 60, tpm: 100000 }, { safetyMarginPct: 0 }, null);
+    assert.equal(noModels.modelEffective, null, "no model limits means no model windows");
+  });
+
+  test("a model entry with only rpm leaves its token budget uncapped", () => {
+    const modelMap = Object.assign(Object.create(null), {
+      rpmOnly: { rpm: 5 },
+      tpmOnly: { tpm: 500 },
+    });
+    const budget = createBudget({ rpm: 60, tpm: 100000 }, { safetyMarginPct: 0 }, modelMap);
+    assert.deepStrictEqual(budget.modelEffective.rpmOnly, { rpm: 5 });
+    assert.equal(
+      "tpm" in budget.modelEffective.rpmOnly,
+      false,
+      "an uncapped dimension carries no key at all"
+    );
+    assert.deepStrictEqual(budget.modelEffective.tpmOnly, { tpm: 500 });
+    assert.equal(
+      "rpm" in budget.modelEffective.tpmOnly,
+      false,
+      "an uncapped dimension carries no key at all"
+    );
+  });
+
+  test("close refuses model reservations", () => {
+    const modelMap = Object.assign(Object.create(null), { nemotron: { rpm: 5 } });
+    const budget = createBudget({ rpm: 60, tpm: 100000 }, { safetyMarginPct: 0 }, modelMap);
+    assert.ok(budget.modelEffective, "the model windows exist before the close");
+    budget.close();
+    const result = budget.reserve({ requestCharge: 1, totalTokens: 10, model: "nemotron" });
+    assert.equal(result.admitted, false, "a closed budget admits nothing");
+    assert.equal(result.reason, "closed", "the refusal names the closed budget");
+  });
+
+  test("the global budget is unchanged when model limits are configured", () => {
+    const modelMap = Object.assign(Object.create(null), { nemotron: { rpm: 1, tpm: 1 } });
+    const budget = createBudget({ rpm: 2, tpm: 100000 }, { safetyMarginPct: 0 }, modelMap);
+    const cost = { requestCharge: 1, totalTokens: 10, model: "nemotron" };
+    assert.equal(budget.reserve(cost).admitted, true, "the first request fits the global budget");
+    assert.equal(budget.reserve(cost).admitted, true, "the second request fits the global budget");
+    const third = budget.reserve(cost);
+    assert.equal(third.admitted, false, "the third request exceeds the global rpm");
+    assert.equal(third.reason, "rpm", "the rejection names the global constraint, not a model one");
   });
 });

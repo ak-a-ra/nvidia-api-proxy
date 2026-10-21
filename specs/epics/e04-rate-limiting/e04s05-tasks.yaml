@@ -40,10 +40,10 @@ tasks:
       disabled global budget (rateLimit null) creates no model windows. Add tests: createBudget
       with modelLimits builds model effective limits, close refuses model reservations.
     verify: >-
-      out=$(node --test --test-reporter=tap --test-name-pattern 'per-model windows are built|close refuses model' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; printf '%s\n' "$out" | grep -qE '^[[:space:]]*ok [0-9]+ -'
+      out=$(node --test --test-reporter=tap --test-name-pattern 'per-model windows are built|close refuses model' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(per-model windows are built|close refuses model)'); test "$n" -ge 2
     risk: P0
     security: none
-    status: failing
+    status: passing
     allure:
       severity: critical
       categories:
