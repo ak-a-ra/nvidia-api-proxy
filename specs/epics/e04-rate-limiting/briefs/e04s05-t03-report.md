@@ -514,11 +514,16 @@ so the model windows are built at startup.
 
 Two things task 4 must know:
 
-- The proxy's test bodies (`CHAT_BODY` in `server.test.js`) name **no** model, so `cost.model` is
-  `null` and those requests stay global-only even after the wiring. The e04s04 test
-  `per-model limits are accepted and do not change global behavior` (`server.test.js:4274`) still
-  passes today and still passes after the wiring unless its body is changed to name a model —
-  which is exactly what that test is for once task 4 rewrites it.
+- The e04s04 test's body **does** name a model. `CHAT_BODY` (`server.test.js:4036-4039`) is
+  `{ model: "nemotron", … }`, so `cost.model` is `"nemotron"`, not `null`. That test
+  (`per-model limits are accepted and do not change global behavior`, `server.test.js:4274`)
+  configures `PROXY_MODEL_LIMITS_JSON: {"nemotron":{"rpm":1,"tpm":1}}`, and the body costs 1034
+  tokens (10 input plus the 1024-token default output). With the 5 % Safety margin the model's
+  effective token limit is 1, so once the wiring lands the **first** request is rejected with
+  `model_tpm` and the test's first assertion (`status === 200`) fails with a 429. Task 4 must
+  therefore rewrite that test's **model fixture** as well as its assertions: an rpm-only entry
+  (`nemotron: {rpm: 1}`) admits the first request and rejects the second with `model_rpm`, which
+  is what the ledger's task-4 wording ("the second being rejected 429") describes.
 - The reason must stay internal. `server.js:138-140` copies `outcome.reason` into an internal
   rejection object; the 429 body is the fixed generic string and the `Retry-After` header is the
   positive number the budget derived. The reason is not logged and does not change the response
