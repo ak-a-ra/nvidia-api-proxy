@@ -4271,21 +4271,71 @@ describe("e04s04 global RPM/TPM budgets", () => {
     assert.equal(health.status, 200);
   });
 
-  test("per-model limits are accepted and do not change global behavior", async (t) => {
+  test("per-model limits are enforced", async (t) => {
     const { proxy, receivedRequests } = await withProxy(t, {
       proxyEnv: {
         ...RATE_ON,
-        PROXY_MODEL_LIMITS_JSON: JSON.stringify({ nemotron: { rpm: 1, tpm: 1 } }),
+        // An rpm-only entry: the model's own token budget stays uncapped, so
+        // the request dimension is the one that refuses the second request.
+        PROXY_MODEL_LIMITS_JSON: JSON.stringify({ nemotron: { rpm: 1 } }),
       },
       body: "{}",
     });
-    // The named model exists in the map, but this slice enforces the global
-    // budget only: two requests fit inside the generous global budget.
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200, "the first request fits the model's rpm");
+    assert.equal(receivedRequests.length, 1, "the admitted request reached the upstream");
+
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "the second request exceeds the model's rpm");
+    assert.deepEqual(await second.json(), { error: "Too many requests" });
+    const retryAfter = Number(second.headers.get("retry-after"));
+    assert.ok(Number.isInteger(retryAfter), "Retry-After is a whole number");
+    assert.ok(retryAfter > 0, "Retry-After is positive");
+    assert.equal(receivedRequests.length, 1, "the rejected request never reached the upstream");
+
+    // A model the operator did not cap is governed by the global budget alone,
+    // so it is admitted even while the capped model's budget is exhausted.
+    const otherBody = JSON.stringify({
+      model: "llama",
+      messages: [{ role: "user", content: "x".repeat(40) }],
+    });
+    const other = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts(otherBody));
+    assert.equal(other.status, 200, "an uncapped model is admitted by the global budget");
+    assert.equal(receivedRequests.length, 2, "the admitted request reached the upstream");
+  });
+
+  test("model limits without global pair has no effect", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      // Model limits but no global pair: the rate gate never opens, so the
+      // per-model windows are never consulted.
+      proxyEnv: { PROXY_MODEL_LIMITS_JSON: JSON.stringify({ nemotron: { rpm: 1 } }) },
+      body: "{}",
+    });
+    // Two requests for the capped model: with the model's rpm in force the
+    // second one would be refused, so both being admitted is the "no effect".
     for (let i = 0; i < 2; i++) {
       const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
-      assert.equal(res.status, 200, `request ${i} is admitted by the global budget`);
+      assert.equal(res.status, 200, `request ${i} is admitted without a global pair`);
     }
-    assert.equal(receivedRequests.length, 2);
+    assert.equal(receivedRequests.length, 2, "both requests reached the upstream");
+
+    // The gate is off, so the body is never buffered: a body above the 8 MiB
+    // cap is forwarded verbatim instead of answered with 413.
+    const big = JSON.stringify({
+      model: "nemotron",
+      messages: [{ role: "user", content: "y".repeat(9 * 1024 * 1024) }],
+    });
+    const streamed = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts(big));
+    assert.equal(
+      streamed.status,
+      200,
+      "the streaming path admits a body larger than the buffer cap"
+    );
+    assert.deepEqual(
+      receivedRequests[2].rawBody,
+      Buffer.from(big),
+      "the bytes are forwarded verbatim"
+    );
   });
 });
 

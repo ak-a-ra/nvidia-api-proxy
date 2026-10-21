@@ -16,8 +16,11 @@ const config = parseConfig(process.env);
 const admission = createAdmission(config.limits);
 // The budget gate is built once from the same validated config: a null rate
 // pair yields a disabled gate that fails open, so a deployment without
-// PROXY_RPM/PROXY_TPM never allocates a window or buffers a body.
-const budget = createBudget(config.rateLimit, config.limits);
+// PROXY_RPM/PROXY_TPM never allocates a window or buffers a body. The
+// per-model map rides along with it, and stays inert without the global pair:
+// a model's own windows exist only next to the global ones they are checked
+// against.
+const budget = createBudget(config.rateLimit, config.limits, config.modelLimits);
 
 // Compare SHA-256 digests rather than raw bytes: equal-length inputs mean
 // timingSafeEqual never throws on length mismatch, and a throw-vs-compare
@@ -128,12 +131,16 @@ function parseJsonBody(buffer) {
 // the oldest live reservation), which is the bounded wait the issue asks for
 // without a held slot and without polling.
 //
+// The rejection names the constraint that bit — the global window's rpm or
+// tpm, or a model's own — and the name stays inside the proxy: the client is
+// told to come back, never which budget said so.
+//
+// There is no wait to call. budget.js exposes no waiting primitive, and the
+// per-model windows are decided in the same synchronous pass as the global
+// ones, so a request over its own model's budget is answered, not parked.
 // Budget waiting proper — the bounded, abort-armed wait that answers an
 // in-window-tight request the moment an earlier reservation is released early —
-// is implemented in budget.wait() and is wired here by e04s05+, alongside the
-// per-model budget that makes holding a client for it worth the slot. This
-// slice deliberately does not call it: an unobservable path is a path that
-// cannot stay correct.
+// is deferred to a later story.
 async function admitWithBudget(cost) {
   const outcome = budget.reserve(cost);
   if (outcome.admitted) return outcome;
