@@ -4425,7 +4425,11 @@ describe("e04s05 per-model budgets", () => {
   });
 
   test("the global budget is unchanged when model limits are configured", () => {
-    const modelMap = Object.assign(Object.create(null), { nemotron: { rpm: 1, tpm: 1 } });
+    // The model's own limits are generous on purpose: this test observes the
+    // global decision, and a model limit that bit first would replace the
+    // global reason with a model one. The model's window exists and is
+    // consulted — it simply does not decide this request.
+    const modelMap = Object.assign(Object.create(null), { nemotron: { rpm: 100, tpm: 100000 } });
     const budget = createBudget({ rpm: 2, tpm: 100000 }, { safetyMarginPct: 0 }, modelMap);
     const cost = { requestCharge: 1, totalTokens: 10, model: "nemotron" };
     assert.equal(budget.reserve(cost).admitted, true, "the first request fits the global budget");
@@ -4433,5 +4437,119 @@ describe("e04s05 per-model budgets", () => {
     const third = budget.reserve(cost);
     assert.equal(third.admitted, false, "the third request exceeds the global rpm");
     assert.equal(third.reason, "rpm", "the rejection names the global constraint, not a model one");
+  });
+
+  // The budget consults the model's window, so the decisions that window
+  // makes are unit-tested here: the black-box harness can only observe the
+  // 429 the request path turns a rejection into, never the reason itself.
+
+  test("model RPM limit enforced", () => {
+    const modelMap = Object.assign(Object.create(null), { nemotron: { rpm: 2 } });
+    const budget = createBudget({ rpm: 60, tpm: 100000 }, { safetyMarginPct: 0 }, modelMap);
+    const cost = { requestCharge: 1, totalTokens: 10, model: "nemotron" };
+    assert.equal(budget.reserve(cost).admitted, true, "the first request fits the model's rpm");
+    assert.equal(budget.reserve(cost).admitted, true, "the second request fits the model's rpm");
+    const third = budget.reserve(cost);
+    assert.equal(third.admitted, false, "the third request exceeds the model's rpm");
+    assert.equal(third.reason, "model_rpm", "the rejection names the model's own constraint");
+    assert.equal(Number.isInteger(third.retryAfter), true, "the retry delay is a whole number");
+    assert.ok(third.retryAfter > 0, "the retry delay is positive");
+  });
+
+  test("model TPM limit enforced", () => {
+    const modelMap = Object.assign(Object.create(null), { nemotron: { tpm: 100 } });
+    const budget = createBudget({ rpm: 60, tpm: 100000 }, { safetyMarginPct: 0 }, modelMap);
+    const cost = { requestCharge: 1, totalTokens: 200, model: "nemotron" };
+    const result = budget.reserve(cost);
+    assert.equal(result.admitted, false, "the request exceeds the model's token budget");
+    assert.equal(result.reason, "model_tpm", "the rejection names the model's own constraint");
+    assert.equal(Number.isInteger(result.retryAfter), true, "the retry delay is a whole number");
+    assert.ok(result.retryAfter > 0, "the retry delay is positive");
+  });
+
+  test("atomic reservation", () => {
+    const modelMap = Object.assign(Object.create(null), { nemotron: { rpm: 1 } });
+    const budget = createBudget({ rpm: 2, tpm: 100000 }, { safetyMarginPct: 0 }, modelMap);
+    const cost = { requestCharge: 1, totalTokens: 10, model: "nemotron" };
+    assert.equal(budget.reserve(cost).admitted, true, "the first request fits both budgets");
+    const second = budget.reserve(cost);
+    assert.equal(second.admitted, false, "the second request exceeds the model's rpm");
+    assert.equal(second.reason, "model_rpm", "the rejection names the model's own constraint");
+    // The rejected request never reached the global counter: the global rpm
+    // is 2 and one request sits on it, so a request for a model with no
+    // window of its own still fits. Had the rejection been charged against
+    // the global window, this one would have been refused with "rpm".
+    const other = budget.reserve({ requestCharge: 1, totalTokens: 10, model: "llama" });
+    assert.equal(other.admitted, true, "the global window was never charged by the rejection");
+  });
+
+  test("unknown model falls through to global only", () => {
+    const modelMap = Object.assign(Object.create(null), { nemotron: { rpm: 1 } });
+    const budget = createBudget({ rpm: 2, tpm: 100000 }, { safetyMarginPct: 0 }, modelMap);
+    const cost = { requestCharge: 1, totalTokens: 10, model: "llama" };
+    assert.equal(
+      budget.reserve(cost).admitted,
+      true,
+      "a model the operator did not cap is admitted by the global budget"
+    );
+    assert.equal(
+      budget.reserve(cost).admitted,
+      true,
+      "the global budget counts the request all the same"
+    );
+    const third = budget.reserve(cost);
+    assert.equal(third.admitted, false, "the global rpm is still enforced");
+    assert.equal(third.reason, "rpm", "the rejection names the global constraint, not a model one");
+  });
+
+  test("partial model entry", () => {
+    const modelMap = Object.assign(Object.create(null), { nemotron: { rpm: 2 } });
+    const budget = createBudget({ rpm: 60, tpm: 100000 }, { safetyMarginPct: 0 }, modelMap);
+    // The entry caps the request count only: a request carrying a large
+    // token cost is admitted, because the model has no token window of its
+    // own and the global token budget still has room for it.
+    const large = { requestCharge: 1, totalTokens: 50000, model: "nemotron" };
+    assert.equal(budget.reserve(large).admitted, true, "the model's tokens are uncapped");
+    const cost = { requestCharge: 1, totalTokens: 10, model: "nemotron" };
+    assert.equal(budget.reserve(cost).admitted, true, "the second request fits the model's rpm");
+    const third = budget.reserve(cost);
+    assert.equal(third.admitted, false, "the third request exceeds the model's rpm");
+    assert.equal(third.reason, "model_rpm", "the rejection names the model's own constraint");
+  });
+
+  test("a model rejection does not charge the global token window", () => {
+    // The global token budget fits exactly one request of this size, so a
+    // second one fits only if the rejected request never reached the global
+    // token window.
+    const modelMap = Object.assign(Object.create(null), { nemotron: { tpm: 100 } });
+    const budget = createBudget({ rpm: 60, tpm: 200 }, { safetyMarginPct: 0 }, modelMap);
+    const cost = { requestCharge: 1, totalTokens: 200, model: "nemotron" };
+    const rejected = budget.reserve(cost);
+    assert.equal(rejected.admitted, false, "the request exceeds the model's token budget");
+    assert.equal(rejected.reason, "model_tpm", "the rejection names the model's own constraint");
+    const other = budget.reserve({ requestCharge: 1, totalTokens: 200, model: "llama" });
+    assert.equal(other.admitted, true, "the global token window still has its whole budget");
+  });
+
+  test("a model named __proto__ is enforced, not swallowed", () => {
+    // A model ID is operator-supplied text. On a normal object the key
+    // "__proto__" is swallowed by the prototype setter and that model's
+    // budget would silently disappear.
+    const modelMap = Object.create(null);
+    modelMap["__proto__"] = { rpm: 1 };
+    assert.equal(Object.getPrototypeOf(modelMap), null, "the entry did not become a prototype");
+    assert.equal(Object.hasOwn(modelMap, "__proto__"), true, "the model ID is an ordinary key");
+    const budget = createBudget({ rpm: 60, tpm: 100000 }, { safetyMarginPct: 0 }, modelMap);
+    assert.equal(
+      Object.hasOwn(budget.modelEffective, "__proto__"),
+      true,
+      "the effective map holds the model as an ordinary key"
+    );
+    const cost = { requestCharge: 1, totalTokens: 10, model: "__proto__" };
+    assert.equal(budget.reserve(cost).admitted, true, "the first request fits the model's rpm");
+    const second = budget.reserve(cost);
+    assert.equal(second.admitted, false, "the second request exceeds the model's rpm");
+    assert.equal(second.reason, "model_rpm", "the rejection names the model's own constraint");
+    assert.equal(Object.prototype.rpm, undefined, "Object.prototype is unchanged");
   });
 });

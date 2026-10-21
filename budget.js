@@ -20,7 +20,8 @@
 // 4. Reserving is atomic against the live window: the estimate and the
 //    admitted-or-rejected decision are computed against the same pruned
 //    state, so two concurrent requests cannot both observe the last free
-//    token.
+//    token. A window's check and its charge share that snapshot: the charge
+//    records the cost at the moment the decision read the window.
 // 5. A rejection carries a Retry-After derived from the window's own oldest
 //    live reservation, so the caller is told when the state it cannot observe
 //    will change, and never a number this module invented.
@@ -31,6 +32,10 @@
 //    configured model, from the same margin and the same horizon as the
 //    global pair. A model the operator did not cap has no window of its own
 //    and is governed by the global budget alone.
+// 8. A reservation is one decision across the global window and the model's
+//    own: both must pass before either is charged. A request the model budget
+//    rejects never consumes global budget, and a request the global budget
+//    rejects never reaches the model's window.
 //
 // No environment read, no timer, no default of its own.
 //
@@ -211,8 +216,8 @@ function tokensFromChars(chars) {
 // it and nothing is checked against it.
 //
 // The global gate and every per-model window are this one implementation, so
-// the horizon, the pruning rule, and the Retry-After derivation cannot drift
-// between them.
+// the horizon, the pruning rule, the check-and-charge split, and the
+// Retry-After derivation cannot drift between them.
 function createWindow(rpmLimit, tpmLimit) {
   // Event histories: costs are pushed with the time they were reserved, and
   // pruned on read. A cost expires exactly WINDOW_MILLIS later; nothing else
@@ -249,7 +254,14 @@ function createWindow(rpmLimit, tpmLimit) {
   // The whole admission decision, and the only place tokens are consumed.
   // Reserve-or-reject against the same pruned snapshot so two concurrent
   // requests cannot both read the last free token.
-  function reserve(cost) {
+  //
+  // The decision and the charge are two steps on purpose: a reservation that
+  // spans two windows — the global one and the model's own — must know that
+  // both admit the cost before either is charged. An admitted decision
+  // therefore carries a commit handle: the time the decision read the window,
+  // so the charge writes against the state the decision saw and not against a
+  // later one.
+  function check(cost) {
     if (closed) {
       return { admitted: false, reason: "closed", retryAfter: 1 };
     }
@@ -271,11 +283,29 @@ function createWindow(rpmLimit, tpmLimit) {
       };
     }
 
-    if (rpmLimit != null && cost.requestCharge > 0) requestEvents.push({ at: now });
-    if (tpmLimit != null && cost.totalTokens > 0) {
-      tokenEvents.push({ at: now, tokens: cost.totalTokens });
+    return {
+      admitted: true,
+      cost,
+      retryAfter: null,
+      handle: {
+        at: now,
+        requestCharge: cost.requestCharge,
+        tokens: cost.totalTokens,
+        charged: false,
+      },
+    };
+  }
+
+  // The charge, against the snapshot the decision read. The handle is
+  // consumed with it: a window that passed its check is charged exactly once,
+  // and a window that failed its check has no handle to charge.
+  function charge(handle) {
+    if (handle.charged) return;
+    handle.charged = true;
+    if (rpmLimit != null && handle.requestCharge > 0) requestEvents.push({ at: handle.at });
+    if (tpmLimit != null && handle.tokens > 0) {
+      tokenEvents.push({ at: handle.at, tokens: handle.tokens });
     }
-    return { admitted: true, cost, retryAfter: null };
   }
 
   function close() {
@@ -284,7 +314,18 @@ function createWindow(rpmLimit, tpmLimit) {
     closed = true;
   }
 
-  return { reserve, close };
+  return { check, charge, close };
+}
+
+// A model window keeps its own "rpm" / "tpm"; the budget level names the
+// constraint the caller sees, because a request rejected by a model's own
+// limit is a different answer from one rejected by the shared budget. The
+// global window's reasons stay "rpm" and "tpm": they are the spelling the
+// request path already knows.
+function modelReason(reason) {
+  if (reason === "rpm") return "model_rpm";
+  if (reason === "tpm") return "model_tpm";
+  return reason;
 }
 
 // The factory. rateLimit is config.js's object or null; limits supplies the
@@ -340,10 +381,45 @@ export function createBudget(rateLimit, limits, modelLimits) {
   }
   const modelEffective = Object.keys(modelEffectiveMap).length > 0 ? modelEffectiveMap : null;
 
-  // The global decision, unchanged: the per-model windows exist and are closed
-  // with the global ones, but nothing consults them yet.
+  // The admission decision, atomic across the global window and the model's
+  // own. Both must admit the cost before either is charged: a request the
+  // model budget rejects never consumes global budget, and a request the
+  // global budget rejects never reaches the model's window. The whole
+  // decision is synchronous, so nothing can interleave between the two
+  // checks and the charges that follow them.
   function reserve(cost) {
-    return globalWindow.reserve(cost);
+    const global = globalWindow.check(cost);
+    if (!global.admitted) return global;
+
+    const modelWindow = modelWindowFor(cost);
+    let model = null;
+    if (modelWindow) {
+      model = modelWindow.check(cost);
+      if (!model.admitted) {
+        return {
+          admitted: false,
+          reason: modelReason(model.reason),
+          retryAfter: model.retryAfter,
+        };
+      }
+    }
+
+    // Both admit the cost, so both are charged — in the order they were
+    // checked, against the snapshots their checks read.
+    globalWindow.charge(global.handle);
+    if (model) modelWindow.charge(model.handle);
+    return { admitted: true, cost, retryAfter: null };
+  }
+
+  // The model's own window, when the request names a model the operator
+  // capped. The lookup is exact — the model ID travels as the body wrote it,
+  // with no trimming and no case-folding — and the map is null-prototype, so
+  // a model ID like "__proto__" is an ordinary entry that is found and
+  // enforced, never a prototype.
+  function modelWindowFor(cost) {
+    if (typeof cost.model !== "string") return null;
+    if (!Object.hasOwn(modelWindows, cost.model)) return null;
+    return modelWindows[cost.model];
   }
 
   // Give capacity back. A reservation is never refunded: the window ages it
