@@ -48,10 +48,12 @@ case-folding — the model ID is matched exactly as the operator wrote it in
 ### ADDED: Per-model rolling windows
 
 `budget.js` holds one window pair per model named in `config.modelLimits`,
-created lazily on first reservation for that model. Each window has its own
-effective RPM/TPM limits derived from the per-model entry and the same safety
-margin as the global windows. A model entry supplying only `rpm` or only `tpm`
-enforces only that dimension; the other is uncapped for that model.
+created at construction time rather than on first use: §5, §6, and the task
+ledger all say construction time, and an earlier draft of this section said
+"lazily", which contradicted them. Each window has its own effective RPM/TPM
+limits derived from the per-model entry and the same safety margin as the
+global windows. A model entry supplying only `rpm` or only `tpm` enforces only
+that dimension; the other is uncapped for that model.
 
 ### MODIFIED: Reservation is atomic across global + model
 

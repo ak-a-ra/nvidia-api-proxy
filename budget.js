@@ -42,8 +42,8 @@
 export const WINDOW_MILLIS = 60_000;
 
 // Fallback cost model for bodies the estimator cannot inspect: gzip and other
-// encodings, malformed JSON, non-JSON, and bodies with no or an unknown
-// model. Four characters per token, rounded up, and never below one token: a
+// encodings, malformed JSON, non-JSON, and bodies with no inspectable
+// content. Four characters per token, rounded up, and never below one token: a
 // request that is admitted must have a cost, and a cost of zero would let it
 // slip past the RPM count while consuming nothing against the token budget.
 const FALLBACK_CHARS_PER_TOKEN = 4;
@@ -147,7 +147,7 @@ function parseRequestMetadata(json) {
 
 // Models are named by the request; their pricing is not this module's
 // business. The estimator carries the name the body used through with the
-// cost, so the caller can resolve it against the operator's per-model
+// cost, so the budget can resolve it against the operator's per-model
 // budget, and prices every model the same way: a per-model budget governs
 // how much of a model may be asked for, never what the request costs. The
 // name travels exactly as the body wrote it, with no trimming and no
@@ -155,7 +155,7 @@ function parseRequestMetadata(json) {
 // wrote it.
 function modelFromJson(json) {
   // A body that names no model, or names one that is not a string, names
-  // none: the caller then governs the request by the global budget alone.
+  // none: the budget then governs the request by the global budget alone.
   if (!json || typeof json !== "object") return null;
   const model = json.model;
   return typeof model === "string" && model.length > 0 ? model : null;

@@ -38,10 +38,10 @@ The six new tests, all in the new `describe("e04s05 per-model budgets")` block i
 6. `estimateCost returns null model on the fallback path when the body names none`
 
 Tests 1 and 5 contain the exact substring `estimateCost returns the model` (the verify gate's
-pattern); tests 2, 3, 4 and 6 do not. Each test also asserts the estimator's other fields on the
-path it exercises — `fallback` is `false` on the structured path and `true` on the fallback path,
-`requestCharge` stays `1`, and `totalTokens` stays `inputTokens + outputTokens` — so the new
-field cannot be mistaken for a changed cost shape.
+pattern); tests 2, 3, 4 and 6 do not. Every test asserts the `fallback` flag on the path it
+exercises — `false` on the structured path, `true` on the fallback path — and tests 1 and 5 also
+assert that the estimator's other fields are unchanged (`requestCharge` stays `1`, `totalTokens`
+stays `inputTokens + outputTokens`), so the new field cannot be mistaken for a changed cost shape.
 
 ### Strengthened task-1 verify (decision D2), as it now stands in `e04s05-tasks.yaml`
 

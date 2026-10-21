@@ -24,15 +24,26 @@ session_start: 2026-10-16T18:02:00Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
   next_skill: develop-tdd
-  source: kickoff-branch
+  source: request-review
   note: >-
-    e04s05 kickoff done: branch e04s05-per-model-budgets and worktree
-    /data/data/com.termux/files/home/workspace/e04s05-per-model-budgets created
-    from 444ccff, baseline measured green at 141/141 in that worktree.
-    Task 1 (the estimator returns the model ID) is briefed in
-    specs/epics/e04-rate-limiting/briefs/e04s05-t01.md and dispatched to an
-    implementer subagent. Tasks 2-5 follow the same brief-then-subagent flow.
+    e04s05 task 1 is done and reviewed: the estimator returns the model ID on
+    both the structured and the fallback path, six unit tests cover it, and the
+    task-1 verify gate was strengthened because the ledger form was vacuous.
+    Review verdict PASS with three non-blocking notes, all now applied (two
+    stale comments in budget.js, one overstated sentence in the task 1 report).
+    Next: task 2, the per-model window pairs in createBudget, briefed from
+    specs/epics/e04-rate-limiting/e04s05-tasks.yaml and the story spec.
 decisions:
+  - decision: Per-model window pairs are built at construction time, and the story's "lazily" sentence is corrected
+    rationale: >-
+      Decided 2026-10-21, after e04s05 task 1's review flagged it. The story
+      contradicted itself: section 2 said the windows are "created lazily on
+      first reservation for that model", while section 5 step 2, section 6
+      ("No lazy window creation") and the task ledger's task 2 all say
+      construction time. Three statements and the ledger agree, so construction
+      time wins and section 2's sentence is amended to match. Lazy creation
+      would also reintroduce exactly the race between the first two requests
+      for a model that section 6 rules out. Task 2's brief must carry this.
   - decision: The model ID survives a fallback estimate, and the fallback is null only when the body names none
     rationale: >-
       Decided 2026-10-21, for e04s05 task 1. The ledger's test list says "the
