@@ -4422,6 +4422,9 @@ describe("e04s05 per-model budgets", () => {
     const result = budget.reserve({ requestCharge: 1, totalTokens: 10, model: "nemotron" });
     assert.equal(result.admitted, false, "a closed budget admits nothing");
     assert.equal(result.reason, "closed", "the refusal names the closed budget");
+    assert.equal(typeof result.retryAfter, "number", "the retry delay is a number");
+    assert.equal(Number.isInteger(result.retryAfter), true, "the retry delay is a whole number");
+    assert.ok(result.retryAfter > 0, "the retry delay is positive");
   });
 
   test("the global budget is unchanged when model limits are configured", () => {
@@ -4437,6 +4440,9 @@ describe("e04s05 per-model budgets", () => {
     const third = budget.reserve(cost);
     assert.equal(third.admitted, false, "the third request exceeds the global rpm");
     assert.equal(third.reason, "rpm", "the rejection names the global constraint, not a model one");
+    assert.equal(typeof third.retryAfter, "number", "the retry delay is a number");
+    assert.equal(Number.isInteger(third.retryAfter), true, "the retry delay is a whole number");
+    assert.ok(third.retryAfter > 0, "the retry delay is positive");
   });
 
   // The budget consults the model's window, so the decisions that window
@@ -4452,6 +4458,7 @@ describe("e04s05 per-model budgets", () => {
     const third = budget.reserve(cost);
     assert.equal(third.admitted, false, "the third request exceeds the model's rpm");
     assert.equal(third.reason, "model_rpm", "the rejection names the model's own constraint");
+    assert.equal(typeof third.retryAfter, "number", "the retry delay is a number");
     assert.equal(Number.isInteger(third.retryAfter), true, "the retry delay is a whole number");
     assert.ok(third.retryAfter > 0, "the retry delay is positive");
   });
@@ -4463,6 +4470,7 @@ describe("e04s05 per-model budgets", () => {
     const result = budget.reserve(cost);
     assert.equal(result.admitted, false, "the request exceeds the model's token budget");
     assert.equal(result.reason, "model_tpm", "the rejection names the model's own constraint");
+    assert.equal(typeof result.retryAfter, "number", "the retry delay is a number");
     assert.equal(Number.isInteger(result.retryAfter), true, "the retry delay is a whole number");
     assert.ok(result.retryAfter > 0, "the retry delay is positive");
   });
@@ -4475,6 +4483,9 @@ describe("e04s05 per-model budgets", () => {
     const second = budget.reserve(cost);
     assert.equal(second.admitted, false, "the second request exceeds the model's rpm");
     assert.equal(second.reason, "model_rpm", "the rejection names the model's own constraint");
+    assert.equal(typeof second.retryAfter, "number", "the retry delay is a number");
+    assert.equal(Number.isInteger(second.retryAfter), true, "the retry delay is a whole number");
+    assert.ok(second.retryAfter > 0, "the retry delay is positive");
     // The rejected request never reached the global counter: the global rpm
     // is 2 and one request sits on it, so a request for a model with no
     // window of its own still fits. Had the rejection been charged against
@@ -4500,6 +4511,9 @@ describe("e04s05 per-model budgets", () => {
     const third = budget.reserve(cost);
     assert.equal(third.admitted, false, "the global rpm is still enforced");
     assert.equal(third.reason, "rpm", "the rejection names the global constraint, not a model one");
+    assert.equal(typeof third.retryAfter, "number", "the retry delay is a number");
+    assert.equal(Number.isInteger(third.retryAfter), true, "the retry delay is a whole number");
+    assert.ok(third.retryAfter > 0, "the retry delay is positive");
   });
 
   test("partial model entry", () => {
@@ -4515,6 +4529,9 @@ describe("e04s05 per-model budgets", () => {
     const third = budget.reserve(cost);
     assert.equal(third.admitted, false, "the third request exceeds the model's rpm");
     assert.equal(third.reason, "model_rpm", "the rejection names the model's own constraint");
+    assert.equal(typeof third.retryAfter, "number", "the retry delay is a number");
+    assert.equal(Number.isInteger(third.retryAfter), true, "the retry delay is a whole number");
+    assert.ok(third.retryAfter > 0, "the retry delay is positive");
   });
 
   test("a model rejection does not charge the global token window", () => {
@@ -4527,6 +4544,9 @@ describe("e04s05 per-model budgets", () => {
     const rejected = budget.reserve(cost);
     assert.equal(rejected.admitted, false, "the request exceeds the model's token budget");
     assert.equal(rejected.reason, "model_tpm", "the rejection names the model's own constraint");
+    assert.equal(typeof rejected.retryAfter, "number", "the retry delay is a number");
+    assert.equal(Number.isInteger(rejected.retryAfter), true, "the retry delay is a whole number");
+    assert.ok(rejected.retryAfter > 0, "the retry delay is positive");
     const other = budget.reserve({ requestCharge: 1, totalTokens: 200, model: "llama" });
     assert.equal(other.admitted, true, "the global token window still has its whole budget");
   });
@@ -4550,6 +4570,9 @@ describe("e04s05 per-model budgets", () => {
     const second = budget.reserve(cost);
     assert.equal(second.admitted, false, "the second request exceeds the model's rpm");
     assert.equal(second.reason, "model_rpm", "the rejection names the model's own constraint");
+    assert.equal(typeof second.retryAfter, "number", "the retry delay is a number");
+    assert.equal(Number.isInteger(second.retryAfter), true, "the retry delay is a whole number");
+    assert.ok(second.retryAfter > 0, "the retry delay is positive");
     assert.equal(Object.prototype.rpm, undefined, "Object.prototype is unchanged");
   });
 });
