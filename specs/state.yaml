@@ -7,9 +7,9 @@
 ```yaml
 vcs:
   kind: git
-  commit: b31c455
-  branch: main
-  worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
+  commit: 444ccff
+  branch: e04s05-per-model-budgets
+  worktree: /data/data/com.termux/files/home/workspace/e04s05-per-model-budgets
   landed:
     story: e04s04
     commit: b31c455
@@ -23,13 +23,52 @@ active_story: e04s05
 session_start: 2026-10-16T18:02:00Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: kickoff-branch
-  source: plan-work
+  next_skill: develop-tdd
+  source: kickoff-branch
   note: >-
-    e04s05 planned: spec (e04s05-apply-per-model-budgets-atomically.md) and tasks
-    (e04s05-tasks.yaml) written into specs/epics/e04-rate-limiting/. 5 tasks, 7 BCPs.
-    Status failing. Next: kickoff-branch.
+    e04s05 kickoff done: branch e04s05-per-model-budgets and worktree
+    /data/data/com.termux/files/home/workspace/e04s05-per-model-budgets created
+    from 444ccff, baseline measured green at 141/141 in that worktree.
+    Task 1 (the estimator returns the model ID) is briefed in
+    specs/epics/e04-rate-limiting/briefs/e04s05-t01.md and dispatched to an
+    implementer subagent. Tasks 2-5 follow the same brief-then-subagent flow.
 decisions:
+  - decision: The model ID survives a fallback estimate, and the fallback is null only when the body names none
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 1. The ledger's test list says "the
+      fallback path returns model null" and the story says the model is "the
+      json.model string when the body is parseable and names one". A body such
+      as {"model":"nemotron"} with no messages and no tools parses as JSON but
+      fails the estimator's structural check, so it takes the fallback path.
+      Returning null there would let a client that names a model but sends no
+      messages escape its per-model cap, which is the same failure class the
+      e04s01 decision closed for per-model limits that are silently dropped: a
+      budget that appears to exist and does not. The model is therefore a
+      property of the parsed body, not of the estimator's structural success.
+      Reversal is one guard plus one test.
+  - decision: The task 1 verify gate is strengthened because the ledger form is vacuous
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 1. Measured on the e04s05 worktree:
+      node --test --test-reporter=tap with a pattern that matches no test exits
+      0 and prints a file-level "ok 1 - server.test.js" line, and the ledger's
+      grep for "^[[:space:]]*ok [0-9]+ -" matches that line. The gate was
+      therefore green with zero matching tests. Tests that do not match the
+      pattern are omitted from the TAP output entirely, so counting the ok
+      lines whose name contains the pattern is a sound falsifiable gate. The
+      ledger row is replaced with that form; the row stays failing until the
+      strengthened command exits 0.
+  - decision: The estimator's model field is tested by importing budget.js directly into server.test.js
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 1. estimateCost is already exported, is
+      pure, and reads no environment, no timer and no I/O, so importing it adds
+      no test seam, no new export and no injection point, and it does not touch
+      harness hermeticity, which is a property of the spawned children's
+      environment. The e04s01 decision that unobservable config fields are
+      reviewed by eye covered config fields the proxy never exposes; the model
+      field has the same shape, but the story requires the estimator's return
+      shape to be tested and it is unobservable through the black-box HTTP
+      harness, because the proxy never surfaces the model ID. The brief carries
+      the reasoning so the reviewer can challenge it.
   - decision: Plan only the unblocked slice of the rate limiting epic
     rationale: >-
       #14 through #22 form a strict linear blocked-by chain. Writing capsules for
