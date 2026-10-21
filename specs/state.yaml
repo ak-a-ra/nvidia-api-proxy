@@ -161,6 +161,35 @@ decisions:
       immediate 429 the better answer and states what is actually true: there
       is no wait, and the Retry-After comes from the window's own oldest live
       reservation.
+  - decision: The task 5 count gate takes the count from the TAP summary, not from counting ok lines
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 5. The ledger's task-5 verify counts
+      the ok lines of the TAP output and calls that the test count. Measured on
+      this tree: that count is 176 while the suite is 161 tests, because the TAP
+      reporter emits one ok line per test, one per describe block and one for
+      the file. The gate then greps the docs for 176, finds nothing, and fails
+      on a tree whose counts are all correct. The count comes from the "# tests
+      N" summary line instead, and the gate fails on any living doc that states
+      a different number. The sweep keeps a fourth exclusion category beside
+      task ledgers, briefs and LOG.md: specs/verifications/, which holds dated
+      evidence of what a past slice measured.
+  - decision: The two test titles that promise "validated, not applied" are renamed in task 5
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 5, after task 4's review. ADR 0002
+      states the standing rule: a test titled "validated, not applied" exists so
+      that an enforcing slice changes it deliberately rather than discovering
+      the change in production. Two titles still carry it: the body-cap test,
+      which e04s04 made live, and the per-model test, which e04s05 makes live.
+      Both still pass, because neither configures a global rate pair, so the
+      property they pin is that the variable alone does not gate traffic. Only
+      the titles move; the assertions stay. The ADR's Compliance list is
+      updated to quote the new titles.
+  - decision: Issue #18 stays open for the maintainer
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 5. gh issue list shows #18 open, and
+      the implementation lands on this branch. Closing an issue is a side
+      effect outside the worktree, so it belongs to the maintainer. No issue is
+      created, edited or closed by this story.
   - decision: The model ID survives a fallback estimate, and the fallback is null only when the body names none
     rationale: >-
       Decided 2026-10-21, for e04s05 task 1. The ledger's test list says "the
