@@ -18,10 +18,10 @@ tasks:
       body naming a model returns it, a body naming no model returns null, a body with a non-string
       model returns null, the fallback path returns model null.
     verify: >-
-      out=$(node --test --test-reporter=tap --test-name-pattern 'estimateCost returns the model' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; printf '%s\n' "$out" | grep -qE '^[[:space:]]*ok [0-9]+ -'
+      out=$(node --test --test-reporter=tap --test-name-pattern 'estimateCost returns the model' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*estimateCost returns the model'); test "$n" -ge 1
     risk: P1
     security: none
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:

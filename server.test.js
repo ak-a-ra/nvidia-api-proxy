@@ -3,6 +3,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import zlib from "node:zlib";
+import { estimateCost } from "./budget.js";
 
 // Stub upstream: records requests, returns canned responses, can be told to
 // stream SSE, return multi-value set-cookie, abort mid-stream, or be unreachable.
@@ -4285,5 +4286,71 @@ describe("e04s04 global RPM/TPM budgets", () => {
       assert.equal(res.status, 200, `request ${i} is admitted by the global budget`);
     }
     assert.equal(receivedRequests.length, 2);
+  });
+});
+
+// The estimator is the only place that knows which model a request names, so
+// its return shape is unit-tested here: the black-box harness cannot observe
+// it, because the proxy never surfaces the model ID.
+describe("e04s05 per-model budgets", () => {
+  test("estimateCost returns the model named in the body", () => {
+    const body = { model: "nemotron", messages: [{ role: "user", content: "hello" }] };
+    const cost = estimateCost(body, Buffer.from(JSON.stringify(body)));
+    assert.equal(cost.model, "nemotron", "the model the body named travels with the cost");
+    // The cost shape is unchanged: the model is one more field on the
+    // estimate, not a different estimate.
+    assert.equal(cost.fallback, false, "a body with messages is priced structurally");
+    assert.equal(cost.requestCharge, 1, "the one-request charge is unchanged");
+    assert.equal(
+      cost.totalTokens,
+      cost.inputTokens + cost.outputTokens,
+      "the total is still input plus output"
+    );
+  });
+
+  test("estimateCost returns null when the body names no model", () => {
+    const body = { messages: [{ role: "user", content: "hello" }] };
+    const cost = estimateCost(body, Buffer.from(JSON.stringify(body)));
+    assert.equal(cost.model, null, "a body that names no model carries none");
+    assert.equal(cost.fallback, false, "the body is still priced structurally");
+  });
+
+  test("estimateCost returns null when the body names a non-string model", () => {
+    const body = { model: 42, messages: [{ role: "user", content: "hello" }] };
+    const cost = estimateCost(body, Buffer.from(JSON.stringify(body)));
+    assert.equal(cost.model, null, "a model that is not a string names no model");
+    assert.equal(cost.fallback, false, "the body is still priced structurally");
+  });
+
+  test("estimateCost returns null when the body names an empty model", () => {
+    const body = { model: "", messages: [{ role: "user", content: "hello" }] };
+    const cost = estimateCost(body, Buffer.from(JSON.stringify(body)));
+    assert.equal(cost.model, null, "an empty model names no model");
+    assert.equal(cost.fallback, false, "the body is still priced structurally");
+  });
+
+  test("estimateCost returns the model on the fallback path when the body names one", () => {
+    // No messages and no tools: the body cannot be priced structurally, so the
+    // estimate falls back to the bytes. The model is a property of the body,
+    // not of the estimator's structural success, so it still travels.
+    const body = { model: "nemotron" };
+    const cost = estimateCost(body, Buffer.from(JSON.stringify(body)));
+    assert.equal(cost.model, "nemotron", "the model survives the fallback estimate");
+    assert.equal(cost.fallback, true, "a body with no messages is priced by its bytes");
+    assert.equal(cost.requestCharge, 1, "the one-request charge is unchanged");
+    assert.equal(
+      cost.totalTokens,
+      cost.inputTokens + cost.outputTokens,
+      "the total is still input plus output"
+    );
+  });
+
+  test("estimateCost returns null model on the fallback path when the body names none", () => {
+    const unparsed = estimateCost(null, Buffer.from("not json at all"));
+    assert.equal(unparsed.model, null, "a body that did not parse names no model");
+    assert.equal(unparsed.fallback, true, "an unparseable body is priced by its bytes");
+    const nameless = estimateCost({ note: "no model here" }, Buffer.from("{}"));
+    assert.equal(nameless.model, null, "a parsed body that names no model carries none");
+    assert.equal(nameless.fallback, true, "a body with no messages is priced by its bytes");
   });
 });
