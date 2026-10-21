@@ -38,9 +38,9 @@
 // concurrency slot — for most of a minute to reach a state only the clock
 // controls, which is a worse answer than an immediate 429 with a real
 // Retry-After. The one wait worth having is for a reservation released early
-// by a client that disconnected after its estimate was taken; that lands with
-// the per-model budget in e04s05, where holding a client for it is worth a
-// slot. See estimateCost()'s callers in server.js.
+// by a client that disconnected after its estimate was taken; the per-model
+// budget story (e04s05) defers it, so it stays absent here. See
+// estimateCost()'s callers in server.js.
 
 // One shared horizon for both windows: a "per minute" budget and a "per
 // minute" window are the same minute, so costs expire together.
@@ -289,8 +289,8 @@ function createWindow(rpmLimit, tpmLimit) {
 
 // The factory. rateLimit is config.js's object or null; limits supplies the
 // margin; modelLimits is config.js's per-model map or null. A null rate limit
-// builds a disabled gate: reserve() fails open, wait() never blocks, close()
-// does nothing, and nothing is allocated.
+// builds a disabled gate: reserve() fails open, close() does nothing, and
+// nothing is allocated.
 export function createBudget(rateLimit, limits, modelLimits) {
   if (!rateLimit) {
     return {

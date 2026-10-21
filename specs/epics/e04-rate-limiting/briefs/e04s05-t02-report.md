@@ -268,7 +268,9 @@ The current `server.test.js` (with the six new tests) against the pre-task `budg
 # fail 5
 ```
 
-The failure is a real assertion failure, not an error:
+The failures are real assertion failures, not errors, except for test 2, which fails with a
+`TypeError` because the pre-task `createBudget` returns no `modelEffective` at all and the
+assertion reads a property of `undefined`:
 
 ```
       error: |-

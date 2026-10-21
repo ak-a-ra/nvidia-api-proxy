@@ -84,6 +84,18 @@ decisions:
       Duplicating the window logic per model is allowed only with a written
       justification. Either way the global gate's observable behavior does not
       change.
+  - decision: The e04s03 shutdown test flake is pre-existing and is recorded, not fixed here
+    rationale: >-
+      Decided 2026-10-21, after e04s05 task 2's review. The test "shutdown
+      rejects late arrivals and keeps health responsive" failed in two of the
+      reviewer's three full-suite runs and reproduced on the pre-task tree
+      (1 failure in 26 runs on HEAD, 1 in 32 on the pre-task tree). There is no
+      causal path from the rate-limit work: server.js still calls createBudget
+      with two arguments, so no model window is ever built, and the race is in
+      the harness (undici's pooled dispatch plus a 50 ms post-SIGTERM window,
+      with the health promise left unhandled until after the awaited late
+      arrival). It needs a harness fix in its own slice, so it is recorded in
+      LOG.md rather than folded into this story.
   - decision: The model ID survives a fallback estimate, and the fallback is null only when the body names none
     rationale: >-
       Decided 2026-10-21, for e04s05 task 1. The ledger's test list says "the
