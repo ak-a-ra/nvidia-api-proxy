@@ -133,6 +133,34 @@ decisions:
       no normalization. The map is null-prototype, so a model named "__proto__"
       is stored, found, and enforced as an ordinary key, and it is pinned with a
       test so a future change to a plain object cannot swallow it.
+  - decision: The 429 for a model rejection stays the same generic response the global rejection gets
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 4. The reason stays internal to the
+      budget: the client learns that the request was refused and when to retry,
+      and nothing else. The body is the fixed generic { "error": "Too many
+      requests" } with a positive Retry-After, exactly as for the global
+      rejection, the model ID is never logged, and the response shape does not
+      change with the reason.
+  - decision: The e04s04 per-model test is renamed to "per-model limits are enforced" and its model entry becomes rpm-only
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 4. The old name stated the opposite
+      of what the test now asserts, and the story's own section 2 requires the
+      change. The entry { "nemotron": { "rpm": 1, "tpm": 1 } } no longer works:
+      the effective token limit of 1 is below the estimated cost of the block's
+      chat body (about 1034 tokens), so the first request would be rejected
+      with model_tpm instead of the second being rejected with model_rpm. An
+      rpm-only entry leaves the token dimension uncapped, which is the story's
+      partial-entry scenario, and the rejection the test pins is the one the
+      ledger names.
+  - decision: The admitWithBudget comment loses both its wait() claim and its e04s05 forward reference
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 4. The comment said the wait "is
+      implemented in budget.wait() and is wired here by e04s05+". Neither half
+      is true: budget.js has no wait(), and e04s05 defers budget waiting to a
+      later story. The rewritten comment keeps the reasoning that makes an
+      immediate 429 the better answer and states what is actually true: there
+      is no wait, and the Retry-After comes from the window's own oldest live
+      reservation.
   - decision: The model ID survives a fallback estimate, and the fallback is null only when the body names none
     rationale: >-
       Decided 2026-10-21, for e04s05 task 1. The ledger's test list says "the
