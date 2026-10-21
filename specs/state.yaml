@@ -44,6 +44,46 @@ decisions:
       time wins and section 2's sentence is amended to match. Lazy creation
       would also reintroduce exactly the race between the first two requests
       for a model that section 6 rules out. Task 2's brief must carry this.
+  - decision: The model-limit map and the effective-model-limits map are null-prototype maps
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 2. A model ID is operator-supplied text,
+      and on a normal object a key like "__proto__" is swallowed by the prototype
+      setter, so that model's budget would silently disappear. config.js already
+      hands over a null-prototype map for exactly this reason, and the budget
+      keeps that property all the way through: modelEffective and the internal
+      map of model windows are both null-prototype, while the inner entry
+      objects are plain, because their key set is fixed at rpm and tpm.
+  - decision: createBudget returns the same shape on the disabled path, with modelEffective null
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 2. The story's section 8 interface lists
+      modelEffective in createBudget's returned object, so a caller can read it
+      without knowing which gate it received. A disabled global budget creates no
+      model windows, so the field is null there, exactly as it is for an enabled
+      gate with no model limits.
+  - decision: Task 2 builds the model windows without changing what reserve decides
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 2. Consulting the model windows and
+      charging them atomically is task 3. A request naming a configured model is
+      therefore still admitted by the global budget in task 2, and no test may
+      pin that intermediate behavior: a test written now would have to be flipped
+      in task 3 instead of added. The global gate's observable behavior stays
+      exactly as it was, and the e04s04 tests are the proof.
+  - decision: The task 2 verify gate is strengthened the same way task 1's was
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 2. The ledger's task-2 verify has the
+      same vacuous form task 1's had: a pattern matching no test still exits 0
+      and prints the file-level "ok 1 - server.test.js" line, which the ledger's
+      grep matches. The name-counting form is used instead, and only task 2's row
+      is touched.
+  - decision: The global gate and the model windows share one window implementation
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 2, as a default the implementer may
+      argue against in the report. The two must agree on the 60-second horizon,
+      the pruning rule, the effective-limit arithmetic, and how a Retry-After is
+      derived, and a shared implementation is the only way they cannot drift.
+      Duplicating the window logic per model is allowed only with a written
+      justification. Either way the global gate's observable behavior does not
+      change.
   - decision: The model ID survives a fallback estimate, and the fallback is null only when the body names none
     rationale: >-
       Decided 2026-10-21, for e04s05 task 1. The ledger's test list says "the
