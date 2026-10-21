@@ -1,7 +1,8 @@
-// Token budget for the shared upstream credential: one rolling 60-second
-// window pair, a Safety margin applied to every advertised limit, and an
-// estimator that turns a request body into its token cost before the upstream
-// is contacted. This module owns the numbers; the request path owns the bytes.
+// Token budget for the shared upstream credential: rolling 60-second window
+// pairs — one for the global budget, one for every model the operator capped —
+// a Safety margin applied to every advertised limit, and an estimator that
+// turns a request body into its token cost before the upstream is contacted.
+// This module owns the numbers; the request path owns the bytes.
 // Invariants:
 //
 // 1. Every value arrives validated from config.js, the only owner of defaults
@@ -26,6 +27,10 @@
 // 6. close() is synchronous and idempotent: it refuses new reservations, so a
 //    request in flight while the process drains is never charged against a
 //    window nothing will read again.
+// 7. The per-model windows are built when the budget is built, one pair per
+//    configured model, from the same margin and the same horizon as the
+//    global pair. A model the operator did not cap has no window of its own
+//    and is governed by the global budget alone.
 //
 // No environment read, no timer, no default of its own.
 //
@@ -200,28 +205,15 @@ function tokensFromChars(chars) {
   return Math.max(MIN_TOKENS, Math.ceil(chars / FALLBACK_CHARS_PER_TOKEN));
 }
 
-// The factory. rateLimit is config.js's object or null; limits supplies the
-// margin. A null rate limit builds a disabled gate: reserve() fails open,
-// wait() never blocks, close() does nothing, and nothing is allocated.
-export function createBudget(rateLimit, limits) {
-  if (!rateLimit) {
-    return {
-      enabled: false,
-      effective: null,
-      reserve() {
-        return { admitted: true, cost: null };
-      },
-      release() {},
-      close() {},
-    };
-  }
-
-  const margin = limits?.safetyMarginPct ?? 5;
-  const effective = {
-    rpm: effectiveLimit(rateLimit.rpm, margin),
-    tpm: effectiveLimit(rateLimit.tpm, margin),
-  };
-
+// One rolling window pair: a request count and a token count over the same
+// 60-second horizon, with its own effective limits and its own closed flag. A
+// dimension that was not capped has no window at all: nothing is tracked for
+// it and nothing is checked against it.
+//
+// The global gate and every per-model window are this one implementation, so
+// the horizon, the pruning rule, and the Retry-After derivation cannot drift
+// between them.
+function createWindow(rpmLimit, tpmLimit) {
   // Event histories: costs are pushed with the time they were reserved, and
   // pruned on read. A cost expires exactly WINDOW_MILLIS later; nothing else
   // removes it, so a quiet minute is indistinguishable from a fresh start.
@@ -245,6 +237,15 @@ export function createBudget(rateLimit, limits) {
     };
   }
 
+  function oldestTokenEvent(events) {
+    return events.length > 0 ? events[0].at : null;
+  }
+
+  function retryAfterSeconds(oldestAt, now) {
+    if (oldestAt == null) return 1;
+    return Math.max(1, Math.ceil((WINDOW_MILLIS - (now - oldestAt)) / 1000));
+  }
+
   // The whole admission decision, and the only place tokens are consumed.
   // Reserve-or-reject against the same pruned snapshot so two concurrent
   // requests cannot both read the last free token.
@@ -255,14 +256,14 @@ export function createBudget(rateLimit, limits) {
     const now = Date.now();
     const used = totals(now);
 
-    if (cost.requestCharge > 0 && used.requests >= effective.rpm) {
+    if (rpmLimit != null && cost.requestCharge > 0 && used.requests >= rpmLimit) {
       return {
         admitted: false,
         reason: "rpm",
         retryAfter: retryAfterSeconds(requestEvents[0].at, now),
       };
     }
-    if (cost.totalTokens > 0 && used.tokens + cost.totalTokens > effective.tpm) {
+    if (tpmLimit != null && cost.totalTokens > 0 && used.tokens + cost.totalTokens > tpmLimit) {
       return {
         admitted: false,
         reason: "tpm",
@@ -270,18 +271,79 @@ export function createBudget(rateLimit, limits) {
       };
     }
 
-    if (cost.requestCharge > 0) requestEvents.push({ at: now });
-    if (cost.totalTokens > 0) tokenEvents.push({ at: now, tokens: cost.totalTokens });
+    if (rpmLimit != null && cost.requestCharge > 0) requestEvents.push({ at: now });
+    if (tpmLimit != null && cost.totalTokens > 0) {
+      tokenEvents.push({ at: now, tokens: cost.totalTokens });
+    }
     return { admitted: true, cost, retryAfter: null };
   }
 
-  function oldestTokenEvent(events) {
-    return events.length > 0 ? events[0].at : null;
+  function close() {
+    // Refuse new reservations from here on: a request in flight while the
+    // process drains must not be charged against a window nothing reads again.
+    closed = true;
   }
 
-  function retryAfterSeconds(oldestAt, now) {
-    if (oldestAt == null) return 1;
-    return Math.max(1, Math.ceil((WINDOW_MILLIS - (now - oldestAt)) / 1000));
+  return { reserve, close };
+}
+
+// The factory. rateLimit is config.js's object or null; limits supplies the
+// margin; modelLimits is config.js's per-model map or null. A null rate limit
+// builds a disabled gate: reserve() fails open, wait() never blocks, close()
+// does nothing, and nothing is allocated.
+export function createBudget(rateLimit, limits, modelLimits) {
+  if (!rateLimit) {
+    return {
+      enabled: false,
+      effective: null,
+      // Uniform shape: a caller reads modelEffective without knowing which
+      // gate it got, and a disabled gate has no model windows to report.
+      modelEffective: null,
+      reserve() {
+        return { admitted: true, cost: null };
+      },
+      release() {},
+      close() {},
+    };
+  }
+
+  const margin = limits?.safetyMarginPct ?? 5;
+  const effective = {
+    rpm: effectiveLimit(rateLimit.rpm, margin),
+    tpm: effectiveLimit(rateLimit.tpm, margin),
+  };
+
+  const globalWindow = createWindow(effective.rpm, effective.tpm);
+
+  // One window pair per configured model, built here and not on first use:
+  // the map is bounded by the operator's own config, and a window created
+  // lazily would let two concurrent first requests race for the same model's
+  // budget.
+  //
+  // Null prototype, like config.js's map: a model ID is operator-supplied
+  // text, and on a normal object a key like "__proto__" is swallowed by the
+  // prototype setter, so that model's budget would silently disappear.
+  const modelWindows = Object.create(null);
+  const modelEffectiveMap = Object.create(null);
+  if (modelLimits) {
+    for (const [model, entry] of Object.entries(modelLimits)) {
+      const rpm = entry.rpm != null ? effectiveLimit(entry.rpm, margin) : null;
+      const tpm = entry.tpm != null ? effectiveLimit(entry.tpm, margin) : null;
+      modelWindows[model] = createWindow(rpm, tpm);
+      // The entry's key set is fixed at rpm and tpm, so no operator text ever
+      // becomes a key here and a plain object is safe.
+      const modelEntry = {};
+      if (rpm != null) modelEntry.rpm = rpm;
+      if (tpm != null) modelEntry.tpm = tpm;
+      modelEffectiveMap[model] = modelEntry;
+    }
+  }
+  const modelEffective = Object.keys(modelEffectiveMap).length > 0 ? modelEffectiveMap : null;
+
+  // The global decision, unchanged: the per-model windows exist and are closed
+  // with the global ones, but nothing consults them yet.
+  function reserve(cost) {
+    return globalWindow.reserve(cost);
   }
 
   // Give capacity back. A reservation is never refunded: the window ages it
@@ -294,12 +356,16 @@ export function createBudget(rateLimit, limits) {
   function close() {
     // Refuse new reservations from here on: a request in flight while the
     // process drains must not be charged against a window nothing reads again.
-    closed = true;
+    globalWindow.close();
+    for (const model of Object.keys(modelWindows)) {
+      modelWindows[model].close();
+    }
   }
 
   return {
     enabled: true,
     effective,
+    modelEffective,
     reserve,
     release,
     close,
