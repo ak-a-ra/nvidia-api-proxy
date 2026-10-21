@@ -96,6 +96,43 @@ decisions:
       with the health promise left unhandled until after the awaited late
       arrival). It needs a harness fix in its own slice, so it is recorded in
       LOG.md rather than folded into this story.
+  - decision: A window's check and its charge are separable, and the charge uses the check's snapshot
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 3. Task 2 left one window
+      implementation whose reserve() checks and charges in a single call, which
+      cannot express a two-window decision: the global must be able to say "this
+      cost would be admitted" without charging it, so that a later model
+      rejection leaves the global counter untouched. The split must preserve the
+      invariant budget.js already states, that the decision is computed against
+      the same pruned snapshot the charge is made against, and no await may sit
+      between a check and its charge, so the whole decision stays synchronous
+      and nothing can interleave. The window's exact API shape is the
+      implementer's, the invariant is not.
+  - decision: A model rejection's reason is mapped at the budget level, and never reaches the client
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 3. A window may keep its own "rpm"
+      and "tpm" reasons internally; the budget-level reserve maps a model
+      window's rejection to "model_rpm" and "model_tpm" and leaves the global
+      window's rejection as "rpm" and "tpm", which an existing test already
+      pins. The reason stays internal: the HTTP 429 body is the fixed generic
+      { "error": "Too many requests" } with a positive Retry-After, so no
+      internal detail is exposed, and server.js is untouched until task 4.
+  - decision: The per-model closed flag stays, and its unobservability is recorded
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 3. close() closes the global gate and
+      every model window, but the global gate refuses first, so a reservation
+      after close() is refused with reason "closed" without ever reaching a
+      model window. The flag is therefore not independently observable through
+      the public API. It stays, because it belongs to the one shared window
+      implementation and the global window's use of the same flag is observable
+      and tested; the design is not contorted to make the model side observable.
+  - decision: The model lookup is an exact own-property lookup, and __proto__ is an ordinary key
+    rationale: >-
+      Decided 2026-10-21, for e04s05 task 3. The lookup matches the estimator's
+      rule (task 1) and config.js's storage rule: no trimming, no case-folding,
+      no normalization. The map is null-prototype, so a model named "__proto__"
+      is stored, found, and enforced as an ordinary key, and it is pinned with a
+      test so a future change to a plain object cannot swallow it.
   - decision: The model ID survives a fallback estimate, and the fallback is null only when the body names none
     rationale: >-
       Decided 2026-10-21, for e04s05 task 1. The ledger's test list says "the
