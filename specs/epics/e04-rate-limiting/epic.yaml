@@ -48,12 +48,12 @@ stories:
 
   - id: e04s05
     title: Apply per-model budgets atomically
-    bcps: 0
-    status: blocked
+    bcps: 7
+    status: failing
     issue: 18
     blocked_by: [e04s04]
-    spec: null
-    tasks: null
+    spec: e04s05-apply-per-model-budgets-atomically.md
+    tasks: e04s05-tasks.yaml
 
   - id: e04s06
     title: Reconcile SSE usage without breaking streaming

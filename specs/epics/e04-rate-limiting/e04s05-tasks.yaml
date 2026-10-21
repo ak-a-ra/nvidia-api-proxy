@@ -1,0 +1,119 @@
+story_id: e04s05
+title: Apply per-model budgets atomically
+status: failing
+bcps: 7
+issue: 18
+type: feat
+risk: P0
+context: infra
+tasks:
+  - id: 1
+    description: >
+      Extend estimateCost in budget.js to return a model field: json.model when it is a non-empty
+      string, null otherwise. The field is added to the return object of both the structured path
+      (parseRequestMetadata succeeds) and the fallback path (fallbackCostFromBuffer). No
+      normalization, no case-folding — the string is stored exactly as the body names it. Update
+      the comment at line 130-133 that says per-model distinctions are e04s05's job. Add tests in
+      server.test.js under a new describe("e04s05 per-model budgets") block: estimateCost with a
+      body naming a model returns it, a body naming no model returns null, a body with a non-string
+      model returns null, the fallback path returns model null.
+    verify: >-
+      out=$(node --test --test-reporter=tap --test-name-pattern 'estimateCost returns the model' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; printf '%s\n' "$out" | grep -qE '^[[:space:]]*ok [0-9]+ -'
+    risk: P1
+    security: none
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Rate Limiting"
+        - "Estimation"
+
+  - id: 2
+    description: >
+      Extend createBudget in budget.js to accept a third argument modelLimits (the config map or
+      null). When non-null and the global rateLimit is also non-null, build one window pair per
+      model entry at construction time, using the same effectiveLimit arithmetic and the same
+      safetyMarginPct. Each model entry may supply only rpm, only tpm, or both — the missing
+      dimension is uncapped (no window for it). Expose the effective model limits as a
+      modelEffective field on the returned object (a map of { [model]: { rpm?, tpm? } } or null).
+      close() must close all model windows alongside the global windows. A null modelLimits or a
+      disabled global budget (rateLimit null) creates no model windows. Add tests: createBudget
+      with modelLimits builds model effective limits, close refuses model reservations.
+    verify: >-
+      out=$(node --test --test-reporter=tap --test-name-pattern 'per-model windows are built|close refuses model' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; printf '%s\n' "$out" | grep -qE '^[[:space:]]*ok [0-9]+ -'
+    risk: P0
+    security: none
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Rate Limiting"
+        - "Rolling Window"
+
+  - id: 3
+    description: >
+      Implement atomic reservation in budget.reserve: when cost.model matches a key in the model
+      windows map, check the model's RPM window (if it has one) and TPM window (if it has one)
+      after the global check passes tentatively but before the global windows are charged. If the
+      model rejects, return immediately with reason "model_rpm" or "model_tpm" and the Retry-After
+      derived from the model window's oldest reservation — the global windows are never charged.
+      If both global and model pass, charge both atomically. A cost.model that is null or not in
+      the map skips the model check entirely (global only). Add tests: model RPM limit enforced
+      (configured model with rpm 2, third request gets 429 with model_rpm reason), atomic
+      reservation (model rejection does not charge global — verify global counter), unknown model
+      falls through to global only, partial entry (rpm only, tpm uncapped).
+    verify: >-
+      out=$(node --test --test-reporter=tap --test-name-pattern 'model RPM limit enforced|atomic reservation|unknown model falls through|partial model entry' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; count=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - '); test "$count" -ge 4
+    risk: P0
+    security: low
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Rate Limiting"
+        - "Atomic Admission"
+        - "Security Review"
+
+  - id: 4
+    description: >
+      Wire the per-model budget in server.js: pass config.modelLimits as the third argument to
+      createBudget on line 20. This is a one-line change. The estimateCost call at line 271 already
+      passes the parsed JSON, so the model field flows through to reserve automatically. Update the
+      admitWithBudget comment (lines 120-136) to remove the e04s05 forward-reference and document
+      the current behavior. Update the existing e04s04 test "per-model limits are accepted and do
+      not change global behavior" to assert enforcement: two requests for a configured model with
+      rpm 1 should result in the second being rejected 429, and a request for an unconfigured
+      model should still pass. Add an integration test: model limits without global pair has no
+      effect (requests stream through without buffering).
+    verify: >-
+      out=$(node --test --test-reporter=tap --test-name-pattern 'per-model limits are enforced|model limits without global pair' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; count=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - '); test "$count" -ge 2
+    risk: P0
+    security: medium
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Rate Limiting"
+        - "Request Path"
+        - "Security Review"
+
+  - id: 5
+    description: >
+      Sync the living docs and the test count: CONVENTIONS.md's Rate limit bullet (update the
+      PROXY_MODEL_LIMITS_JSON status from "validated and stored, not enforced" to "enforced
+      atomically with global"), tech-stack.md's startup config table (same status change),
+      README's budget comment block, AGENTS.md test count and npm test bullet, the epic manifest
+      (set e04s05 status to passing, bcps to 7, add spec and tasks filenames, unblock e04s06),
+      execution-status.yaml (e04s05: passing), and the test count in every living doc. Amend
+      ADR 0002 to record that PROXY_MODEL_LIMITS_JSON moved from stored to enforced. Do NOT
+      touch plans/*.md or docs/research/config-invariant-guard-tests.md.
+    verify: >-
+      N=$(node --test --test-reporter=tap server.test.js 2>&1 | grep -cE '^[[:space:]]*ok [0-9]+ - '); sites=$(grep -rnE "tests(-| )?${N}|${N}[ -]tests?|\(currently ${N}\)|tests-${N}%20passing|all ${N} tests" --include='*.md' --include='*.yaml' . | grep -v 'plans/' | grep -v 'docs/research/config-invariant-guard-tests' | grep -v 'briefs/' | grep -v 'LOG.md'); echo "$sites"; count=$(echo "$sites" | grep -c .); test "$count" -ge 7 && grep -q 'e04s05.*passing' specs/execution-status.yaml && grep -q 'enforced atomically' CONVENTIONS.md
+    risk: P2
+    security: none
+    status: failing
+    allure:
+      severity: normal
+      categories:
+        - "Documentation"
+        - "Test Count Sync"

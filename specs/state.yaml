@@ -17,23 +17,18 @@ vcs:
     ci_run: 38955576847
     ci_status: success
 workflow_mode: solo-git
-active_flow: plan-release
+active_flow: build_epic
 active_epic: e04
 active_story: e04s05
 session_start: 2026-10-16T18:02:00Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: plan-work
-  source: verify-work
+  next_skill: kickoff-branch
+  source: plan-work
   note: >-
-    e04s04 landed on main: budget.js (rolling 60s RPM/TPM windows, Safety margin,
-    estimator), a rate gate in server.js (413 byte cap, 429 over budget with a
-    derived Retry-After), 8 new tests, budget.js added to the lint/format gate.
-    Suite 141 green, npm run check clean. Deliberate divergence from issue #17 AC
-    bullet 10 (budget waiting) recorded in ADR 0002 Decision 1.6: over budget is
-    answered immediately with a Retry-After derived from the window's oldest live
-    reservation; the early-release wait lands with the per-model budget. Chain
-    head is now e04s05 (issue #18, per-model budgets atomically). Next: plan-work.
+    e04s05 planned: spec (e04s05-apply-per-model-budgets-atomically.md) and tasks
+    (e04s05-tasks.yaml) written into specs/epics/e04-rate-limiting/. 5 tasks, 7 BCPs.
+    Status failing. Next: kickoff-branch.
 decisions:
   - decision: Plan only the unblocked slice of the rate limiting epic
     rationale: >-
