@@ -1571,10 +1571,12 @@ describe("buffered body ceiling and per-model limits", () => {
     assert.ok(stderr.length < 300, `stderr must stay short, got ${stderr.length} bytes`);
   });
 
-  // This story validates and stores the ceiling; it does not enforce it. A
-  // one-byte body ceiling must still pass a request through, so a later slice
-  // that starts buffering has to change this test deliberately.
-  test("PROXY_MAX_BUFFERED_BODY_BYTES=1 still proxies normally (values validated, not applied)", async (t) => {
+  // The ceiling is enforced since e04s04, but only in rate-limit mode, and
+  // rate-limit mode needs the global pair. This test configures no pair, so
+  // the one-byte ceiling does not bite and the request proxies normally.
+  // Renamed by e04s05 from the "values validated, not applied" title it
+  // carried while the ceiling was stored; the assertions are unchanged.
+  test("PROXY_MAX_BUFFERED_BODY_BYTES=1 does not gate traffic without the global pair", async (t) => {
     const { proxy, receivedRequests } = await withProxy(t, {
       proxyEnv: { PROXY_MAX_BUFFERED_BODY_BYTES: "1" },
       body: "{}",
@@ -1607,7 +1609,12 @@ describe("buffered body ceiling and per-model limits", () => {
     }
   });
 
-  test("PROXY_MODEL_LIMITS_JSON with well-formed budgets still proxies normally (values validated, not applied)", async (t) => {
+  // The per-model map is enforced since e04s05, but only alongside the global
+  // pair: without it the rate gate never opens, so the map does not gate and
+  // the request proxies normally. Renamed by e04s05 from the "values validated,
+  // not applied" title it carried while the map was stored; the assertions are
+  // unchanged.
+  test("PROXY_MODEL_LIMITS_JSON with well-formed budgets does not gate traffic without the global pair", async (t) => {
     const { proxy, receivedRequests } = await withProxy(t, {
       proxyEnv: { PROXY_MODEL_LIMITS_JSON: '{"nemotron":{"rpm":1,"tpm":1}}' },
       body: "{}",

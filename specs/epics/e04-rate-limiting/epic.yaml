@@ -49,7 +49,7 @@ stories:
   - id: e04s05
     title: Apply per-model budgets atomically
     bcps: 7
-    status: failing
+    status: passing
     issue: 18
     blocked_by: [e04s04]
     spec: e04s05-apply-per-model-budgets-atomically.md
@@ -58,7 +58,7 @@ stories:
   - id: e04s06
     title: Reconcile SSE usage without breaking streaming
     bcps: 0
-    status: blocked
+    status: todo
     issue: 19
     blocked_by: [e04s05]
     spec: null

@@ -148,7 +148,8 @@ flowchart LR
 * **No refund.** A reservation is never handed back; the window ages it out.
   A manual refund would let one retry spend the same minute twice.
 * **No per-model enforcement.** `PROXY_MODEL_LIMITS_JSON` is still validated
-  and stored only (e04s05).
+  and stored only (e04s05). *Superseded by e04s05*: the per-model budget is
+  enforced since that slice, atomically with the global one.
 * Alternative rejected: refill-rate token buckets. They need a timer, which
   makes "the last 60 seconds" untrue, and a tick is a polling source the issue
   forbids.

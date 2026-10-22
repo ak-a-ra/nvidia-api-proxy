@@ -114,7 +114,10 @@ have to change this test deliberately rather than discover the change in product
 this is that change. A single request under a one-slot ceiling still proxies normally,
 which is why the assertion is not weakened. The three sibling tests for the rate pair,
 the body-buffer cap, and the per-model map keep their titles, because those limits are
-still stored-only.
+still stored-only. *Superseded since*: e04s04 made the rate pair and the body-buffer cap
+live and e04s05 made the per-model map live, and every slice that made a limit live renamed
+the test that carried that limit's old title — the rate-pair title by e04s04, the body-cap
+and per-model titles by e04s05.
 
 ## 3. Actors
 

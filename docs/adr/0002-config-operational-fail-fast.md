@@ -11,6 +11,10 @@
 * Amended: 2026-10-16 — e04s04 enforces the global budget pair, so four of the five remaining
   rate-limiting limits are now read at request time and one still stays stored. Decision §1.4,
   §1.6, and the Coverage section are amended. See *Decision* §1.4, §1.6, and *Consequences*.
+* Amended: 2026-10-22 — e04s05 enforces the per-model budget, so the last of the five remaining
+  rate-limiting limits is now read at request time. Decision §1.4, §1.6, and the Coverage section
+  are amended. The failure mode does not change: the parsing rules and the fatal regime are
+  untouched. See *Decision* §1.4, §1.6, and *Consequences*.
 * Amended: 2026-10-01 — counts corrected against `config.js`: eight rate-limiting limits (the epic
   added nine `PROXY_*` variables, `PROXY_HOST` being the ninth and not a limit), ten variables on
   the fatal path. See *Context* and *Consequences*.
@@ -74,26 +78,26 @@ a rule that could not have been written for the other nine.
    fallback for an empty, whitespace, non-finite, or negative value. Tightening them is a
    behavior change outside this decision's scope. Nothing else may use `readSeconds`; the
    leniency is a named exception, not a general parsing mode.
-4. **The concurrency-ceiling trio is enforced; the other five rate-limiting limits stay validated
-   and stored.** Since e04s02, `config.limits.maxConcurrentRequests`, `config.limits.maxQueueSize`,
+4. **The concurrency-ceiling trio and the five rate-limiting limits are enforced; no
+   rate-limiting limit stays validated and stored.** Since e04s02,
+   `config.limits.maxConcurrentRequests`, `config.limits.maxQueueSize`,
    and `config.limits.queueTimeoutSeconds` are read at request time: a root-level `admission.js`
    owns the active count and the FIFO queue, and `server.js` acquires a slot after authentication
    and the unconfigured check. Nothing about the tiers moved — the parsing rules, the fatal regime,
    and the stored defaults are exactly what §1.1–§1.3 settled — but the claim "nothing reads them"
-   is now true of one limit, not eight. `config.host` (read by `server.listen`),
-   `config.logRequests` (read by the request logger), and the four global budget fields (read by
-   the request gate, see §1.6) remain the other live fields. The one stored field is
-   `config.modelLimits` — `PROXY_MODEL_LIMITS_JSON` — which becomes live in #18–#22, each under
-   this same ADR.
+   is now true of no limit at all. `config.host` (read by `server.listen`),
+   `config.logRequests` (read by the request logger), the four global budget fields (read by
+   the request gate, see §1.6), and `config.modelLimits` (read by the same gate since e04s05) are
+   the live fields. The last stored field became live in e04s05 (issue #18), under this same ADR.
 5. **`PROXY_LOG_REQUESTS` is under the same regime, and is the first operational variable that is
    live.** Anything outside its vocabulary is fatal at startup, exactly like a mistyped ceiling:
    the failure shape is identical — a value the operator wrote and the proxy did not honor, noticed
-   by nobody. Unlike the five stored limits, it *is* read at request time, so `config.logRequests`
+   by nobody. It *is* read at request time, so `config.logRequests`
    gates one stdout line per request rather than sitting unread. The variable is new, so this fatal path
    cannot break a deployment that predates it. Absent, blank, or falsy it is off, which is what
    keeps a deployment that never sets it byte-identical to a build without the feature.
 
-### 1.6 The global budget pair is enforced; waiting is not implemented in this land
+### 1.6 The global budget pair and the per-model budget are enforced; waiting is not implemented in this land
 
 Since e04s04 the four global budget fields are read at request time. A new root module
 `budget.js` owns one rolling 60-second window per dimension (RPM and TPM), the Safety margin
@@ -102,6 +106,15 @@ that turns a request body into a cost, and the reserve-or-reject decision. `conf
 unchanged: the parsing rules, the fatal regime, and the defaults are exactly what §1.1–§1.5
 settled. The regime does not move — an operator who supplies a bad budget still fails fast at
 startup, before the feature could read it.
+
+Since e04s05 the per-model map is enforced on that same gate, atomically with the global pair: a
+request naming a configured model is checked against that model's own RPM and TPM windows after
+the global check passes and before any window is charged, so a model rejection never consumes
+global budget. The refusal is the same `429 { "error": "Too many requests" }`, and its
+`Retry-After` comes from the model's own window. The map is inert without the global pair: the
+gate never opens, no model window exists, and the body is not even buffered. The failure mode
+does not move either — `config.js` still rejects a malformed document fatally at startup, exactly
+as §1.1–§1.5 settled.
 
 The request gate answers over budget with `429 { "error": "Too many requests" }` and a positive
 `Retry-After` derived from the window's own oldest live reservation, and it never waits. This is
@@ -117,9 +130,10 @@ budget is event-driven only"), and the departure is a decision, not an omission:
   interval finds the window aged out. No polling, no held slot, no invented number.
 * The one wait worth having is a different thing: a reservation released *early*, by a client
   that disconnected after its estimate was taken. That releases immediately and does not touch
-  the clock at all. It is deferred to #18–#22 with the per-model budget, because holding a client
-  for an early release is only worth a slot when the per-model budget gives that client a reason
-  to be held; an unobservable wait path is a path that cannot stay correct.
+  the clock at all. It is still deferred — e04s05 shipped the per-model budget without it —
+  because holding a client for an early release is only worth a slot when the per-model budget
+  gives that client a reason to be held; an unobservable wait path is a path that cannot stay
+  correct.
 
 `admission.js` is untouched — its knowledge stays concurrency. `budget.js` is the third shipped
 file, and the quality gate now covers it, so it cannot drift behind `server.js` and `config.js`.
@@ -296,10 +310,16 @@ Two consequences follow, and both are already visible in the test comments:
 * A test name that says "validated, not applied" is doing something specific: it pins that a
   configuration extreme does not *change* traffic, so a later slice that starts enforcing has to
   change that test deliberately rather than discover the change in production. That has now
-  happened once: e04s02 renamed the concurrency variant — `PROXY_MAX_CONCURRENT_REQUESTS=1 over a
-  one-slot queue admits a single request and proxies it normally` — and left the three budget
-  variants (rate pair, body-buffer cap, per-model map) untouched, because those limits are still
-  stored only.
+  happened three times: e04s02 renamed the concurrency variant — `PROXY_MAX_CONCURRENT_REQUESTS=1
+  over a one-slot queue admits a single request and proxies it normally` — and left the three
+  budget variants (rate pair, body-buffer cap, per-model map) untouched, because those limits were
+  still stored only. e04s04 renamed the rate-pair variant — `PROXY_RPM and PROXY_TPM set to a tiny
+  budget now enforce the effective limit` — when the global budget became live. e04s05 renamed the
+  two that still carried the old title, the body cap and the per-model map, as
+  `PROXY_MAX_BUFFERED_BODY_BYTES=1 does not gate traffic without the global pair` and
+  `PROXY_MODEL_LIMITS_JSON with well-formed budgets does not gate traffic without the global
+  pair`; the body cap had become live in e04s04, the per-model map in e04s05. Each rename left
+  the assertions unchanged, and each title now states the property the test actually pins.
 
 ### Standing rule: re-prove a fatal message by test, not by reading it
 
@@ -419,16 +439,14 @@ otherwise normalized — and case sensitivity is load-bearing: `Gpt` and `gpt` a
   starting with logging off. The strict reading buys an unambiguous signal at the price of the one
   variable whose failure costs nothing operationally, so the trade is deliberate and is the one
   place where this ADR's regime is arguably harsher than the stakes justify.
-* **Five of the eight rate-limiting limits are still invisible in behavior.** Since e04s02 the
-  concurrency-ceiling trio is not: `PROXY_MAX_CONCURRENT_REQUESTS=1` with a full queue answers
-  `429` with a `Retry-After` header, and that behavior is pinned by the admission tests. The
-  remaining five — `PROXY_RPM`, `PROXY_TPM`, `PROXY_SAFETY_MARGIN_PCT`,
-  `PROXY_MAX_BUFFERED_BODY_BYTES`, `PROXY_MODEL_LIMITS_JSON` — stay invisible until #17–#22:
-  setting one today changes nothing an operator can see in traffic, and the only honest reading
-  for those is "validated and stored". The four tests named "validated, not applied" (three remain
-  for the budgets) exist so a later slice has to change them deliberately, but a reader who takes
-  the budget variables as enforcement today is wrong. This is the story's known risk, accepted
-  per #13.
+* **No rate-limiting limit is invisible in behavior any more.** Since e04s02 the concurrency-ceiling
+  trio is not: `PROXY_MAX_CONCURRENT_REQUESTS=1` with a full queue answers `429` with a
+  `Retry-After` header, and that behavior is pinned by the admission tests. The four global
+  budgets stopped being invisible in e04s04, and the per-model map in e04s05: all eight limits
+  are read at request time, and setting one changes traffic an operator can see. The tests that
+  were named "validated, not applied" have each been renamed by the slice that made the limit
+  live, so a reader who takes a budget variable as stored-only today is wrong. What is still
+  missing is the wait, not the limit.
 * **`PROXY_HOST` is the security-relevant variable and is the least validated one.** It is the only
   one that changes what the process is reachable from, and it is the only one with no rule at all:
   no allowlist, no parse, passed through verbatim. That is deliberate — rejecting an unfamiliar but
@@ -523,8 +541,9 @@ Pinned by tests in `server.test.js`. Every name below is quoted from the suite.
 * `PROXY_RPM and PROXY_TPM both absent leaves rate limiting disabled` and `PROXY_RPM and PROXY_TPM
   blank (empty or whitespace-only) start with rate limiting disabled`;
 * `PROXY_RPM and PROXY_TPM both valid start and serve /health`;
-* `PROXY_RPM and PROXY_TPM set to a tiny budget still proxy normally (values validated, not
-  applied)`;
+* `PROXY_RPM and PROXY_TPM set to a tiny budget now enforce the effective limit` — renamed by
+  e04s04 from the "validated, not applied" title it carried while the pair was stored; the
+  assertions are unchanged, and the rename is this ADR's own standing rule applied;
 * `PROXY_RPM set with PROXY_TPM absent exits 1 naming both variables`, `PROXY_TPM set with PROXY_RPM
   absent exits 1 naming both variables`, `PROXY_TPM set with PROXY_RPM whitespace-only exits 1
   naming both variables` — the mandatory-pair rule, including that a blank partner counts as absent;
@@ -567,11 +586,14 @@ Pinned by tests in `server.test.js`. Every name below is quoted from the suite.
   trimmed by the guard, so `" 4096 "` is the same ceiling as `"4096"`;
 * `PROXY_MAX_BUFFERED_BODY_BYTES rejects a non-blank invalid value, names itself and states its
   rule` — including `0`, and including that the offending value is echoed;
-* `PROXY_MAX_BUFFERED_BODY_BYTES=1 still proxies normally (values validated, not applied)`;
+* `PROXY_MAX_BUFFERED_BODY_BYTES=1 does not gate traffic without the global pair` — renamed by
+  e04s05 from the "validated, not applied" title it carried while the cap was stored; the
+  assertions are unchanged;
 * `PROXY_MODEL_LIMITS_JSON with well-formed budgets starts and serves /health` — both fields, `rpm`
   alone, `tpm` alone, and the empty object;
-* `PROXY_MODEL_LIMITS_JSON with well-formed budgets still proxies normally (values validated, not
-  applied)`;
+* `PROXY_MODEL_LIMITS_JSON with well-formed budgets does not gate traffic without the global
+  pair` — renamed by e04s05 from the "validated, not applied" title it carried while the map was
+  stored; the assertions are unchanged;
 * `PROXY_MODEL_LIMITS_JSON with bad JSON exits 1 naming the variable`;
 * `PROXY_MODEL_LIMITS_JSON with a non-object root exits 1 naming the variable`;
 * `PROXY_MODEL_LIMITS_JSON with a blank model key exits 1 naming the variable`;

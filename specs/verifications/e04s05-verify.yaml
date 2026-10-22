@@ -1,0 +1,133 @@
+# e04s05 verification evidence
+
+# SPDX-License-Identifier: MIT
+
+story_id: e04s05
+verified_at: "2026-10-22T05:30:00Z"
+verifier: verify-work
+branch: e04s05-per-model-budgets
+risk: P0
+epic: e04
+issue: 18
+bcps: 7
+
+phases:
+  branch_check:
+    passed: true
+    detail: "on the e04s05-per-model-budgets worktree (solo-git workflow); the branch base is af4e21c and the story's code commits are 8ced235 (task 4) and its predecessors"
+  preflight:
+    passed: true
+    command: "npm test && npm run check"
+    detail: "run at the end of the task-5 doc sync; the final gate below is the evidence"
+  cold_start_smoke:
+    passed: true
+    detail: "boot from scratch; /health returned 200 {\"status\":\"ok\"} with and without the rate pair and with the per-model map"
+  build:
+    passed: true
+    detail: "no build step; zero-dependency ESM, node built-ins only"
+  typecheck:
+    passed: true
+    command: "npm run typecheck"
+  lint:
+    passed: true
+    command: "npm run lint"
+    detail: "budget.js and the two renamed test titles are inside the linted set; no rule silenced"
+  format:
+    passed: true
+    command: "npm run format:check"
+  tests:
+    passed: true
+    count: 161
+  task_verify:
+    passed: true
+    detail: "tasks 1-4 verify commands all exited 0; task 5's verify is the strengthened count gate (TAP summary count, six dated/append-only exclusions) and exits 0 on the corrected tree"
+  security_review:
+    passed: true
+    detail: "no secret in any new path; 429 and 413 bodies are fixed strings; the model id and the rejection reason stay inside the proxy; a model rejection never reaches the upstream; auth and the regression-response contract unchanged"
+  terminal_verdict:
+    command: "npm test"
+    exit_code: 0
+    captured_at: "2026-10-22T04:20:00Z"
+    stdout_summary: "tests 161 / suites 15 / pass 161 / fail 0 / duration_ms 251372.926935"
+    note: "Single contiguous run; no output merged from other attempts"
+
+manual:
+  steps:
+    - step: "No model limits configured"
+      expected: "requests inside the global budget are all admitted by the global budget alone"
+      actual: "the global budget admits alone when PROXY_MODEL_LIMITS_JSON is absent — pass"
+    - step: "Model RPM limit enforced"
+      expected: "the first two requests are admitted, the third is 429 with a positive integer Retry-After and the upstream never sees it"
+      actual: "a model_rpm rejection answers 429 with a derived Retry-After and does not reach the upstream — pass"
+    - step: "Model TPM limit enforced"
+      expected: "a request whose estimated cost exceeds the model's token budget is 429"
+      actual: "a model_tpm rejection answers 429 — pass"
+    - step: "Unknown model falls through to the global budget"
+      expected: "a request naming an unconfigured model is admitted by the global budget and no model window is consulted"
+      actual: "unknown model falls through to global only — pass"
+    - step: "Atomic reservation"
+      expected: "a model rejection leaves the global counters uncharged"
+      actual: "atomic reservation: the global window is not charged for the rejected request — pass"
+    - step: "Partial model entry (rpm only)"
+      expected: "the rpm dimension caps, the token dimension stays uncapped for that model"
+      actual: "partial entry: a model entry with only rpm leaves its token budget uncapped — pass"
+    - step: "Model limits without a global pair"
+      expected: "per-model limits have no effect and requests stream through without buffering"
+      actual: "the gate never opens: the request is admitted and a body above the cap is forwarded verbatim — pass"
+    - step: "close() closes the model windows"
+      expected: "model windows refuse new reservations after close()"
+      actual: "close refuses model reservations — pass"
+
+acceptance_criteria:
+  - id: 1
+    text: "no model limits configured: all requests are admitted by the global budget alone"
+    status: pass
+    evidence: "the global budget is unchanged when model limits are configured, plus the unchanged global-budget tests"
+  - id: 2
+    text: "model RPM limit enforced: the third request is 429 with a positive integer Retry-After"
+    status: pass
+    evidence: "model RPM limit enforced (black-box, over real HTTP against a stub upstream)"
+  - id: 3
+    text: "model TPM limit enforced"
+    status: pass
+    evidence: "model TPM limit enforced (black-box, over real HTTP against a stub upstream)"
+  - id: 4
+    text: "unknown model falls through to the global budget and no model window is consulted"
+    status: pass
+    evidence: "unknown model falls through to global only"
+  - id: 5
+    text: "atomic reservation: a model rejection does not charge the global window"
+    status: pass
+    evidence: "atomic reservation, and a model rejection does not charge the global token window"
+  - id: 6
+    text: "partial model entry: rpm only, the token dimension is uncapped for that model"
+    status: pass
+    evidence: "partial model entry; per-model windows are built with the same safety margin as the global windows"
+  - id: 7
+    text: "model limits without a global pair have no effect and requests are streamed through without buffering"
+    status: pass
+    evidence: "model limits without global pair has no effect, and the disabled-mode streaming test that proves no buffering outside rate-limit mode"
+  - id: 8
+    text: "close() closes the model windows"
+    status: pass
+    evidence: "close refuses model reservations"
+  - id: 9
+    text: "the estimator returns the model id named in the body, and null otherwise"
+    status: pass
+    evidence: "five estimator tests: the named model, no model, a non-string model, an empty model, and the fallback path"
+  - id: 10
+    text: "a model id is matched exactly: __proto__ is enforced, not swallowed"
+    status: pass
+    evidence: "a model named __proto__ is enforced, not swallowed"
+
+divergences:
+  - id: budget-wait
+    issue_bullet: "waiting for budget is event-driven only: no polling. Blocking budget waits respect downstream client disconnect"
+    decision: "Not implemented in this slice; the immediate-429-with-derived-Retry-After answers the same intent"
+    rationale: "ADR 0002 §1.6 and the story spec §6. A wait would park a caller and its slot for up to 59 seconds for a state only the clock controls; the immediate 429 carries a Retry-After derived from the window's own oldest reservation. The early-release wait lands in a later slice"
+    lands_in: "#19-#22"
+
+test_count_sync:
+  command: "N=$(node --test --test-reporter=tap server.test.js 2>&1 | grep -E '^# tests [0-9]+$' | grep -oE '[0-9]+'); hits=$(grep -rnE '(^|[^A-Za-z0-9])[0-9]{2,4}[ -]tests?\\b|tests-[0-9]{2,4}|\\(currently [0-9]+\\)' --include='*.md' --include='*.yaml' . | grep -v '^\\./plans/' | grep -v 'docs/research/config-invariant-guard-tests' | grep -v '/briefs/' | grep -v '^\\./LOG.md' | grep -v '/specs/verifications/' | grep -v -- '-tasks.yaml'); bad=$(printf '%s\\n' \"$hits\" | grep -vE \"(^|[^A-Za-z0-9])${N}[ -]tests?\\b|tests-${N}\\b|\\(currently ${N}\\)\"); printf '%s\\n' \"$hits\"; test -z \"$bad\""
+  result: "all 14 living sites state 161; the gate is green on the corrected tree and red on a copy of the tree where one living doc still says 141"
+  exclusions: "plans/ (historical per-plan numbers), docs/research/config-invariant-guard-tests.md (a dated historical note), specs/epics/*/briefs/ and LOG.md (append-only dated records), specs/epics/*/*-tasks.yaml (append-only task ledgers), specs/verifications/ (dated evidence of what a past slice measured)"

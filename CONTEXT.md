@@ -45,9 +45,10 @@ Admission control and Queue are enforced at request time: since e04s02 the concu
 (`PROXY_MAX_CONCURRENT_REQUESTS`, with `PROXY_MAX_QUEUE_SIZE` and
 `PROXY_QUEUE_TIMEOUT_SECONDS`) admits, queues, or rejects authenticated requests through the
 root-level `admission.js` queue. Rate budget, Per-model budget, and Safety margin name limits this
-proxy validates and stores but does not enforce — `PROXY_RPM`, `PROXY_TPM`,
-`PROXY_SAFETY_MARGIN_PCT`, `PROXY_MAX_BUFFERED_BODY_BYTES`, and `PROXY_MODEL_LIMITS_JSON` are
-parsed once at startup and no enforcement path reads them. Usage reconciliation has no
-implementation at all. Enforcement of the remaining budgets arrives in later slices of the
-rate-limiting epic; the configuration regime is recorded in
+proxy reads at request time: `PROXY_RPM`, `PROXY_TPM`, `PROXY_SAFETY_MARGIN_PCT`,
+`PROXY_MAX_BUFFERED_BODY_BYTES`, and `PROXY_MODEL_LIMITS_JSON` are parsed once at startup and
+read by the root-level `budget.js` gate on every request. The rate budget and the per-model
+budget are enforced — the rate budget since e04s04, the per-model budget since e04s05 — while the
+safety margin and the body cap are read at request time since e04s04. Usage reconciliation has no
+implementation at all. The configuration regime is recorded in
 `docs/adr/0002-config-operational-fail-fast.md`.

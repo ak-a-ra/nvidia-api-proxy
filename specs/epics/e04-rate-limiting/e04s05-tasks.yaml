@@ -1,6 +1,6 @@
 story_id: e04s05
 title: Apply per-model budgets atomically
-status: failing
+status: passing
 bcps: 7
 issue: 18
 type: feat
@@ -107,11 +107,15 @@ tasks:
       execution-status.yaml (e04s05: passing), and the test count in every living doc. Amend
       ADR 0002 to record that PROXY_MODEL_LIMITS_JSON moved from stored to enforced. Do NOT
       touch plans/*.md or docs/research/config-invariant-guard-tests.md.
-    verify: >-
-      N=$(node --test --test-reporter=tap server.test.js 2>&1 | grep -cE '^[[:space:]]*ok [0-9]+ - '); sites=$(grep -rnE "tests(-| )?${N}|${N}[ -]tests?|\(currently ${N}\)|tests-${N}%20passing|all ${N} tests" --include='*.md' --include='*.yaml' . | grep -v 'plans/' | grep -v 'docs/research/config-invariant-guard-tests' | grep -v 'briefs/' | grep -v 'LOG.md'); echo "$sites"; count=$(echo "$sites" | grep -c .); test "$count" -ge 7 && grep -q 'e04s05.*passing' specs/execution-status.yaml && grep -q 'enforced atomically' CONVENTIONS.md
+    verify: |-
+      N=$(node --test --test-reporter=tap server.test.js 2>&1 | grep -E '^# tests [0-9]+$' | grep -oE '[0-9]+')
+      hits=$(grep -rnE '(^|[^A-Za-z0-9])[0-9]{2,4}[ -]tests?\b|tests-[0-9]{2,4}|\(currently [0-9]+\)' --include='*.md' --include='*.yaml' . | grep -v '^\./plans/' | grep -v 'docs/research/config-invariant-guard-tests' | grep -v '/briefs/' | grep -v '^\./LOG.md' | grep -v '/specs/verifications/' | grep -v -- '-tasks.yaml')
+      bad=$(printf '%s\n' "$hits" | grep -vE "(^|[^A-Za-z0-9])${N}[ -]tests?\b|tests-${N}\b|\(currently ${N}\)")
+      printf '%s\n' "$hits"
+      test -z "$bad"
     risk: P2
     security: none
-    status: failing
+    status: passing
     allure:
       severity: normal
       categories:

@@ -14,7 +14,7 @@ Zero-dependency Node.js reverse proxy for NVIDIA NIM API. Client apps call the p
 ## Commands
 
 - `npm start` — runs the proxy server
-- `npm test` — runs all 141 tests
+- `npm test` — runs all 161 tests
 - `node --test --test-name-pattern "TEST_NAME"` — run single test by name
 
 ## Defensive Code Categories
@@ -24,7 +24,7 @@ exist in `server.js`.
 
 - **Timeout** — implemented: `UPSTREAM_CONNECT_TIMEOUT_SECONDS` (30), `UPSTREAM_IDLE_TIMEOUT_SECONDS` (120)
 - **Graceful degradation** — implemented: missing key/token yields 503, not a crash
-- Rate limit — the admission half (`PROXY_MAX_CONCURRENT_REQUESTS`, `PROXY_MAX_QUEUE_SIZE`, `PROXY_QUEUE_TIMEOUT_SECONDS`) is enforced through `admission.js`; the global budget half (`PROXY_RPM`, `PROXY_TPM`, `PROXY_SAFETY_MARGIN_PCT`, `PROXY_MAX_BUFFERED_BODY_BYTES`) is enforced through `budget.js` — issue #17 is done. `PROXY_MODEL_LIMITS_JSON` stays validated and stored, not enforced — issues #18–#22
+- Rate limit — the admission half (`PROXY_MAX_CONCURRENT_REQUESTS`, `PROXY_MAX_QUEUE_SIZE`, `PROXY_QUEUE_TIMEOUT_SECONDS`) is enforced through `admission.js`; the global budget half (`PROXY_RPM`, `PROXY_TPM`, `PROXY_SAFETY_MARGIN_PCT`, `PROXY_MAX_BUFFERED_BODY_BYTES`) is enforced through `budget.js` — issue #17 is done. `PROXY_MODEL_LIMITS_JSON` is enforced atomically with the global budget through `budget.js` — issue #18 is done; issues #19–#22 remain
 - Retry — not implemented. Deliberately rejected: replaying a non-idempotent request is unsafe
 - Circuit breaker — not implemented
 
@@ -79,7 +79,7 @@ work. What stays forbidden: deleting a test, relaxing an assertion, adding a ski
 loosening a stub so a real defect stops showing.
 
 When a change adds or removes tests, sync the new total into **every** living doc that states a
-count — the README badge and tip, `AGENTS.md` `npm test` bullet, this file, and the four `specs/`
+count — the README badge and tip, `AGENTS.md` `npm test` bullet, this file, and the five `specs/`
 docs. Re-derive the site list rather than trusting a remembered one:
 
 ```

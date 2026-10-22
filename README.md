@@ -6,7 +6,7 @@
 
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.14-3c873a?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](package.json)
-[![Tests](https://img.shields.io/badge/tests-141%20passing-blue?style=flat-square)](server.test.js)
+[![Tests](https://img.shields.io/badge/tests-161%20passing-blue?style=flat-square)](server.test.js)
 
 [Features](#features) • [How it works](#how-it-works) • [Quick start](#quick-start) • [Configuration](#configuration) • [Endpoints](#endpoints) • [Deploy](#deploy-to-render)
 
@@ -108,7 +108,7 @@ const client = new OpenAI({
 ```
 
 > [!TIP]
-> Run the test suite (141 tests, no deps needed):
+> Run the test suite (161 tests, no deps needed):
 > ```bash
 > npm test
 > ```
@@ -139,21 +139,23 @@ const client = new OpenAI({
 | `PROXY_QUEUE_TIMEOUT_SECONDS` | no | Seconds a request may wait before rejection (default `30`) — **enforced** |
 | `PROXY_SAFETY_MARGIN_PCT` | no | Headroom reserved against the rate budgets, `0`–`50` (default `5`) |
 | `PROXY_MAX_BUFFERED_BODY_BYTES` | no | Ceiling on a buffered request body in rate-limit mode (default `8388608`, 8 MiB) |
-| `PROXY_MODEL_LIMITS_JSON` | no | JSON object of per-model budgets keyed by exact model ID, e.g. `{"meta/llama-3.1-8b-instruct":{"rpm":10,"tpm":20000}}` (default `unset`) |
+| `PROXY_MODEL_LIMITS_JSON` | no | JSON object of per-model budgets keyed by exact model ID, e.g. `{"meta/llama-3.1-8b-instruct":{"rpm":10,"tpm":20000}}` (default `unset`) — **enforced**, and only when the `PROXY_RPM`/`PROXY_TPM` pair is set |
 | `PROXY_LOG_REQUESTS` | no | Write one JSON line per request to stdout (default `off`; accepts `1`/`true`/`yes`/`on` or `0`/`false`/`no`/`off`, case-insensitive — any other value is fatal) |
 
 > [!IMPORTANT]
-> **The concurrency ceiling is enforced at request time.** `PROXY_MAX_CONCURRENT_REQUESTS` (with
-> `PROXY_MAX_QUEUE_SIZE` and `PROXY_QUEUE_TIMEOUT_SECONDS`) gates traffic: requests beyond the
-> ceiling wait in a bounded FIFO queue, and a full queue or an expired wait is rejected with `429`
-> `{"error":"Too many requests"}` plus a `Retry-After` header. Every other `PROXY_*` row above is
-> **validated and stored, not enforced** — the proxy parses them at startup and does not consult
-> them while serving a request, so setting one changes no traffic yet. A supplied value its rule
+> **The rate limits are enforced at request time.** The live set is `PROXY_HOST`,
+> `PROXY_LOG_REQUESTS`, the concurrency ceiling (`PROXY_MAX_CONCURRENT_REQUESTS` with
+> `PROXY_MAX_QUEUE_SIZE` and `PROXY_QUEUE_TIMEOUT_SECONDS`), the global budget pair (`PROXY_RPM`
+> with `PROXY_TPM`), the safety margin (`PROXY_SAFETY_MARGIN_PCT`), the body cap
+> (`PROXY_MAX_BUFFERED_BODY_BYTES`) and the per-model map (`PROXY_MODEL_LIMITS_JSON`). The ceiling
+> gates traffic: requests beyond it wait in a bounded FIFO queue, and a full queue or an expired
+> wait is rejected with `429` `{"error":"Too many requests"}` plus a `Retry-After` header. The
+> budget pair is a rolling 60-second window, the margin shrinks both effective limits, the body
+> cap refuses an over-sized body with `413`, and the per-model map adds a budget per configured
+> model, enforced atomically with the global pair and inert without it. A supplied value its rule
 > rejects is fatal: the process exits with code 1 and a line on stderr naming the variable. Two
 > exceptions are live regardless of enforcement: `PROXY_HOST` selects the address `server.listen`
-> binds, and `PROXY_LOG_REQUESTS` writes the request lines described below. The live set is
-> `PROXY_HOST`, `PROXY_LOG_REQUESTS`, and the ceiling trio — `PROXY_MAX_CONCURRENT_REQUESTS` with
-> `PROXY_MAX_QUEUE_SIZE` and `PROXY_QUEUE_TIMEOUT_SECONDS`; every other row waits for its slice.
+> binds, and `PROXY_LOG_REQUESTS` writes the request lines described below.
 
 Copy-paste-ready local setup — fill in the two values marked `FIXME`:
 
@@ -177,7 +179,7 @@ export PROXY_AUTH_TOKEN="FIXME"  # token your clients will send
 # export PROXY_TPM="200000"                # tokens per minute (rolling 60s window, enforced)
 # export PROXY_SAFETY_MARGIN_PCT="5"       # headroom reserved against both budgets, 0-50; effective limit is max(1, floor(limit * (1 - margin / 100)))
 # export PROXY_MAX_BUFFERED_BODY_BYTES="8388608"  # body cap in rate-limit mode, 8 MiB; a larger body gets 413 and never reaches the upstream
-# export PROXY_MODEL_LIMITS_JSON='{"meta/llama-3.1-8b-instruct":{"rpm":10,"tpm":20000}}'  # per-model budgets (validated and stored, not enforced yet)
+# export PROXY_MODEL_LIMITS_JSON='{"meta/llama-3.1-8b-instruct":{"rpm":10,"tpm":20000}}'  # per-model budgets (enforced with the global pair; inert without it)
 
 # ---- request logging (live, default off) ----
 # export PROXY_LOG_REQUESTS="1"     # 1/true/yes/on enable; 0/false/no/off disable; unset or blank is off
