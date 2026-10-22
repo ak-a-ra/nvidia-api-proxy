@@ -23,16 +23,17 @@ active_story: e04s05
 session_start: 2026-10-16T18:02:00Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: develop-tdd
-  source: request-review
+  next_skill: delegate-task
+  source: survey-context
   note: >-
-    e04s05 task 1 is done and reviewed: the estimator returns the model ID on
-    both the structured and the fallback path, six unit tests cover it, and the
-    task-1 verify gate was strengthened because the ledger form was vacuous.
-    Review verdict PASS with three non-blocking notes, all now applied (two
-    stale comments in budget.js, one overstated sentence in the task 1 report).
-    Next: task 2, the per-model window pairs in createBudget, briefed from
-    specs/epics/e04-rate-limiting/e04s05-tasks.yaml and the story spec.
+    e04s05 tasks 1 to 4 are implemented and reviewed on the
+    e04s05-per-model-budgets branch, 19 commits ahead of main. The suite is
+    161 of 161 green and npm run check is clean. Task 5, the living-doc sync
+    with the test-count sync, the two test-title renames, the ADR 0002
+    amendment, and the manifest status, is briefed at
+    specs/epics/e04-rate-limiting/briefs/e04s05-t05.md and is the only ledger
+    row still failing. Next: dispatch the task-5 implementer, then the task-5
+    reviewer, then the whole-story review and the land.
 decisions:
   - decision: Per-model window pairs are built at construction time, and the story's "lazily" sentence is corrected
     rationale: >-
