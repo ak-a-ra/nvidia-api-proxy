@@ -302,9 +302,15 @@ function createWindow(rpmLimit, tpmLimit) {
   function charge(handle) {
     if (handle.charged) return;
     handle.charged = true;
-    if (rpmLimit != null && handle.requestCharge > 0) requestEvents.push({ at: handle.at });
+    if (rpmLimit != null && handle.requestCharge > 0) {
+      const requestEvent = { at: handle.at };
+      requestEvents.push(requestEvent);
+      handle.requestEvent = requestEvent;
+    }
     if (tpmLimit != null && handle.tokens > 0) {
-      tokenEvents.push({ at: handle.at, tokens: handle.tokens });
+      const tokenEvent = { at: handle.at, tokens: handle.tokens };
+      tokenEvents.push(tokenEvent);
+      handle.tokenEvent = tokenEvent;
     }
   }
 
@@ -340,6 +346,8 @@ export function createBudget(rateLimit, limits, modelLimits) {
       // Uniform shape: a caller reads modelEffective without knowing which
       // gate it got, and a disabled gate has no model windows to report.
       modelEffective: null,
+      reconciledCount: 0,
+      fallbackCount: 0,
       reserve() {
         return { admitted: true, cost: null };
       },
@@ -347,6 +355,9 @@ export function createBudget(rateLimit, limits, modelLimits) {
       close() {},
     };
   }
+
+  let reconciledCount = 0;
+  let fallbackCount = 0;
 
   const margin = limits?.safetyMarginPct ?? 5;
   const effective = {
@@ -408,7 +419,31 @@ export function createBudget(rateLimit, limits, modelLimits) {
     // checked, against the snapshots their checks read.
     globalWindow.charge(global.handle);
     if (model) modelWindow.charge(model.handle);
-    return { admitted: true, cost, retryAfter: null };
+
+    // A reconcilable reservation: the token cost can be replaced once with
+    // the actual usage the upstream reports. RPM counts are immutable.
+    const reservation = {
+      cost,
+      reconciled: false,
+      reconcile(actualTotalTokens) {
+        if (this.reconciled) return false;
+        this.reconciled = true;
+        if (!Number.isFinite(actualTotalTokens) || actualTotalTokens < 0) {
+          fallbackCount += 1;
+          return false;
+        }
+        if (global.handle?.tokenEvent) {
+          global.handle.tokenEvent.tokens = actualTotalTokens;
+        }
+        if (model?.handle?.tokenEvent) {
+          model.handle.tokenEvent.tokens = actualTotalTokens;
+        }
+        reconciledCount += 1;
+        return true;
+      },
+    };
+
+    return { admitted: true, cost, retryAfter: null, reservation };
   }
 
   // The model's own window, when the request names a model the operator
@@ -438,7 +473,7 @@ export function createBudget(rateLimit, limits, modelLimits) {
     }
   }
 
-  return {
+  const budget = {
     enabled: true,
     effective,
     modelEffective,
@@ -446,4 +481,15 @@ export function createBudget(rateLimit, limits, modelLimits) {
     release,
     close,
   };
+  Object.defineProperty(budget, "reconciledCount", {
+    get() {
+      return reconciledCount;
+    },
+  });
+  Object.defineProperty(budget, "fallbackCount", {
+    get() {
+      return fallbackCount;
+    },
+  });
+  return budget;
 }
