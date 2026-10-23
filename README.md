@@ -6,7 +6,7 @@
 
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.14-3c873a?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](package.json)
-[![Tests](https://img.shields.io/badge/tests-161%20passing-blue?style=flat-square)](server.test.js)
+[![Tests](https://img.shields.io/badge/tests-175%20passing-blue?style=flat-square)](server.test.js)
 
 [Features](#features) • [How it works](#how-it-works) • [Quick start](#quick-start) • [Configuration](#configuration) • [Endpoints](#endpoints) • [Deploy](#deploy-to-render)
 
@@ -108,7 +108,7 @@ const client = new OpenAI({
 ```
 
 > [!TIP]
-> Run the test suite (161 tests, no deps needed):
+> Run the test suite (175 tests, no deps needed):
 > ```bash
 > npm test
 > ```
@@ -152,7 +152,9 @@ const client = new OpenAI({
 > wait is rejected with `429` `{"error":"Too many requests"}` plus a `Retry-After` header. The
 > budget pair is a rolling 60-second window, the margin shrinks both effective limits, the body
 > cap refuses an over-sized body with `413`, and the per-model map adds a budget per configured
-> model, enforced atomically with the global pair and inert without it. A supplied value its rule
+> model, enforced atomically with the global pair and inert without it. SSE usage is reconciled on
+> successful completion via `observer.js`, which parses usage from a copied stream without
+> altering forwarded bytes. A supplied value its rule
 > rejects is fatal: the process exits with code 1 and a line on stderr naming the variable. Two
 > exceptions are live regardless of enforcement: `PROXY_HOST` selects the address `server.listen`
 > binds, and `PROXY_LOG_REQUESTS` writes the request lines described below.

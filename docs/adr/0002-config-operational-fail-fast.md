@@ -707,3 +707,11 @@ Rationale and test design documented in
 * `CONFIG_ENV_VARS` in `server.test.js` — the named list the harness strips from every spawned
   child. A new operational variable is inherited by the suite until it is added there, so the list
   is the mechanical half of the fail-fast contract, not a test convenience.
+
+## SSE usage reconciliation (e04s06)
+
+Implemented. `observer.js` provides `createSseObserver` and `SSE_OBSERVATION_BYTE_BOUND`
+(262144). In rate-limit mode, SSE responses pass through byte-identically while a
+`Transform` observes a copy and reconciles the reservation with the reported usage
+on successful completion. Detach occurs on overflow, malformed input, or decode
+failure; the estimate is retained and one fallback is recorded in those cases.

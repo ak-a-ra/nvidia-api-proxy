@@ -126,7 +126,7 @@ tasks:
       test -z "$bad"
     risk: P2
     security: none
-    status: pending
+    status: passing
     allure:
       severity: normal
       categories:

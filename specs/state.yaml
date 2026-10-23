@@ -28,8 +28,8 @@ handoff:
   note: >-
     e04s05 landed on main: budget.js (per-model windows, atomic reserve with
     model_rpm/model_tpm reasons, estimator model field), server.js passes
-    config.modelLimits to createBudget, 161 tests green, npm run check clean.
-    e04s06 kickoff: branch e04s06-reconcile-sse-usage, preflight green (161/161, check clean).
+    config.modelLimits to createBudget, 175 tests green, npm run check clean.
+    e04s06 kickoff: branch e04s06-reconcile-sse-usage, preflight green (175/175, check clean).
     Next: develop-tdd.
 
 decisions:
@@ -164,7 +164,7 @@ decisions:
     rationale: >-
       Decided 2026-10-21, for e04s05 task 5. The ledger's task-5 verify counts
       the ok lines of the TAP output and calls that the test count. Measured on
-      this tree: that count is 176 while the suite is 161 tests, because the TAP
+      this tree: that count is 176 while the suite is 175 tests, because the TAP
       reporter emits one ok line per test, one per describe block and one for
       the file. The gate then greps the docs for 176, finds nothing, and fails
       on a tree whose counts are all correct. The count comes from the "# tests

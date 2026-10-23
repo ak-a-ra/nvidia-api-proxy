@@ -58,7 +58,7 @@ stories:
   - id: e04s06
     title: Reconcile SSE usage without breaking streaming
     bcps: 8
-    status: failing
+    status: passing
     issue: 19
     blocked_by: [e04s05]
     spec: e04s06-reconcile-sse-usage-without-breaking-streaming.md

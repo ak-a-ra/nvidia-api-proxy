@@ -108,7 +108,7 @@ Examples:
 
 ## Streaming & Timeout Behavior
 
-- SSE: unbuffered via `pipeline()`, chunks flow immediately
+- SSE: unbuffered via `pipeline()`, chunks flow immediately; in rate-limit mode a `Transform` observes a copy for usage while bytes pass through unchanged
 - `duplex: "half"` required when request body is stream and response read
 - Connect timeout: `CONNECT_TIMEOUT_SECONDS` (default 30s) aborts before headers
 - Idle timeout: `IDLE_TIMEOUT_SECONDS` (default 120s), resets on each chunk, cuts silent streams
@@ -161,7 +161,7 @@ SIGTERM handler:
 - **Type Safety**: None — JavaScript dynamic typing
 - **Observability**: Startup `console.log`; opt-in per-request JSON lines when `PROXY_LOG_REQUESTS` is on; `console.error` for config failures, caught errors, stream errors
 - **Request Size Limits**: `PROXY_MAX_BUFFERED_BODY_BYTES` (default 8388608, 8 MiB) is enforced in rate-limit mode only; a body above it is answered `413 { "error": "Request too large" }` and never reaches the upstream. Outside rate-limit mode no limit is imposed and bodies stream untrimmed
-- **Rate Limiting**: Admission enforced since e04s02 — the concurrency-ceiling trio (`PROXY_MAX_CONCURRENT_REQUESTS`, `PROXY_MAX_QUEUE_SIZE`, `PROXY_QUEUE_TIMEOUT_SECONDS`) gates traffic through the root-level `admission.js` queue. Global budgets enforced since e04s04 — when the `PROXY_RPM`/`PROXY_TPM` pair is present, the root-level `budget.js` holds one rolling 60-second window per dimension, applies `PROXY_SAFETY_MARGIN_PCT` to both effective limits (floored at one), and enforces `PROXY_MAX_BUFFERED_BODY_BYTES` (bodies are buffered only in this mode, to estimate cost and cap size). Per-model budgets enforced since e04s05 — `PROXY_MODEL_LIMITS_JSON` adds one rolling 60-second window per configured model, applied atomically with the global budget and only when the global pair is present. `PROXY_HOST` only selects the bind address
+- **Rate Limiting**: Admission enforced since e04s02 — the concurrency-ceiling trio (`PROXY_MAX_CONCURRENT_REQUESTS`, `PROXY_MAX_QUEUE_SIZE`, `PROXY_QUEUE_TIMEOUT_SECONDS`) gates traffic through the root-level `admission.js` queue. Global budgets enforced since e04s04 — when the `PROXY_RPM`/`PROXY_TPM` pair is present, the root-level `budget.js` holds one rolling 60-second window per dimension, applies `PROXY_SAFETY_MARGIN_PCT` to both effective limits (floored at one), and enforces `PROXY_MAX_BUFFERED_BODY_BYTES` (bodies are buffered only in this mode, to estimate cost and cap size). Per-model budgets enforced since e04s05 — `PROXY_MODEL_LIMITS_JSON` adds one rolling 60-second window per configured model, applied atomically with the global budget and only when the global pair is present. SSE usage reconciliation implemented since e04s06 — `observer.js` parses usage from a copied SSE stream and reconciles the reservation on successful completion, detaching on overflow or malformed input; issues #20–#22 remain. `PROXY_HOST` only selects the bind address
 - **Retries**: Not implemented
 - **Circuit Breaker**: Not implemented
 - **Metrics**: Not implemented
@@ -169,7 +169,7 @@ SIGTERM handler:
 
 ## Testing
 
-- **Test Count**: 161 tests
+- **Test Count**: 175 tests
 - **Location**: `server.test.js`
 - **Runner**: `node --test` (integration tests, no coverage instrumentation/thresholds)
 - **Pattern**: Process-level integration tests with local HTTP stubs
