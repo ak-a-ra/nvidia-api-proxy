@@ -83,7 +83,7 @@ tasks:
       out=$(node --test --test-reporter=tap --test-name-pattern 'lower actual SSE usage credits the reservation|higher actual SSE usage raises current usage' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(lower actual SSE usage credits the reservation|higher actual SSE usage raises current usage)'); test "$n" -ge 2
     risk: P0
     security: none
-    status: pending
+    status: passing
     allure:
       severity: high
       categories:

@@ -77,6 +77,15 @@ function startStubUpstream(status, body, headers, mode) {
           }, 5);
           return;
         }
+        if (mode === "sseHighUsage") {
+          res.write("data: {\"id\":\"1\"}\n\n");
+          setTimeout(() => {
+            res.write("data: {\"usage\":{\"prompt_tokens\":3000,\"completion_tokens\":3000,\"total_tokens\":6000}}\n\n");
+            res.write("data: [DONE]\n\n");
+            res.end();
+          }, 5);
+          return;
+        }
         if (mode === "stall") {
           // One chunk flushes the headers; then silence forever — the idle
           // watchdog must cut this.
@@ -4746,5 +4755,46 @@ describe("e04s06 SSE usage reconciliation", () => {
 
     const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
     assert.equal(second.status, 200, "reconciled usage freed capacity for the next request");
+  });
+});
+
+describe("e04s06 SSE usage reconciliation", () => {
+  function chatOpts(body) {
+    return {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: body || JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    };
+  }
+
+  test("lower actual SSE usage credits the reservation", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "5000", PROXY_SAFETY_MARGIN_PCT: "0" },
+      headers: { "content-type": "text/event-stream" },
+      mode: "sseUsage",
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200);
+    await first.text();
+
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 200, "lower actual usage credited capacity");
+  });
+
+  test("higher actual SSE usage raises current usage", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "5000", PROXY_SAFETY_MARGIN_PCT: "0" },
+      headers: { "content-type": "text/event-stream" },
+      mode: "sseHighUsage",
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200, "the stream is delivered despite the high actual");
+    const body = await first.text();
+    assert.ok(body.includes("6000"), "the high-usage event reached the client");
+
+    // After reconciliation the window carries 6000 tokens, above the 5000
+    // effective limit, so a follow-up request is rejected.
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "raised usage blocks the next request");
   });
 });
