@@ -68,6 +68,15 @@ function startStubUpstream(status, body, headers, mode) {
           }, 5);
           return;
         }
+        if (mode === "sseUsage") {
+          res.write("data: {\"id\":\"1\"}\n\n");
+          setTimeout(() => {
+            res.write("data: {\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":5,\"total_tokens\":10}}\n\n");
+            res.write("data: [DONE]\n\n");
+            res.end();
+          }, 5);
+          return;
+        }
         if (mode === "stall") {
           // One chunk flushes the headers; then silence forever — the idle
           // watchdog must cut this.
@@ -4711,5 +4720,31 @@ describe("e04s06 SSE usage reconciliation", () => {
     assert.ok(first.value && first.value.length > 0, "the first chunk carries bytes");
     // Drain the rest.
     while (!(await reader.read()).done) {}
+  });
+});
+
+describe("e04s06 SSE usage reconciliation", () => {
+  const RATE_ON = { PROXY_RPM: "60", PROXY_TPM: "5000", PROXY_SAFETY_MARGIN_PCT: "0" };
+
+  function chatOpts(body) {
+    return {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: body || JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    };
+  }
+
+  test("SSE usage is reconciled into the reservation", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      headers: { "content-type": "text/event-stream" },
+      mode: "sseUsage",
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200);
+    await first.text();
+
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 200, "reconciled usage freed capacity for the next request");
   });
 });
