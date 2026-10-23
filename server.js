@@ -1,9 +1,10 @@
 import http from "node:http";
-import { pipeline, Readable } from "node:stream";
+import { pipeline, Readable, Transform } from "node:stream";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { parseConfig, CONNECT_TIMEOUT_SECONDS, IDLE_TIMEOUT_SECONDS } from "./config.js";
 import { createAdmission, REJECTION_REASONS } from "./admission.js";
 import { createBudget, estimateCost } from "./budget.js";
+import { createSseObserver } from "./observer.js";
 
 const PORT = Number(process.env.PORT || 10000);
 
@@ -253,6 +254,7 @@ const server = http.createServer(async (req, res) => {
     // bytes, never owns them: the original buffer is what gets forwarded
     // upstream, byte-identically, with the caller's headers intact.
     let forwardedBody = undefined;
+    let budgetReservation = null;
     if (budget.enabled) {
       const buffer = await readBodyWithCap(req, res, config.limits.maxBufferedBodyBytes);
       // null already answered the client (413), or the client is gone: drop
@@ -276,8 +278,8 @@ const server = http.createServer(async (req, res) => {
     // reservation succeeds.
     if (budget.enabled) {
       const cost = estimateCost(parseJsonBody(forwardedBody), forwardedBody);
-      const reservation = await admitWithBudget(cost);
-      if (!reservation.admitted) {
+      const outcome = await admitWithBudget(cost);
+      if (!outcome.admitted) {
         res.removeListener("close", onDownstreamClose);
         res.removeListener("close", releaseOnce);
         // Client vanished before the answer could matter, or the window closed
@@ -291,9 +293,10 @@ const server = http.createServer(async (req, res) => {
           res,
           429,
           { error: "Too many requests" },
-          { "retry-after": String(reservation.retryAfterSeconds) }
+          { "retry-after": String(outcome.retryAfterSeconds) }
         );
       }
+      budgetReservation = outcome.reservation || null;
     }
 
     ticket = await admission.acquire(ac.signal);
@@ -444,16 +447,78 @@ const server = http.createServer(async (req, res) => {
     };
     armIdle();
     src.on("data", armIdle);
-    pipeline(src, res, (error) => {
+
+    // SSE responses in rate-limit mode are observed by a copy: the bytes are
+    // forwarded unchanged, while an internal observer parses usage out of a
+    // copy. Non-SSE and disabled mode keep the original pass-through path.
+    const isSse =
+      budget.enabled &&
+      Boolean(budgetReservation) &&
+      String(upstream.headers.get("content-type") || "").includes("text/event-stream");
+    let sseObserver = null;
+    let observedUsage = null;
+    if (isSse) {
+      sseObserver = createSseObserver((usage) => {
+        observedUsage = usage;
+      });
+    }
+
+    const onComplete = (error) => {
       clearTimeout(idleTimer);
+      if (sseObserver) {
+        try {
+          sseObserver.end();
+        } catch {
+          // Observer failures must never affect pass-through.
+        }
+      }
       res.removeListener("close", onDownstreamClose);
+      // Reconcile only on successful completion. A disconnect, a mid-stream
+      // failure, or a shutdown that cuts the stream keeps the estimate.
+      if (!error && budgetReservation && sseObserver) {
+        budgetReservation.reconcile(observedUsage);
+      }
       if (error) {
         // error.code names the abort source (e.g. UND_ERR_BODY_TIMEOUT from
         // undici's internal 300s body timeout vs our "upstream idle timeout").
         console.error("stream error:", error.message, error.code ?? "");
         res.destroy();
       }
-    });
+    };
+
+    if (isSse) {
+      const observerTransform = new Transform({
+        transform(chunk, encoding, callback) {
+          this.push(chunk);
+          if (sseObserver) {
+            try {
+              sseObserver.observe(chunk);
+            } catch {
+              // Detach on any observer failure; pass-through is unaffected.
+              try {
+                sseObserver.detach();
+              } catch {
+                // ignore
+              }
+            }
+          }
+          callback();
+        },
+        flush(callback) {
+          if (sseObserver) {
+            try {
+              sseObserver.end();
+            } catch {
+              // ignore
+            }
+          }
+          callback();
+        },
+      });
+      pipeline(src, observerTransform, res, onComplete);
+    } else {
+      pipeline(src, res, onComplete);
+    }
   } catch (error) {
     if (error.name === "AbortError" && error.message === "client disconnected") {
       // Client went away: nothing to report, no response to send.

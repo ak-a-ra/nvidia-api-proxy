@@ -4674,3 +4674,42 @@ describe("e04s06 SSE usage reconciliation", () => {
     assert.equal(second.admitted, false, "the estimate is retained");
   });
 });
+
+describe("e04s06 SSE usage reconciliation", () => {
+  const RATE_ON = { PROXY_RPM: "60", PROXY_TPM: "100000", PROXY_SAFETY_MARGIN_PCT: "0" };
+
+  function chatOpts(body) {
+    return {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: body || JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    };
+  }
+
+  test("SSE bytes are byte-identical to upstream", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      headers: { "content-type": "text/event-stream" },
+      mode: "sse",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.equal(text, "data: chunk1\n\ndata: chunk2\n\n", "bytes are forwarded verbatim");
+  });
+
+  test("first SSE chunk arrives before completion", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      headers: { "content-type": "text/event-stream" },
+      mode: "sse",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    const reader = res.body.getReader();
+    const first = await reader.read();
+    assert.equal(first.done, false, "the first chunk arrives before completion");
+    assert.ok(first.value && first.value.length > 0, "the first chunk carries bytes");
+    // Drain the rest.
+    while (!(await reader.read()).done) {}
+  });
+});
