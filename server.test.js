@@ -69,34 +69,38 @@ function startStubUpstream(status, body, headers, mode) {
           return;
         }
         if (mode === "sseUsage") {
-          res.write("data: {\"id\":\"1\"}\n\n");
+          res.write('data: {"id":"1"}\n\n');
           setTimeout(() => {
-            res.write("data: {\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":5,\"total_tokens\":10}}\n\n");
+            res.write(
+              'data: {"usage":{"prompt_tokens":5,"completion_tokens":5,"total_tokens":10}}\n\n'
+            );
             res.write("data: [DONE]\n\n");
             res.end();
           }, 5);
           return;
         }
         if (mode === "sseHighUsage") {
-          res.write("data: {\"id\":\"1\"}\n\n");
+          res.write('data: {"id":"1"}\n\n');
           setTimeout(() => {
-            res.write("data: {\"usage\":{\"prompt_tokens\":3000,\"completion_tokens\":3000,\"total_tokens\":6000}}\n\n");
+            res.write(
+              'data: {"usage":{"prompt_tokens":3000,"completion_tokens":3000,"total_tokens":6000}}\n\n'
+            );
             res.write("data: [DONE]\n\n");
             res.end();
           }, 5);
           return;
         }
         if (mode === "sseMalformedUsage") {
-          res.write("data: {\"usage\":\"bad\"}\n\n");
+          res.write('data: {"usage":"bad"}\n\n');
           setTimeout(() => {
             res.end();
           }, 5);
           return;
         }
         if (mode === "sseSplitUsage") {
-          res.write("data: {\"usage\":{\"total_");
+          res.write('data: {"usage":{"total_');
           setTimeout(() => {
-            res.write("tokens\":10}}\n\n");
+            res.write('tokens":10}}\n\n');
             res.end();
           }, 5);
           return;
@@ -4750,7 +4754,9 @@ describe("e04s06 SSE usage reconciliation", () => {
     assert.equal(first.done, false, "the first chunk arrives before completion");
     assert.ok(first.value && first.value.length > 0, "the first chunk carries bytes");
     // Drain the rest.
-    while (!(await reader.read()).done) {}
+    while (!(await reader.read()).done) {
+      /* drain */
+    }
   });
 });
 
@@ -4913,7 +4919,7 @@ describe("e04s06 SSE usage reconciliation", () => {
     const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
     try {
       await res.text();
-    } catch (e) {
+    } catch {
       // expected
     }
 

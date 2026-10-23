@@ -6,7 +6,7 @@ export const SSE_OBSERVATION_BYTE_BOUND = 262144;
 export function createSseObserver(onUsage) {
   const observer = {
     buffer: "",
-    decoder: new TextDecoder("utf-8", { stream: true }),
+    decoder: new TextDecoder("utf-8"),
     detached: false,
     finished: false,
     captured: null,
