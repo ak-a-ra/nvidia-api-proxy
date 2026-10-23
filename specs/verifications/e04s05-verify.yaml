@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 
 story_id: e04s05
-verified_at: "2026-10-22T05:30:00Z"
+verified_at: "2026-10-22T06:20:00Z"
 verifier: verify-work
 branch: e04s05-per-model-budgets
 risk: P0
@@ -14,7 +14,7 @@ bcps: 7
 phases:
   branch_check:
     passed: true
-    detail: "on the e04s05-per-model-budgets worktree (solo-git workflow); the branch base is af4e21c and the story's code commits are 8ced235 (task 4) and its predecessors"
+    detail: "on the e04s05-per-model-budgets worktree (solo-git workflow); the branch base is af4e21c and the story's code commits are 8ced235 (task 4) and its predecessors; the task-5 doc commits are 0360018 (living docs, count, ADR, manifests, evidence) and ce035cd (this task's report)"
   preflight:
     passed: true
     command: "npm test && npm run check"
