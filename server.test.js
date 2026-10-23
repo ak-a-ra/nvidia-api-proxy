@@ -86,6 +86,28 @@ function startStubUpstream(status, body, headers, mode) {
           }, 5);
           return;
         }
+        if (mode === "sseMalformedUsage") {
+          res.write("data: {\"usage\":\"bad\"}\n\n");
+          setTimeout(() => {
+            res.end();
+          }, 5);
+          return;
+        }
+        if (mode === "sseSplitUsage") {
+          res.write("data: {\"usage\":{\"total_");
+          setTimeout(() => {
+            res.write("tokens\":10}}\n\n");
+            res.end();
+          }, 5);
+          return;
+        }
+        if (mode === "sseLargeIncomplete") {
+          res.write("data: " + "a".repeat(270000));
+          setTimeout(() => {
+            res.end();
+          }, 5);
+          return;
+        }
         if (mode === "stall") {
           // One chunk flushes the headers; then silence forever — the idle
           // watchdog must cut this.
@@ -4733,7 +4755,7 @@ describe("e04s06 SSE usage reconciliation", () => {
 });
 
 describe("e04s06 SSE usage reconciliation", () => {
-  const RATE_ON = { PROXY_RPM: "60", PROXY_TPM: "5000", PROXY_SAFETY_MARGIN_PCT: "0" };
+  const RATE_ON = { PROXY_RPM: "60", PROXY_TPM: "1500", PROXY_SAFETY_MARGIN_PCT: "0" };
 
   function chatOpts(body) {
     return {
@@ -4769,7 +4791,7 @@ describe("e04s06 SSE usage reconciliation", () => {
 
   test("lower actual SSE usage credits the reservation", async (t) => {
     const { proxy } = await withProxy(t, {
-      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "5000", PROXY_SAFETY_MARGIN_PCT: "0" },
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1500", PROXY_SAFETY_MARGIN_PCT: "0" },
       headers: { "content-type": "text/event-stream" },
       mode: "sseUsage",
     });
@@ -4783,7 +4805,7 @@ describe("e04s06 SSE usage reconciliation", () => {
 
   test("higher actual SSE usage raises current usage", async (t) => {
     const { proxy } = await withProxy(t, {
-      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "5000", PROXY_SAFETY_MARGIN_PCT: "0" },
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1500", PROXY_SAFETY_MARGIN_PCT: "0" },
       headers: { "content-type": "text/event-stream" },
       mode: "sseHighUsage",
     });
@@ -4796,5 +4818,107 @@ describe("e04s06 SSE usage reconciliation", () => {
     // effective limit, so a follow-up request is rejected.
     const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
     assert.equal(second.status, 429, "raised usage blocks the next request");
+  });
+});
+
+describe("e04s06 SSE usage reconciliation", () => {
+  function chatOpts(body) {
+    return {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: body || JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    };
+  }
+
+  test("missing SSE usage retains the estimate", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1500", PROXY_SAFETY_MARGIN_PCT: "0" },
+      headers: { "content-type": "text/event-stream" },
+      mode: "sse",
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200);
+    await first.text();
+
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "missing usage keeps the estimate");
+  });
+
+  test("malformed SSE usage retains the estimate", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1500", PROXY_SAFETY_MARGIN_PCT: "0" },
+      headers: { "content-type": "text/event-stream" },
+      mode: "sseMalformedUsage",
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200);
+    await first.text();
+
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "malformed usage keeps the estimate");
+  });
+
+  test("usage split across chunk boundaries is reconciled", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1500", PROXY_SAFETY_MARGIN_PCT: "0" },
+      headers: { "content-type": "text/event-stream" },
+      mode: "sseSplitUsage",
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200);
+    await first.text();
+
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 200, "split usage is reconciled and credits capacity");
+  });
+
+  test("incomplete event over bound detaches observation", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1500", PROXY_SAFETY_MARGIN_PCT: "0" },
+      headers: { "content-type": "text/event-stream" },
+      mode: "sseLargeIncomplete",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.equal(text.length, "data: ".length + 270000, "pass-through is unaffected by detach");
+
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "detached observation keeps the estimate");
+  });
+
+  test("client disconnect retains the estimate", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1500", PROXY_SAFETY_MARGIN_PCT: "0" },
+      headers: { "content-type": "text/event-stream" },
+      mode: "sse",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    const reader = res.body.getReader();
+    const first = await reader.read();
+    assert.equal(first.done, false);
+    await reader.cancel();
+
+    await new Promise((r) => setTimeout(r, 50));
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "a client disconnect keeps the estimate");
+  });
+
+  test("mid-stream SSE failure retains the estimate", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1500", PROXY_SAFETY_MARGIN_PCT: "0" },
+      headers: { "content-type": "text/event-stream" },
+      mode: "midabort",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    try {
+      await res.text();
+    } catch (e) {
+      // expected
+    }
+
+    await new Promise((r) => setTimeout(r, 50));
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "a mid-stream failure keeps the estimate");
   });
 });
