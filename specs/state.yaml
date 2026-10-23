@@ -7,33 +7,30 @@
 ```yaml
 vcs:
   kind: git
-  commit: 444ccff
-  branch: e04s05-per-model-budgets
-  worktree: /data/data/com.termux/files/home/workspace/e04s05-per-model-budgets
+  commit: 959d914
+  branch: main
+  worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
   landed:
-    story: e04s04
-    commit: b31c455
+    story: e04s05
+    commit: 959d914
     branch: main
-    ci_run: 38955576847
-    ci_status: success
+    ci_run: null
+    ci_status: pending
 workflow_mode: solo-git
-active_flow: build_epic
+active_flow: plan-release
 active_epic: e04
-active_story: e04s05
+active_story: e04s06
 session_start: 2026-10-16T18:02:00Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: delegate-task
-  source: survey-context
+  next_skill: plan-work
+  source: verify-work
   note: >-
-    e04s05 tasks 1 to 4 are implemented and reviewed on the
-    e04s05-per-model-budgets branch, 19 commits ahead of main. The suite is
-    161 of 161 green and npm run check is clean. Task 5, the living-doc sync
-    with the test-count sync, the two test-title renames, the ADR 0002
-    amendment, and the manifest status, is briefed at
-    specs/epics/e04-rate-limiting/briefs/e04s05-t05.md and is the only ledger
-    row still failing. Next: dispatch the task-5 implementer, then the task-5
-    reviewer, then the whole-story review and the land.
+    e04s05 landed on main: budget.js (per-model windows, atomic reserve with
+    model_rpm/model_tpm reasons, estimator model field), server.js passes
+    config.modelLimits to createBudget, 161 tests green, npm run check clean.
+    Chain head is now e04s06 (issue #19, SSE usage reconciliation). Next: plan-work.
+
 decisions:
   - decision: Per-model window pairs are built at construction time, and the story's "lazily" sentence is corrected
     rationale: >-
