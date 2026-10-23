@@ -4633,3 +4633,44 @@ describe("e04s05 per-model budgets", () => {
     assert.equal(Object.prototype.rpm, undefined, "Object.prototype is unchanged");
   });
 });
+
+describe("e04s06 SSE usage reconciliation", () => {
+  test("reservation is returned and reconciles a valid total", () => {
+    const budget = createBudget({ rpm: 60, tpm: 60 }, { safetyMarginPct: 0 }, null);
+    const first = budget.reserve({ requestCharge: 1, totalTokens: 50, model: null });
+    assert.equal(first.admitted, true, "the first request is admitted");
+    assert.ok(first.reservation, "a reservation handle is returned");
+    assert.equal(budget.reconciledCount, 0, "nothing reconciled yet");
+
+    const ok = first.reservation.reconcile(10);
+    assert.equal(ok, true, "a valid total reconciles");
+    assert.equal(budget.reconciledCount, 1, "the reconciled counter increments");
+
+    // The freed capacity is observable: a second 50-token request now fits
+    // in a 60-token window because the first cost only 10.
+    const second = budget.reserve({ requestCharge: 1, totalTokens: 50, model: null });
+    assert.equal(second.admitted, true, "reconciliation credited the window");
+  });
+
+  test("reconciliation is a no-op the second time", () => {
+    const budget = createBudget({ rpm: 60, tpm: 60 }, { safetyMarginPct: 0 }, null);
+    const first = budget.reserve({ requestCharge: 1, totalTokens: 50, model: null });
+    assert.equal(first.reservation.reconcile(10), true, "the first reconciliation succeeds");
+    assert.equal(first.reservation.reconcile(20), false, "the second is a no-op");
+    assert.equal(budget.reconciledCount, 1, "the counter is not incremented again");
+  });
+
+  test("unusable usage records one fallback", () => {
+    const budget = createBudget({ rpm: 60, tpm: 60 }, { safetyMarginPct: 0 }, null);
+    const first = budget.reserve({ requestCharge: 1, totalTokens: 50, model: null });
+    const ok = first.reservation.reconcile(null);
+    assert.equal(ok, false, "unusable usage does not reconcile");
+    assert.equal(budget.fallbackCount, 1, "one fallback is recorded");
+    assert.equal(budget.reconciledCount, 0, "nothing is reconciled");
+
+    // The estimate stands: a second 50-token request does not fit in a
+    // 60-token window that still carries the original 50.
+    const second = budget.reserve({ requestCharge: 1, totalTokens: 50, model: null });
+    assert.equal(second.admitted, false, "the estimate is retained");
+  });
+});
