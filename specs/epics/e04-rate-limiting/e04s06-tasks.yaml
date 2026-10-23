@@ -1,0 +1,133 @@
+story_id: e04s06
+title: Reconcile SSE usage without breaking streaming
+status: failing
+bcps: 8
+issue: 19
+type: feat
+risk: P0
+context: infra
+tasks:
+  - id: 1
+    description: >
+      Make budget.reserve return a reconcilable reservation handle. On admission, charge the global
+      and model windows as before, but also retain the token-event handles inside a reservation
+      object. The reservation exposes reconcile(actualTotalTokens): a valid finite non-negative
+      number replaces the estimate in every token event it holds (global and model), increments
+      reconciledCount, and returns true; any other value keeps the estimate, increments
+      fallbackCount, and returns false. A reservation reconciles at most once. Expose
+      reconciledCount and fallbackCount on the budget object. Add tests under
+      describe("e04s06 SSE usage reconciliation"): reservation is returned and reconciles a valid
+      total; reconciliation is a no-op the second time; unusable usage records one fallback.
+    verify: >-
+      out=$(node --test --test-reporter=tap --test-name-pattern 'reservation is returned and reconciles|reconciliation is a no-op|unusable usage records one fallback' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(reservation is returned and reconciles|reconciliation is a no-op|unusable usage records one fallback)'); test "$n" -ge 3
+    risk: P0
+    security: none
+    status: pending
+    allure:
+      severity: critical
+      categories:
+        - "Rate Limiting"
+        - "Usage Reconciliation"
+
+  - id: 2
+    description: >
+      Add observer.js exporting createSseObserver(onUsage) and SSE_OBSERVATION_BYTE_BOUND (262144).
+      The observer decodes chunks with a streaming TextDecoder, retains incomplete event state
+      across observe() calls, splits events on blank-line delimiters, collects data: lines,
+      parses JSON, and captures the last usable usage total (total_tokens, else prompt_tokens +
+      completion_tokens). observe() never throws. end() flushes the decoder, parses a final
+      incomplete event within the bound, and invokes onUsage with the captured total or null.
+      An incomplete event exceeding the bound detaches observation. Integrate it into server.js:
+      in rate-limit mode, for text/event-stream responses, pipe the upstream body through a
+      pass-through Transform that forwards every byte unchanged and feeds a copy to the observer;
+      pipeline(transform, res) owns the error path. Non-SSE and disabled mode keep
+      pipeline(src, res). Add tests: SSE bytes are byte-identical to upstream; first SSE chunk
+      arrives before completion.
+    verify: >-
+      out=$(node --test --test-reporter=tap --test-name-pattern 'SSE bytes are byte-identical to upstream|first SSE chunk arrives before completion' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(SSE bytes are byte-identical to upstream|first SSE chunk arrives before completion)'); test "$n" -ge 2
+    risk: P0
+    security: none
+    status: pending
+    allure:
+      severity: critical
+      categories:
+        - "Rate Limiting"
+        - "Streaming"
+
+  - id: 3
+    description: >
+      Reconcile on successful completion. In the pipeline callback, when there is no error and a
+      reservation exists, call observer.end() and then reservation.reconcile(capturedTotal),
+      where capturedTotal is the observer's value or null. This replaces the estimate with actual
+      usage in both global and model windows. Add a test: SSE usage is reconciled into the
+      reservation (a request estimated at 4096 tokens reporting usage.total_tokens 10 ends with
+      the reservation's token cost at 10).
+    verify: >-
+      out=$(node --test --test-reporter=tap --test-name-pattern 'SSE usage is reconciled into the reservation' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*SSE usage is reconciled into the reservation'); test "$n" -ge 1
+    risk: P0
+    security: none
+    status: pending
+    allure:
+      severity: critical
+      categories:
+        - "Rate Limiting"
+        - "Usage Reconciliation"
+
+  - id: 4
+    description: >
+      Prove the credited and raised outcomes. Add tests: lower actual SSE usage credits the
+      reservation (a first request estimated high but reporting low actual usage lets a second
+      request inside the window be admitted); higher actual SSE usage raises current usage
+      (current usage after the stream exceeds the estimate and the delivered stream is untouched).
+    verify: >-
+      out=$(node --test --test-reporter=tap --test-name-pattern 'lower actual SSE usage credits the reservation|higher actual SSE usage raises current usage' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(lower actual SSE usage credits the reservation|higher actual SSE usage raises current usage)'); test "$n" -ge 2
+    risk: P0
+    security: none
+    status: pending
+    allure:
+      severity: high
+      categories:
+        - "Rate Limiting"
+        - "Usage Reconciliation"
+
+  - id: 5
+    description: >
+      Cover the fallback and abnormal-termination paths. Add tests: missing SSE usage retains the
+      estimate and records one fallback; malformed SSE usage retains the estimate and records one
+      fallback; usage split across chunk boundaries is reconciled; incomplete event over bound
+      detaches observation without affecting pass-through; client disconnect retains the estimate;
+      mid-stream SSE failure retains the estimate. In all fallback cases no reconciliation to zero
+      occurs.
+    verify: >-
+      out=$(node --test --test-reporter=tap --test-name-pattern 'retains the estimate|usage split across chunk boundaries is reconciled|incomplete event over bound detaches observation' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(retains the estimate|usage split across chunk boundaries is reconciled|incomplete event over bound detaches observation)'); test "$n" -ge 6
+    risk: P1
+    security: none
+    status: pending
+    allure:
+      severity: high
+      categories:
+        - "Rate Limiting"
+        - "Failure Modes"
+
+  - id: 6
+    description: >
+      Sync the living docs and the test count: CONVENTIONS.md rate-limit and observer entries,
+      tech-stack.md startup config table and gray areas, README budget comment block, AGENTS.md
+      test count, the epic manifest (set e04s06 status to passing, bcps to 8, add spec and tasks
+      filenames, unblock e04s07), execution-status.yaml (e04s06: passing), and the test count in
+      every living doc. Amend ADR 0002 to record that SSE usage reconciliation is implemented.
+      Update CONTEXT.md glossary so Usage reconciliation is no longer a no-implementation note.
+      Do NOT touch plans/*.md or docs/research/config-invariant-guard-tests.md.
+    verify: |-
+      N=$(node --test --test-reporter=tap server.test.js 2>&1 | grep -E '^# tests [0-9]+$' | grep -oE '[0-9]+')
+      hits=$(grep -rnE '(^|[^A-Za-z0-9])[0-9]{2,4}[ -]tests?\b|tests-[0-9]{2,4}|\(currently [0-9]+\)' --include='*.md' --include='*.yaml' . | grep -v '^\./plans/' | grep -v 'docs/research/config-invariant-guard-tests' | grep -v '/briefs/' | grep -v '^\./LOG.md' | grep -v '/specs/verifications/' | grep -v -- '-tasks.yaml')
+      bad=$(printf '%s\n' "$hits" | grep -vE "(^|[^A-Za-z0-9])${N}[ -]tests?\b|tests-${N}\b|\(currently ${N}\)")
+      printf '%s\n' "$hits"
+      test -z "$bad"
+    risk: P2
+    security: none
+    status: pending
+    allure:
+      severity: normal
+      categories:
+        - "Documentation"

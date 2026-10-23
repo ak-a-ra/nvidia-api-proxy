@@ -23,13 +23,14 @@ active_story: e04s06
 session_start: 2026-10-16T18:02:00Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: plan-work
-  source: verify-work
+  next_skill: kickoff-branch
+  source: plan-work
   note: >-
     e04s05 landed on main: budget.js (per-model windows, atomic reserve with
     model_rpm/model_tpm reasons, estimator model field), server.js passes
     config.modelLimits to createBudget, 161 tests green, npm run check clean.
-    Chain head is now e04s06 (issue #19, SSE usage reconciliation). Next: plan-work.
+    e04s06 planned (issue #19, SSE usage reconciliation): spec and tasks written, 8 BCPs.
+    Next: kickoff-branch for e04s06, then develop-tdd.
 
 decisions:
   - decision: Per-model window pairs are built at construction time, and the story's "lazily" sentence is corrected
