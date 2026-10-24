@@ -7,24 +7,24 @@
 ```yaml
 vcs:
   kind: git
-  commit: 63fecf0
+  commit: bcc194c
   branch: e04s06-reconcile-sse-usage
   worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
   landed:
-    story: e04s05
-    commit: 959d914
+    story: e04s06
+    commit: bcc194c
     branch: main
     ci_run: null
     ci_status: pending
 workflow_mode: solo-git
 active_flow: plan-release
 active_epic: e04
-active_story: e04s06
+active_story: e04s07
 session_start: 2026-10-16T18:02:00Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: commit-message
-  source: develop-tdd
+  next_skill: plan-work
+  source: release-branch
   note: >-
     e04s05 landed on main: budget.js (per-model windows, atomic reserve with
     model_rpm/model_tpm reasons, estimator model field), server.js passes
