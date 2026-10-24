@@ -7,8 +7,8 @@
 ```yaml
 vcs:
   kind: git
-  commit: 959d914
-  branch: main
+  commit: 63fecf0
+  branch: e04s06-reconcile-sse-usage
   worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
   landed:
     story: e04s05
