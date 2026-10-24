@@ -7,12 +7,12 @@
 ```yaml
 vcs:
   kind: git
-  commit: bcc194c
+  commit: c226451
   branch: e04s06-reconcile-sse-usage
   worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
   landed:
     story: e04s06
-    commit: bcc194c
+    commit: c226451
     branch: main
     ci_run: null
     ci_status: pending
