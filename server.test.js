@@ -5327,10 +5327,27 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     });
     const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
     assert.equal(res.status, 200);
+    assert.notEqual(res.status, 502, "disconnected client never receives a proxy 502");
     const reader = res.body.getReader();
-    const first = await reader.read();
-    assert.equal(first.done, false);
+    const firstRead = await reader.read();
+    assert.equal(firstRead.done, false);
+    const firstReadValue = firstRead.value ? new TextDecoder().decode(firstRead.value) : "";
+    assert.ok(!firstReadValue.includes("Bad gateway"), "first chunk is not a 502 body");
     await reader.cancel();
+    let postCancelRead = null;
+    let postCancelError = null;
+    try {
+      postCancelRead = await reader.read();
+    } catch (err) {
+      postCancelError = err;
+    }
+    const postCancelValue =
+      postCancelRead && postCancelRead.value ? new TextDecoder().decode(postCancelRead.value) : "";
+    assert.ok(!postCancelValue.includes("Bad gateway"), "post-cancel read carries no 502 body");
+    assert.ok(
+      postCancelError || (postCancelRead && postCancelRead.done),
+      "post-cancel read terminates instead of delivering a 502"
+    );
     await assertUpstreamAborted(teardowns);
     await new Promise((r) => setTimeout(r, 50));
     const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
