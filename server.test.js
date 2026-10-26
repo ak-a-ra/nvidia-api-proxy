@@ -4949,4 +4949,13 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     obs.end();
     assert.equal(total, null);
   });
+  test("json observer returns null for malformed usage", () => {
+    let total = "unset";
+    const obs = createJsonObserver((t) => {
+      total = t;
+    });
+    obs.observe(Buffer.from(JSON.stringify({ usage: { total_tokens: "bad" } })));
+    obs.end();
+    assert.equal(total, null);
+  });
 });
