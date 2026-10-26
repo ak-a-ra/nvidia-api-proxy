@@ -16,7 +16,10 @@ Task 3: human ruling — rewrite local unpushed history; HEAD stays honest RED, 
 Task 3: fix round 1/5 (4 addressed, 1 open — report retained stray shell text; commits f2f5464..1f049f1)
 Task 3: fix round 2/5 (1 addressed, 0 open — remove stray report shell text; commits 1f049f1..597f9e2)
 Task 3: complete (commits f2f5464..597f9e2, review clean)
-Task 4: in progress
-Task 5: todo
+Task 4: fix round 1/5 (3 addressed, 1 open — full-suite evidence consistency; commits eacc987..4d23ca0)
+Task 4: fix round 2/5 (1 addressed, 1 open — stale fix-round suite count; commits 4d23ca0..ca33b68)
+Task 4: fix round 3/5 (1 addressed, 0 open — correct fix-round suite evidence; commits ca33b68..5d014a5)
+Task 4: complete (commits 901eec0..5d014a5, review clean)
+Task 5: in progress
 Task 6: todo
 Final review: todo
