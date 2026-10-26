@@ -4,9 +4,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import zlib from "node:zlib";
 import { createBudget, estimateCost } from "./budget.js";
-import { createJsonObserver } from "./observer.js";
-import { JSON_OBSERVATION_BYTE_BOUND } from "./observer.js";
-import { usageTotalFromUsage } from "./observer.js";
+import { createJsonObserver, JSON_OBSERVATION_BYTE_BOUND, usageTotalFromUsage } from "./observer.js";
 
 // Stub upstream: records requests, returns canned responses, can be told to
 // stream SSE, return multi-value set-cookie, abort mid-stream, or be unreachable.
