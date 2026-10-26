@@ -4,7 +4,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { parseConfig, CONNECT_TIMEOUT_SECONDS, IDLE_TIMEOUT_SECONDS } from "./config.js";
 import { createAdmission, REJECTION_REASONS } from "./admission.js";
 import { createBudget, estimateCost } from "./budget.js";
-import { createSseObserver } from "./observer.js";
+import { createSseObserver, createJsonObserver } from "./observer.js";
 
 const PORT = Number(process.env.PORT || 10000);
 
@@ -455,11 +455,32 @@ const server = http.createServer(async (req, res) => {
       budget.enabled &&
       Boolean(budgetReservation) &&
       String(upstream.headers.get("content-type") || "").includes("text/event-stream");
+    const isJson = budget.enabled && Boolean(budgetReservation) && !isSse && Boolean(upstream.body);
     let sseObserver = null;
+    let jsonObserver = null;
     let observedUsage = null;
     if (isSse) {
       sseObserver = createSseObserver((usage) => {
         observedUsage = usage;
+      });
+    }
+    if (isJson) {
+      jsonObserver = createJsonObserver((usage) => {
+        observedUsage = usage;
+      });
+    }
+
+    if (isJson && jsonObserver) {
+      src.on("data", (chunk) => {
+        try {
+          jsonObserver.observe(chunk);
+        } catch {
+          try {
+            jsonObserver.detach();
+          } catch {
+            // ignore
+          }
+        }
       });
     }
 
@@ -472,11 +493,26 @@ const server = http.createServer(async (req, res) => {
           // Observer failures must never affect pass-through.
         }
       }
+      if (jsonObserver) {
+        try {
+          jsonObserver.end();
+        } catch {
+          // Observer failures must never affect pass-through.
+        }
+      }
       res.removeListener("close", onDownstreamClose);
       // Reconcile only on successful completion. A disconnect, a mid-stream
       // failure, or a shutdown that cuts the stream keeps the estimate.
-      if (!error && budgetReservation && sseObserver) {
-        budgetReservation.reconcile(observedUsage);
+      if (!error && budgetReservation && (sseObserver || jsonObserver)) {
+        if (sseObserver) {
+          budgetReservation.reconcile(observedUsage);
+        } else if (
+          jsonObserver &&
+          observedUsage !== null &&
+          observedUsage <= budgetReservation.cost.totalTokens
+        ) {
+          budgetReservation.reconcile(observedUsage);
+        }
       }
       if (error) {
         // error.code names the abort source (e.g. UND_ERR_BODY_TIMEOUT from
