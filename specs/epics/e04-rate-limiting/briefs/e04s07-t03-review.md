@@ -56,3 +56,20 @@
 - "Removed stray shell text from the report" (deviation item 1) is false while the stray lines remain.
 
 TL;DR: Fix round 1 addresses all but one original finding; scoped verdict FAIL due to the still-present stray shell text in the report. Open count: 1.
+## Fix round 2 scoped re-review
+
+### Open finding from round 1
+
+- Stray `EOF` / `echo written` in report.
+
+### Disposition
+
+- **ADDRESSED.**
+- Evidence (file:line): `specs/epics/e04-rate-limiting/briefs/e04s07-t03-report.md` now ends at the `TL;DR` line (verified with `tail`; no `EOF` or `echo written`). Round 2 commit `96cfa2f` removed both lines and added a `## Fix round 2` section recording the cleanup and `git diff --check`.
+- New breakage in fix diff only: none. The fix touches only the report (`+5 -2`), and `git diff --check 1f049f1..HEAD` is clean.
+
+### Fix round 2 summary
+
+- Addressed count: 1
+- Open count: 0
+- Scoped verdict: PASS
