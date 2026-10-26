@@ -178,7 +178,11 @@ export function createJsonObserver(onUsage) {
       }
       this.chunks = [];
       this.byteTotal = 0;
-      if (typeof onUsage === "function") onUsage(total);
+      try {
+        if (typeof onUsage === "function") onUsage(total);
+      } catch (error) {
+        // ignore callback failure
+      }
     },
 
     detach() {
@@ -189,7 +193,11 @@ export function createJsonObserver(onUsage) {
       if (!this.outcomeDelivered) {
         this.outcomeDelivered = true;
         this.finished = true;
-        if (typeof onUsage === "function") onUsage(null);
+        try {
+          if (typeof onUsage === "function") onUsage(null);
+        } catch (error) {
+          // ignore callback failure
+        }
       }
     },
   };
