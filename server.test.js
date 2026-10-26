@@ -6,6 +6,7 @@ import zlib from "node:zlib";
 import { createBudget, estimateCost } from "./budget.js";
 import { createJsonObserver } from "./observer.js";
 import { JSON_OBSERVATION_BYTE_BOUND } from "./observer.js";
+import { usageTotalFromUsage } from "./observer.js";
 
 // Stub upstream: records requests, returns canned responses, can be told to
 // stream SSE, return multi-value set-cookie, abort mid-stream, or be unreachable.
@@ -5026,5 +5027,37 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     });
     obs3.observe(Buffer.from(JSON.stringify({ usage: { total_tokens: 1 } })));
     assert.doesNotThrow(() => obs3.end(), "callback failure is contained");
+  });
+  test("usageTotalFromUsage rejects unusable values", () => {
+    assert.equal(usageTotalFromUsage({ total_tokens: 5 }), 5);
+    assert.equal(usageTotalFromUsage({ total_tokens: 1.5 }), 1.5);
+    assert.equal(usageTotalFromUsage({ prompt_tokens: 2, completion_tokens: 3 }), 5);
+    assert.equal(
+      usageTotalFromUsage({ total_tokens: -1, prompt_tokens: 1, completion_tokens: 2 }),
+      3,
+      "negative total falls back to components",
+    );
+    assert.equal(
+      usageTotalFromUsage({ total_tokens: Number.NaN, prompt_tokens: 1, completion_tokens: 2 }),
+      3,
+      "non-finite total falls back to components",
+    );
+
+    // unusable inputs
+    assert.equal(usageTotalFromUsage(undefined), null);
+    assert.equal(usageTotalFromUsage(null), null);
+    assert.equal(usageTotalFromUsage([1, 2]), null);
+    assert.equal(usageTotalFromUsage(42), null);
+    assert.equal(usageTotalFromUsage("x"), null);
+    assert.equal(usageTotalFromUsage({}), null);
+    assert.equal(usageTotalFromUsage({ total_tokens: -1 }), null);
+    assert.equal(usageTotalFromUsage({ total_tokens: Number.NaN }), null);
+    assert.equal(usageTotalFromUsage({ total_tokens: Number.POSITIVE_INFINITY }), null);
+    assert.equal(usageTotalFromUsage({ total_tokens: "5" }), null);
+    assert.equal(usageTotalFromUsage({ prompt_tokens: -1, completion_tokens: 1 }), null);
+    assert.equal(usageTotalFromUsage({ prompt_tokens: 1, completion_tokens: Number.NaN }), null);
+    assert.equal(usageTotalFromUsage({ prompt_tokens: "1", completion_tokens: 1 }), null);
+    assert.equal(usageTotalFromUsage({ prompt_tokens: 1 }), null);
+    assert.equal(usageTotalFromUsage({ completion_tokens: 1 }), null);
   });
 });
