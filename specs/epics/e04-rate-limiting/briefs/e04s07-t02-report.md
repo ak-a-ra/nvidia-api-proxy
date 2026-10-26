@@ -95,14 +95,35 @@ The higher-actual test uses `PROXY_TPM: "2500"` rather than `1500` so the pre-in
 - Observer creation: one `createJsonObserver` when `isJson`, callback stores the observed total in the existing `observedUsage` variable.
 - Data listener: `src.on("data", ...)` registers `jsonObserver.observe(chunk)` with try/catch and `detach()` on failure, beside the existing `src.on("data", armIdle)` idle watchdog listener.
 - Forwarding chain unchanged: `pipeline(src, res, onComplete)` remains the non-SSE path; no Transform or other stream stage is inserted.
-- Completion path: `onComplete` ends `jsonObserver` (and `sseObserver`) and, only when `!error && budgetReservation && (sseObserver || jsonObserver)`, reconciles. The SSE branch reconciles unconditionally on success; the non-streaming branch reconciles a finite usable actual, with the final implementation reconciling any such actual.
+- Completion path: `onComplete` ends `jsonObserver` (and `sseObserver`) and, only when `!error && budgetReservation && (sseObserver || jsonObserver)`, reconciles exactly once with `observedUsage`, including `null`. Missing, malformed, or unusable usage therefore records one fallback and keeps the estimate. The SSE branch follows the same contract.
 - Overflow: observer detaches at the 1,048,576-byte bound and delivers `null`; reconciliation retains the estimate.
 
 ## Concerns and facts for later tasks
 
-- The first incremental GREEN intentionally did not reconcile an actual above the estimate; the final GREEN fixes this. No residual condition remains in the final tree.
+- Successful non-streaming reconciliation is unconditional with respect to a usable observed total: `reconcile(observedUsage)` is called once, including when `observedUsage === null`. No upper-bound or null guard remains in the completion path.
 - `jsonObserver.end()` is called unconditionally in `onComplete` (including error completions), matching the existing SSE handling; reconciliation is still gated on `!error`, so abnormal completions record no outcome.
 - Task 3 must handle the `!upstream.body` branch and no-body terminals; those paths are untouched here.
 - Task 4 abnormal-terminal behavior relies on the same `!error` gate and observer detach semantics established here.
 - The original review file `e04s07-t02-review.md` is preserved from review commit `b3815da`; its must-fix finding about TDD commit policy is addressed by this rewrite.
 - Full suite runtime is about 4.5 minutes.
+
+
+## Fix round 2 (re-review)
+
+MUST-FIX addressed: successful non-streaming completion now calls
+`budgetReservation.reconcile(observedUsage)` once even when `observedUsage === null`.
+Missing, malformed, or unusable usage records one fallback and keeps the estimate.
+SSE and error-completion behavior are unchanged.
+
+Code change: `server.js` `onComplete` no longer skips reconciliation for null
+observed usage; the non-streaming branch reconciles exactly once with
+`observedUsage`.
+
+Focused verification:
+- `node --test --test-name-pattern 'missing non-streaming usage retains the estimate' server.test.js` → 1 pass, 0 fail.
+- `node --test --test-name-pattern 'malformed non-streaming usage retains the estimate' server.test.js` → 1 pass, 0 fail.
+
+No new HTTP assertion was added. Fallback counters are internal and are not
+exposed until e04s08; budget-level `reconcile(null)` behavior already has
+reviewed unit coverage, and the existing missing/malformed characterization
+tests cover estimate retention.
