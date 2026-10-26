@@ -5473,12 +5473,10 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     assert.equal(await first.text(), JSON.stringify({ usage: { total_tokens: 12 }, marker: "ok" }));
     assert.equal(receivedRequests.length, 1);
 
-
     const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
     assert.equal(second.status, 204);
     await second.text();
     assert.equal(receivedRequests.length, 2);
-
 
     const headRes = await proxiedFetch(proxy.port, "/v1/chat/completions", {
       method: "HEAD",
@@ -5491,7 +5489,6 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     );
     assert.equal(await headRes.text(), "");
     assert.equal(receivedRequests.length, 3);
-
 
     const fourth = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
     assert.equal(fourth.status, 200);
@@ -5533,5 +5530,20 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     assert.equal(second, false, "a second reconciliation is a no-op");
     assert.equal(budget.reconciledCount, 1, "reconciledCount stays one");
     assert.equal(budget.fallbackCount, 0, "no fallback is recorded");
+  });
+
+  test("counters do not double-count across repeated paths", () => {
+    const budget = createBudget({ rpm: 60, tpm: 60 }, { safetyMarginPct: 0 }, null);
+    const first = budget.reserve({ requestCharge: 1, totalTokens: 50, model: null });
+    const one = first.reservation.reconcile(null);
+    assert.equal(one, false, "fallback does not reconcile");
+    const two = first.reservation.reconcile(null);
+    assert.equal(two, false, "a second fallback records none");
+    assert.equal(budget.fallbackCount, 1, "fallbackCount stays one");
+    assert.equal(budget.reconciledCount, 0, "nothing is reconciled");
+    const three = first.reservation.reconcile(10);
+    assert.equal(three, false, "a later reconcile adds no outcome");
+    assert.equal(budget.fallbackCount, 1, "fallbackCount unchanged");
+    assert.equal(budget.reconciledCount, 0, "reconciledCount unchanged");
   });
 });
