@@ -17,6 +17,7 @@ import {
 function startStubUpstream(status, body, headers, mode) {
   return new Promise((resolve) => {
     const receivedRequests = [];
+    let requestCount = 0;
     // One record per arriving request, in arrival order. Registered at request
     // entry (not in the `end` handler) so a request aborted mid-body still
     // produces a record.
@@ -25,6 +26,7 @@ function startStubUpstream(status, body, headers, mode) {
     // triggers them to release admitted requests and observe queueing.
     const heldResponses = [];
     const srv = http.createServer((req, res) => {
+      requestCount += 1;
       let resolveClosed;
       const record = {
         reqAborted: false,
@@ -141,6 +143,11 @@ function startStubUpstream(status, body, headers, mode) {
         if (mode === "midabort") {
           res.write("data: partial");
           req.socket.destroy();
+          return;
+        }
+        if (mode === "midabortOnce" && requestCount === 1) {
+          res.write('{"partial":true');
+          setImmediate(() => req.socket.destroy());
           return;
         }
         if (mode === "abortable") {
@@ -5280,5 +5287,32 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     const health = await fetch(`http://127.0.0.1:${proxy.port}/health`);
     assert.equal(health.status, 200);
     assert.deepEqual(await health.json(), { status: "ok" });
+  });
+
+  test("mid-stream non-streaming failure destroys only the response", async (t) => {
+    const body = JSON.stringify({ usage: { total_tokens: 12 }, marker: "ok" });
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "100000", PROXY_SAFETY_MARGIN_PCT: "0" },
+      status: 200,
+      body,
+      headers: { "content-type": "application/json" },
+      mode: "midabortOnce",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(res.status, 200);
+    let readError = null;
+    let received = "";
+    try {
+      received = await res.text();
+    } catch (err) {
+      readError = err;
+    }
+    assert.ok(readError || received.length < body.length, "response terminated mid-body");
+    await new Promise((r) => setTimeout(r, 50));
+    const health = await fetch(`http://127.0.0.1:${proxy.port}/health`);
+    assert.equal(health.status, 200);
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 200);
+    assert.equal(await second.text(), body);
   });
 });
