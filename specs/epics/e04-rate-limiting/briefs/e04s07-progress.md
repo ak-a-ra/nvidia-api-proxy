@@ -12,8 +12,11 @@ Task 2: human ruling — rewrite local unpushed history; four pre-existing behav
 Task 2: fix round 1/5 (2 original findings addressed, 2 new findings open — null fallback reconciliation and report overstatement; commits 7d3528c..f835bd6)
 Task 2: fix round 2/5 (2 addressed, 0 open — unconditional successful non-streaming reconciliation and report accuracy; commits f835bd6..9ae917d)
 Task 2: complete (commits 7d3528c..9ae917d, review clean)
-Task 3: in progress
-Task 4: todo
+Task 3: human ruling — rewrite local unpushed history; HEAD stays honest RED, GET/HEAD supporting fix and no-body fallback split into separate GREEN commits
+Task 3: fix round 1/5 (4 addressed, 1 open — report retained stray shell text; commits f2f5464..1f049f1)
+Task 3: fix round 2/5 (1 addressed, 0 open — remove stray report shell text; commits 1f049f1..597f9e2)
+Task 3: complete (commits f2f5464..597f9e2, review clean)
+Task 4: in progress
 Task 5: todo
 Task 6: todo
 Final review: todo
