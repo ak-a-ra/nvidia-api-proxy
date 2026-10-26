@@ -3,6 +3,25 @@
 // client. The request path owns the bytes; this module owns the copy.
 export const SSE_OBSERVATION_BYTE_BOUND = 262144;
 
+export function usageTotalFromUsage(usage) {
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) return null;
+  const total = usage.total_tokens;
+  if (typeof total === "number" && Number.isFinite(total) && total >= 0) return total;
+  const prompt = usage.prompt_tokens;
+  const completion = usage.completion_tokens;
+  if (
+    typeof prompt === "number" &&
+    Number.isFinite(prompt) &&
+    prompt >= 0 &&
+    typeof completion === "number" &&
+    Number.isFinite(completion) &&
+    completion >= 0
+  ) {
+    return prompt + completion;
+  }
+  return null;
+}
+
 export const JSON_OBSERVATION_BYTE_BOUND = 1048576;
 
 export function createSseObserver(onUsage) {
@@ -73,9 +92,9 @@ export function createSseObserver(onUsage) {
       if (data === "" || data === "[DONE]") return;
       try {
         const json = JSON.parse(data);
-        const usage = json?.usage;
-        if (this.isValidUsage(usage)) {
-          this.captured = this.usageTotal(usage);
+        const total = usageTotalFromUsage(json?.usage);
+        if (total !== null) {
+          this.captured = total;
         }
       } catch (error) {
         // Malformed usage or event: retain any previously captured usage.
@@ -83,24 +102,11 @@ export function createSseObserver(onUsage) {
     },
 
     isValidUsage(usage) {
-      if (!usage || typeof usage !== "object" || Array.isArray(usage)) return false;
-      if (
-        Number.isFinite(usage.total_tokens) &&
-        usage.total_tokens >= 0
-      ) {
-        return true;
-      }
-      return (
-        Number.isFinite(usage.prompt_tokens) &&
-        usage.prompt_tokens >= 0 &&
-        Number.isFinite(usage.completion_tokens) &&
-        usage.completion_tokens >= 0
-      );
+      return usageTotalFromUsage(usage) !== null;
     },
 
     usageTotal(usage) {
-      if (Number.isFinite(usage.total_tokens)) return usage.total_tokens;
-      return usage.prompt_tokens + usage.completion_tokens;
+      return usageTotalFromUsage(usage);
     },
 
     detach() {
@@ -171,8 +177,7 @@ export function createJsonObserver(onUsage) {
         const buf = Buffer.concat(this.chunks);
         const text = buf.toString("utf8");
         const json = JSON.parse(text);
-        const v = json?.usage?.total_tokens;
-        total = typeof v === "number" ? v : null;
+        total = usageTotalFromUsage(json?.usage);
       } catch (error) {
         total = null;
       }
