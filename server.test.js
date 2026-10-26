@@ -58,6 +58,39 @@ function startStubUpstream(status, body, headers, mode) {
           contentEncoding: req.headers["content-encoding"],
           setCookie: req.headers["set-cookie"],
         });
+        if (mode === "t05seq1") {
+          if (requestCount === 1) {
+            const b = JSON.stringify({ usage: { total_tokens: 12 } });
+            res.writeHead(200, {
+              "content-type": "application/json",
+              "content-length": String(Buffer.byteLength(b)),
+            });
+            res.end(b);
+            return;
+          }
+          if (requestCount === 2) {
+            res.writeHead(204, { "content-type": "application/json" });
+            res.end();
+            return;
+          }
+          if (requestCount === 3) {
+            const b = JSON.stringify({ error: "rate limited" });
+            res.writeHead(429, {
+              "content-type": "application/json",
+              "retry-after": "1",
+              "content-length": String(Buffer.byteLength(b)),
+            });
+            res.end(b);
+            return;
+          }
+          const b = JSON.stringify({ foo: 1 });
+          res.writeHead(200, {
+            "content-type": "application/json",
+            "content-length": String(Buffer.byteLength(b)),
+          });
+          res.end(b);
+          return;
+        }
         if (mode === "silent") return; // accept request, never send response headers
         // Real APIs (like NVIDIA) declare content-length on JSON responses;
         // mirror that so pass-through behavior is exercised realistically.
@@ -5352,5 +5385,37 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     await new Promise((r) => setTimeout(r, 50));
     const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
     assert.equal(second.status, 429, "estimate remains after client disconnect");
+  });
+
+  test("repeated cleanup sequences admit every request", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_RPM: "60",
+        PROXY_TPM: "100000",
+        PROXY_SAFETY_MARGIN_PCT: "0",
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+      },
+      mode: "t05seq1",
+    });
+
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200);
+    assert.equal(await first.text(), JSON.stringify({ usage: { total_tokens: 12 } }));
+    assert.equal(receivedRequests.length, 1);
+
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 204);
+    await second.text();
+    assert.equal(receivedRequests.length, 2);
+
+    const third = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(third.status, 429);
+    assert.equal(await third.text(), JSON.stringify({ error: "rate limited" }));
+    assert.equal(receivedRequests.length, 3);
+
+    const fourth = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(fourth.status, 200);
+    assert.equal(await fourth.text(), JSON.stringify({ foo: 1 }));
+    assert.equal(receivedRequests.length, 4, "one upstream request per attempted client request");
   });
 });
