@@ -5182,4 +5182,17 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
     assert.equal(second.status, 429, "no-body 304 keeps the estimate");
   });
+  test("empty 200 body retains the estimate", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      status: 200,
+      body: "",
+      headers: { "content-type": "application/json" },
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200);
+    assert.equal(await first.text(), "");
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "empty body keeps the estimate");
+  });
 });
