@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import zlib from "node:zlib";
 import { createBudget, estimateCost } from "./budget.js";
+import { createJsonObserver } from "./observer.js";
 
 // Stub upstream: records requests, returns canned responses, can be told to
 // stream SSE, return multi-value set-cookie, abort mid-stream, or be unreachable.
@@ -4926,5 +4927,17 @@ describe("e04s06 SSE usage reconciliation", () => {
     await new Promise((r) => setTimeout(r, 50));
     const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
     assert.equal(second.status, 429, "a mid-stream failure keeps the estimate");
+  });
+});
+
+describe("e04s07 non-streaming usage reconciliation", () => {
+  test("json observer captures valid usage from a complete body", () => {
+    let total = null;
+    const obs = createJsonObserver((t) => {
+      total = t;
+    });
+    obs.observe(Buffer.from(JSON.stringify({ usage: { total_tokens: 42 } })));
+    obs.end();
+    assert.equal(total, 42);
   });
 });
