@@ -5246,4 +5246,20 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     await new Promise((r) => setTimeout(r, 50));
     assert.equal(receivedRequests.length, 1, "no delayed replay");
   });
+
+  test("upstream 429 retains the estimate", async (t) => {
+    const body = JSON.stringify({ error: "rate limited" });
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      status: 429,
+      body,
+      headers: { "content-type": "application/json", "retry-after": "1" },
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 429);
+    await first.text();
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "estimate remains after upstream 429");
+    assert.equal(receivedRequests.length, 1, "rejected request never reached upstream");
+  });
 });
