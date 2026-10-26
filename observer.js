@@ -146,8 +146,13 @@ export function createJsonObserver(onUsage) {
       if (this.finished || this.detached || this.outcomeDelivered) return;
       try {
         const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        const prospective = this.byteTotal + buf.length;
+        if (prospective > JSON_OBSERVATION_BYTE_BOUND) {
+          this.detach();
+          return;
+        }
         this.chunks.push(buf);
-        this.byteTotal += buf.length;
+        this.byteTotal = prospective;
       } catch (error) {
         try {
           this.detach();
