@@ -72,7 +72,7 @@ tasks:
       node --input-type=module -e "import { JSON_OBSERVATION_BYTE_BOUND, createJsonObserver, usageTotalFromUsage, createSseObserver, SSE_OBSERVATION_BYTE_BOUND } from './observer.js'; if (JSON_OBSERVATION_BYTE_BOUND !== 1048576 || SSE_OBSERVATION_BYTE_BOUND !== 262144 || typeof createJsonObserver !== 'function' || typeof usageTotalFromUsage !== 'function' || typeof createSseObserver !== 'function') process.exit(1)"
     risk: P0
     security: none
-    status: failing
+    status: passing
     allure:
       severity: critical
       categories:
