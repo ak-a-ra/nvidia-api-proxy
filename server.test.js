@@ -5195,6 +5195,23 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
     assert.equal(second.status, 429, "empty body keeps the estimate");
   });
+  test("HEAD no-body response retains the estimate", async (t) => {
+    const body = JSON.stringify({ data: [1, 2, 3] });
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      body,
+      headers: { "content-type": "application/json" },
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "HEAD",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+    });
+    assert.equal(first.status, 200);
+    assert.equal(first.headers.get("content-length"), String(Buffer.byteLength(body)));
+    assert.equal(await first.text(), "");
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "no-body HEAD keeps the estimate");
+  });
   test("a terminal path records at most one outcome", () => {
     const budget = createBudget({ rpm: 60, tpm: 60 }, { safetyMarginPct: 0 }, null);
     const first = budget.reserve({ requestCharge: 1, totalTokens: 50, model: null });
