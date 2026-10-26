@@ -54,3 +54,28 @@ None.
 - `e04s07-t01-report.md` deviations section says "`observer.js`, `server.test.js` changes only", but the diff also changes `specs/epics/e04-rate-limiting/e04s07-tasks.yaml` (task 1 status row), which is explicitly in scope. The report should list that file too.
 - The report's "Additional full-suite rerun" claim (`183 tests, 183 pass, 0 fail`) cannot be verified from this review; it is neither confirmed nor refuted here.
 - The pre-existing SIGTERM failure is described as a flake in the second run; this review did not reproduce it and cannot confirm the flake diagnosis, only that it is unrelated to the changed files.
+## Scoped re-review: fix round 1/5
+
+### Findings
+
+1. `usageTotalFromUsage` non-finite sum guard — ADDRESSED.
+   - Fix: `observer.js:17-22` now computes `const sum = prompt + completion;` and returns it only when `Number.isFinite(sum)` is true; otherwise returns `null`.
+   - Test: `server.test.js:5037-5041` adds `usageTotalFromUsage({ prompt_tokens: Number.MAX_VALUE, completion_tokens: Number.MAX_VALUE })` → `null` ("non-finite sum is unusable").
+   - RED/GREEN evidence in report: `AssertionError [ERR_ASSERTION]: non-finite sum is unusable` (`Infinity !== null`), then `pass 1, fail 0`.
+2. Report scope/deviations statement — ADDRESSED.
+   - `specs/epics/e04-rate-limiting/briefs/e04s07-t01-report.md:108` now states "`observer.js`, `server.test.js`, and `specs/epics/e04-rate-limiting/e04s07-tasks.yaml` changed".
+
+### New-breakage check (fix diff only)
+
+- Changed files in fix round: `observer.js`, `server.test.js`, report. No protected files (`server.js`, `budget.js`, `admission.js`, `config.js`, `package.json`) changed.
+- Focused helper test: pass 1, fail 0.
+- SSE reconciliation regression: pass 14, fail 0.
+- `npm run check`: clean.
+- `git diff --check`: clean.
+- Report states full suite `183 tests, 183 pass, 0 fail`; not independently rerun in this scoped review.
+
+### Scoped verdict
+
+PASS. Both open findings addressed; no new breakage found in the fix diff. The earlier non-blocking "consider" items (SSE negative-total edge case and `Buffer.from` numeric input) remain unchanged and are not part of this fix round.
+
+TL;DR: Fix round 1 scoped re-review PASS — finite-sum guard and report scope statement both addressed, no new breakage.
