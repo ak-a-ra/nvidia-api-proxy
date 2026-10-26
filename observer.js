@@ -151,9 +151,9 @@ export function createJsonObserver(onUsage) {
       this.finished = true;
       this.outcomeDelivered = true;
       const json = JSON.parse(this.buffer);
-      const total = json.usage.total_tokens;
+      const total = json?.usage?.total_tokens;
       this.buffer = "";
-      if (typeof onUsage === "function") onUsage(total);
+      if (typeof onUsage === "function") onUsage(total === undefined ? null : total);
     },
 
     detach() {
