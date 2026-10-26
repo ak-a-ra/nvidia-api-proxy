@@ -5262,4 +5262,23 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     assert.equal(second.status, 429, "estimate remains after upstream 429");
     assert.equal(receivedRequests.length, 1, "rejected request never reached upstream");
   });
+
+  test("pre-header failure remains a generic 502", async (t) => {
+    const { proxy, base } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      mode: "preabort",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(res.status, 502);
+    const text = await res.text();
+    assert.deepEqual(JSON.parse(text), { error: "Bad gateway" });
+    const url = new URL(base);
+    for (const needle of [base, url.hostname, String(url.port)]) {
+      assert.ok(!text.includes(needle), `body leaked ${needle}`);
+    }
+    assert.ok(!/nvidia/i.test(text));
+    const health = await fetch(`http://127.0.0.1:${proxy.port}/health`);
+    assert.equal(health.status, 200);
+    assert.deepEqual(await health.json(), { status: "ok" });
+  });
 });
