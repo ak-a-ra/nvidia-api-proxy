@@ -5090,4 +5090,17 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     assert.deepEqual(buf, Buffer.from(body));
     assert.equal(res.headers.get("content-length"), String(Buffer.byteLength(body)));
   });
+  test("missing non-streaming usage retains the estimate", async (t) => {
+    const body = JSON.stringify({ foo: 1 });
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200);
+    await first.text();
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "missing usage keeps the estimate");
+  });
 });
