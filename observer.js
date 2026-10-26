@@ -150,9 +150,14 @@ export function createJsonObserver(onUsage) {
       if (this.finished || this.detached || this.outcomeDelivered) return;
       this.finished = true;
       this.outcomeDelivered = true;
-      const json = JSON.parse(this.buffer);
-      const v = json?.usage?.total_tokens;
-      const total = typeof v === "number" ? v : null;
+      let total = null;
+      try {
+        const json = JSON.parse(this.buffer);
+        const v = json?.usage?.total_tokens;
+        total = typeof v === "number" ? v : null;
+      } catch {
+        total = null;
+      }
       this.buffer = "";
       if (typeof onUsage === "function") onUsage(total);
     },
