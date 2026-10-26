@@ -5195,4 +5195,21 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
     assert.equal(second.status, 429, "empty body keeps the estimate");
   });
+  test("a terminal path records at most one outcome", () => {
+    const budget = createBudget({ rpm: 60, tpm: 60 }, { safetyMarginPct: 0 }, null);
+    const first = budget.reserve({ requestCharge: 1, totalTokens: 50, model: null });
+    const ok = first.reservation.reconcile(null);
+    assert.equal(ok, false, "fallback does not reconcile");
+    assert.equal(budget.fallbackCount, 1, "one fallback is recorded");
+    assert.equal(budget.reconciledCount, 0, "nothing is reconciled");
+
+    const second = first.reservation.reconcile(null);
+    assert.equal(second, false, "a second fallback records none");
+    assert.equal(budget.fallbackCount, 1, "fallback count stays one");
+
+    const third = first.reservation.reconcile(10);
+    assert.equal(third, false, "reconcile after fallback is a no-op");
+    assert.equal(budget.fallbackCount, 1, "no extra fallback is recorded");
+    assert.equal(budget.reconciledCount, 0, "no reconciliation is recorded");
+  });
 });
