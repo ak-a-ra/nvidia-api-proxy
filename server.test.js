@@ -4940,4 +4940,13 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     obs.end();
     assert.equal(total, 42);
   });
+  test("json observer returns null for a body without usage", () => {
+    let total = "unset";
+    const obs = createJsonObserver((t) => {
+      total = t;
+    });
+    obs.observe(Buffer.from(JSON.stringify({ foo: 1 })));
+    obs.end();
+    assert.equal(total, null);
+  });
 });
