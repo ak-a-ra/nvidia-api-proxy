@@ -180,7 +180,7 @@ tasks:
       out=$(node --test --test-reporter=tap --test-name-pattern 'repeated cleanup|terminal path in sequence|second reconciliation|double-count' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(repeated cleanup|terminal path in sequence|second reconciliation|double-count)'); test "$n" -ge 4 || { printf 'expected at least 4 tests, got %s\n' "$n"; exit 1; }
     risk: P1
     security: none
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
