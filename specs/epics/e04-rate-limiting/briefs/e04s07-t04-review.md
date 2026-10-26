@@ -143,3 +143,25 @@ PASS. Addressed: 3. Open: 0.
 ### Scoped verdict
 
 FAIL (documentation consistency only). Addressed: 1. Open: 1.
+
+---
+
+## Scoped re-review: fix round 3/5 (report-evidence correction)
+
+### Finding resolution
+
+1. **Fix-round 199/199 false-green claim — ADDRESSED**
+   - `e04s07-t04-report.md:102`: Fix round 1 now records `npm test`: 198/199 pass (1 fail: `SIGTERM rejects queued requests with 503 and no upstream call`).
+   - `e04s07-t04-report.md:106-111`: Confirmation run records 199/199 green.
+   - `e04s07-t04-report.md:111`: preserves both facts: initial task-4 full run 199/199 green; fix-round run 198/199 with one SIGTERM shutdown flake.
+
+### Consistency check
+
+- Initial full run: 199/199 (final verification, `report.md:54-59`).
+- Fix round 1: 198/199 with named SIGTERM flake (`report.md:102`).
+- Confirmation run: 199/199 (`report.md:107`).
+- All three are now mutually consistent; no false green claim remains.
+
+### Scoped verdict
+
+PASS. Addressed: 1. Open: 0.
