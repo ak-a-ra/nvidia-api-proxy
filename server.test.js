@@ -5035,6 +5035,11 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     assert.equal(usageTotalFromUsage({ total_tokens: 1.5 }), 1.5);
     assert.equal(usageTotalFromUsage({ prompt_tokens: 2, completion_tokens: 3 }), 5);
     assert.equal(
+      usageTotalFromUsage({ prompt_tokens: Number.MAX_VALUE, completion_tokens: Number.MAX_VALUE }),
+      null,
+      "non-finite sum is unusable",
+    );
+    assert.equal(
       usageTotalFromUsage({ total_tokens: -1, prompt_tokens: 1, completion_tokens: 2 }),
       3,
       "negative total falls back to components"
