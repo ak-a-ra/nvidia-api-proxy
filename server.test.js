@@ -5067,4 +5067,27 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     assert.equal(usageTotalFromUsage({ prompt_tokens: 1 }), null);
     assert.equal(usageTotalFromUsage({ completion_tokens: 1 }), null);
   });
+  const RATE_ON = { PROXY_RPM: "60", PROXY_TPM: "1500", PROXY_SAFETY_MARGIN_PCT: "0" };
+
+  function chatOpts(body) {
+    return {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: body || JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    };
+  }
+
+  test("non-streaming JSON bytes are identical to upstream", async (t) => {
+    const body = JSON.stringify({ usage: { total_tokens: 12 }, marker: "bytes" });
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "100000", PROXY_SAFETY_MARGIN_PCT: "0" },
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(res.status, 200);
+    const buf = Buffer.from(await res.arrayBuffer());
+    assert.deepEqual(buf, Buffer.from(body));
+    assert.equal(res.headers.get("content-length"), String(Buffer.byteLength(body)));
+  });
 });
