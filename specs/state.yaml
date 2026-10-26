@@ -7,12 +7,12 @@
 ```yaml
 vcs:
   kind: git
-  commit: c226451
-  branch: e04s06-reconcile-sse-usage
+  commit: b92f8d3
+  branch: main
   worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
   landed:
     story: e04s06
-    commit: c226451
+    commit: b92f8d3
     branch: main
     ci_run: null
     ci_status: pending
@@ -23,14 +23,19 @@ active_story: e04s07
 session_start: 2026-10-16T18:02:00Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: plan-work
-  source: release-branch
+  next_skill: kickoff-branch
+  source: survey-context
   note: >-
     e04s05 landed on main: budget.js (per-model windows, atomic reserve with
     model_rpm/model_tpm reasons, estimator model field), server.js passes
     config.modelLimits to createBudget, 175 tests green, npm run check clean.
     e04s06 kickoff: branch e04s06-reconcile-sse-usage, preflight green (175/175, check clean).
     Next: develop-tdd.
+    e04s07 planned (issue #20, non-streaming usage reconciliation): spec and tasks
+    written, 8 BCPs, 4 P0 tasks. Three operator decisions locked at plan time:
+    abnormal terminal paths record no outcome, the observer joins observer.js with a
+    shared usageTotalFromUsage validity helper, and observation is content-type
+    agnostic. Next: kickoff-branch for e04s07, then develop-tdd.
 
 decisions:
   - decision: Per-model window pairs are built at construction time, and the story's "lazily" sentence is corrected
@@ -474,5 +479,5 @@ release:
   ci_run: 36979464322
   merged: 9d663d9
 metrics:
-  story_start: 2026-10-16T13:11:42Z
+  story_start: 2026-10-26T00:42:18Z
 ```

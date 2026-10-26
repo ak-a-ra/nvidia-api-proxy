@@ -66,12 +66,12 @@ stories:
 
   - id: e04s07
     title: Reconcile non-streaming usage and terminal fallbacks
-    bcps: 0
-    status: blocked
+    bcps: 8
+    status: failing
     issue: 20
     blocked_by: [e04s06]
-    spec: null
-    tasks: null
+    spec: e04s07-reconcile-non-streaming-usage-and-terminal-fallbacks.md
+    tasks: e04s07-tasks.yaml
 
   - id: e04s08
     title: Expose authenticated aggregate stats

@@ -1,0 +1,221 @@
+story_id: e04s07
+title: Reconcile non-streaming usage and terminal fallbacks
+status: failing
+bcps: 8
+issue: 20
+type: feat
+risk: P0
+context: infra
+parent_stories: [81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 97, 100, 101, 146, 166]
+decisions:
+  - decision: Abnormal terminal paths record no outcome
+    rationale: >-
+      Decided by the operator at plan time. A pre-header failure, a mid-stream
+      failure, and an active disconnect keep the estimate with no counter
+      movement, symmetric with the landed e04s06 SSE abnormal-termination
+      paths, and criterion 8 in issue #20 is a cap ("at most one outcome"), not
+      a minimum. Every terminal path still releases admission exactly once.
+  - decision: The non-streaming observer lives in observer.js beside the SSE one
+    rationale: >-
+      Decided by the operator at plan time. A JSON body cannot be parsed
+      incrementally the way an SSE event can, so the copy bounded at 1,048,576
+      bytes is a second observer, not a variant of the first. The shared
+      usage-validity rule is extracted to usageTotalFromUsage so the definition
+      of "usable usage" exists once; two private copies would let one be fixed
+      without the other.
+  - decision: Observation is content-type agnostic
+    rationale: >-
+      Decided by the operator at plan time. Every non-SSE body in rate-limit
+      mode with a live reservation is observed, because a body that carries
+      usage under a mislabeled content type must still reconcile, and the byte
+      cap bounds memory regardless of what the body is. Only valid JSON with a
+      usable usage object ever reconciles; anything else records a fallback.
+
+  - decision: The task ledger carries 8 BCPs, matching e04s06's shape
+    rationale: >-
+      Six tasks with the same risk distribution as the landed e04s06 ledger
+      (four P0, one P1, one P2), against the same two source files, so it
+      estimates the same size. e04s05 with five tasks estimated 7 and e04s06
+      with six estimated 8; the BCP number is a judgment rather than a task
+      count, which is why e01s01's six tasks carry 3 and e04s04's four carry 9.
+  - decision: The story status is failing, not todo, because the ledger exists
+    rationale: >-
+      The manifest convention set by the e04s06 plan commit (c14fe4a): a slice
+      becomes the head of the chain only when its capsule is written, the story
+      entry moves from todo to failing at that point, and execution-status.yaml
+      is hand-synced to the same value. Leaving it todo would claim a story with
+      six failing tasks is not yet being worked.
+tasks:
+  - id: 1
+    description: >
+      In observer.js extract the usage-validity rules out of createSseObserver into an exported
+      usageTotalFromUsage(usage) that returns a finite non-negative number for a usable usage object
+      (total_tokens, else prompt_tokens + completion_tokens, each finite and non-negative) and null
+      otherwise, with createSseObserver's isValidUsage/usageTotal delegating to it so every SSE
+      outcome is byte-for-byte unchanged. Add JSON_OBSERVATION_BYTE_BOUND = 1048576 and
+      createJsonObserver(onUsage): it accumulates raw chunks while a running byte total stays at or
+      below the bound, drops the copy and detaches when a chunk would push the total past it, exposes
+      observe(chunk) (never throws, inert after end or detach), end() (decodes the copy, parses it
+      once as JSON, invokes onUsage(total | null) exactly once, inert on a second call) and
+      detach(). Add tests under describe("e04s07 non-streaming usage reconciliation"):
+      "json observer captures valid usage from a complete body",
+      "json observer returns null for a body without usage",
+      "json observer returns null for malformed usage",
+      "json observer returns null for a non-JSON body",
+      "json observer decodes a multi-byte split body",
+      "json observer detaches past the byte bound",
+      "json observer invokes onUsage exactly once",
+      "usageTotalFromUsage rejects unusable values".
+    verify: >-
+      out=$(node --test --test-reporter=tap --test-name-pattern 'json observer|usageTotalFromUsage' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(json observer|usageTotalFromUsage)'); test "$n" -ge 8 || { printf 'expected at least 8 new tests, got %s\n' "$n"; exit 1; }
+      out=$(node --test --test-reporter=tap --test-name-pattern 'SSE usage reconciliation' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }
+      node --input-type=module -e "import { JSON_OBSERVATION_BYTE_BOUND, createJsonObserver, usageTotalFromUsage, createSseObserver, SSE_OBSERVATION_BYTE_BOUND } from './observer.js'; if (JSON_OBSERVATION_BYTE_BOUND !== 1048576 || SSE_OBSERVATION_BYTE_BOUND !== 262144 || typeof createJsonObserver !== 'function' || typeof usageTotalFromUsage !== 'function' || typeof createSseObserver !== 'function') process.exit(1)"
+    risk: P0
+    security: none
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Rate Limiting"
+        - "Usage Reconciliation"
+
+  - id: 2
+    description: >
+      Integrate the bounded copy into server.js for non-SSE responses. Add isJson = budget.enabled
+      && Boolean(budgetReservation) && !isSse && Boolean(upstream.body) (not conditioned on
+      content-type). When isJson, create the json observer and register jsonObserver.observe(chunk)
+      on the same src "data" events the idle watchdog already uses, guarded so a throwing observer
+      path cannot take the process down; keep pipeline(src, res, onComplete) exactly as it is, with
+      no transform inserted, so framing, content-length restoration, and the watchdog are untouched.
+      In onComplete, when there is no error and a reservation exists, end the observer that was
+      created (sseObserver.end() for SSE, jsonObserver.end() otherwise) and then call
+      budgetReservation.reconcile(observedUsage). Add tests:
+      "non-streaming JSON bytes are identical to upstream",
+      "valid non-streaming usage replaces the estimate" (a request estimated high reporting
+      usage.total_tokens 12 lets a second request fit a tight window),
+      "missing non-streaming usage retains the estimate" (one fallback, second request still
+      rejected),
+      "malformed non-streaming usage retains the estimate",
+      "higher actual non-streaming usage raises current usage",
+      "non-streaming observation overflow detaches without affecting pass-through" (body past
+      1,048,576 bytes delivered byte-identically, estimate retained, second request rejected).
+    verify: >-
+      out=$(node --test --test-reporter=tap --test-name-pattern 'non-streaming' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*non-streaming'); test "$n" -ge 6 || { printf 'expected at least 6 non-streaming tests, got %s\n' "$n"; exit 1; }
+      grep -q 'pipeline(src, res, onComplete)' server.js
+    risk: P0
+    security: none
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Rate Limiting"
+        - "Usage Reconciliation"
+
+  - id: 3
+    description: >
+      Make the no-body terminal paths record exactly one fallback. In the branch that answers a
+      response with no body stream (!upstream.body), call budgetReservation.reconcile(null) before
+      res.end() whenever a reservation exists, so a no-body 200, 204, 304, HEAD, and any empty body
+      retain the estimate and record one fallback, with no observer created and no observer failure.
+      Keep the existing listener cleanup in that branch untouched. Add tests:
+      "204 no-body response retains the estimate",
+      "304 no-body response retains the estimate",
+      "HEAD no-body response retains the estimate",
+      "empty 200 body retains the estimate",
+      "a terminal path records at most one outcome" (unit test on createBudget: reconcile(null)
+      records exactly one fallback, a second call records none, and a reconcile after a fallback is
+      a no-op).
+    verify: >-
+      out=$(node --test --test-reporter=tap --test-name-pattern 'no-body response retains the estimate|records at most one outcome' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(no-body response retains the estimate|records at most one outcome)'); test "$n" -ge 5 || { printf 'expected at least 5 tests, got %s\n' "$n"; exit 1; }
+    risk: P0
+    security: none
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Rate Limiting"
+        - "Failure Modes"
+
+  - id: 4
+    description: >
+      Prove the terminal paths that must not invent policy. No production behavior change is
+      expected for any of them; the task pins the existing behavior with black-box tests against a
+      rate-limit-mode proxy. Add a stub mode that answers an upstream 429 with its own JSON error
+      body and Retry-After header, and tests:
+      "upstream 429 passes through exactly once" (original status, headers, and body; the stub
+      received exactly one request; no second upstream contact),
+      "upstream 429 retains the estimate" (a tight window still rejects the following request),
+      "pre-header failure remains a generic 502" (a stub that destroys before headers yields
+      502 {"error":"Bad gateway"} with no DNS name, URL, or provider detail in the body),
+      "mid-stream non-streaming failure destroys only the response" (a JSON content-type answer
+      cut mid-body leaves the process alive and the estimate standing),
+      "client disconnect commits the estimate without a 502" (an abortable upstream, a client that
+      gives up, no 502 body delivered, and the following request still sees the estimate).
+    verify: >-
+      out=$(node --test --test-reporter=tap --test-name-pattern 'passes through exactly once|upstream 429 retains the estimate|generic 502|mid-stream non-streaming failure|commits the estimate' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(passes through exactly once|upstream 429 retains the estimate|generic 502|mid-stream non-streaming failure|commits the estimate)'); test "$n" -ge 5 || { printf 'expected at least 5 tests, got %s\n' "$n"; exit 1; }
+    risk: P0
+    security: none
+    status: failing
+    allure:
+      severity: critical
+      categories:
+        - "Rate Limiting"
+        - "Failure Modes"
+
+  - id: 5
+    description: >
+      Cover repeated cleanup sequences and the exactly-once properties across terminal paths.
+      Add tests that drive several terminal paths in sequence against one proxy child and one
+      tight window, asserting that every request is still admitted afterwards:
+      "repeated cleanup sequences admit every request" (usage, no-body, 429, and a
+      fallback answer in order, each admitted, none wedged),
+      "every terminal path in sequence releases each slot" (a one-slot concurrency ceiling still
+      admits a request after each of a JSON body, a 204, a HEAD, and a disconnect),
+      "a second reconciliation records no additional outcome" (unit test: reconcile(actual) then
+      reconcile(other) increments reconciledCount once only),
+      "counters do not double-count across repeated paths" (unit test: reconcile(null) twice
+      increments fallbackCount once). Assert the stub saw exactly one upstream request per
+      attempted request in the sequence.
+    verify: >-
+      out=$(node --test --test-reporter=tap --test-name-pattern 'repeated cleanup|terminal path in sequence|second reconciliation|double-count' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(repeated cleanup|terminal path in sequence|second reconciliation|double-count)'); test "$n" -ge 4 || { printf 'expected at least 4 tests, got %s\n' "$n"; exit 1; }
+    risk: P1
+    security: none
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "Rate Limiting"
+        - "Usage Reconciliation"
+
+  - id: 6
+    description: >
+      Sync the living docs and the test count: CONVENTIONS.md rate-limit and non-streaming
+      reconciliation entries, tech-stack.md gray areas (non-streaming reconciliation and the
+      JSON_OBSERVATION_BYTE_BOUND copy), README budget comment block, AGENTS.md test count and
+      module list with refreshed line counts, the epic manifest (set e04s07 status to passing,
+      bcps to 9, add spec and tasks filenames, unblock e04s08, correct the stale total_bcps),
+      execution-status.yaml (e04s07: passing), CONTEXT.md glossary so non-streaming
+      reconciliation is no longer a gap, specs/state.yaml handoff, and the test count in every
+      living doc. Amend docs/adr/0002-config-operational-fail-fast.md with a
+      "## Non-streaming usage reconciliation (e04s07)" block mirroring the e04s06 one. Add
+      specs/verifications/e04s07-verify.yaml evidence. Boy-scout fix the story-spec status drift
+      found while planning: no story spec for a passing story may say Status: failing, and
+      e04s03's "Status: todo" must read passing. Do NOT touch plans/*.md or
+      docs/research/config-invariant-guard-tests.md.
+    verify: |-
+      N=$(node --test --test-reporter=tap server.test.js 2>&1 | grep -E '^# tests [0-9]+$' | grep -oE '[0-9]+')
+      hits=$(grep -rnE '(^|[^A-Za-z0-9])[0-9]{2,4}[ -]tests?\b|tests-[0-9]{2,4}|\(currently [0-9]+\)' --include='*.md' --include='*.yaml' . | grep -v '^\./plans/' | grep -v 'docs/research/config-invariant-guard-tests' | grep -v '/briefs/' | grep -v '^\./LOG.md' | grep -v '/specs/verifications/' | grep -v -- '-tasks.yaml')
+      bad=$(printf '%s\n' "$hits" | grep -vE "(^|[^A-Za-z0-9])${N}[ -]tests?\b|tests-${N}\b|\(currently ${N}\)")
+      printf '%s\n' "$hits"
+      test -z "$bad" || { printf 'stale test count (suite is %s):\n%s\n' "$N" "$bad"; exit 1; }
+      if grep -l 'Status: failing' specs/epics/e04-rate-limiting/e04s0[1-6]*.md >/dev/null 2>&1; then echo 'a passing story spec still says Status: failing'; exit 1; fi
+      grep -q '^status: passing' specs/epics/e04-rate-limiting/e04s07-tasks.yaml || { echo 'the e04s07 ledger is not marked passing'; exit 1; }
+      grep -q 'JSON_OBSERVATION_BYTE_BOUND' specs/tech-architecture/tech-stack.md || { echo 'tech-stack.md does not record the non-streaming bound'; exit 1; }
+      grep -q 'non-streaming' specs/tech-architecture/tech-stack.md || { echo 'tech-stack.md does not record non-streaming reconciliation'; exit 1; }
+    risk: P2
+    security: none
+    status: failing
+    allure:
+      severity: normal
+      categories:
+        - "Documentation"
