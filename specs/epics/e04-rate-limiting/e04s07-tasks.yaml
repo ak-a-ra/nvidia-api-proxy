@@ -126,10 +126,10 @@ tasks:
       records exactly one fallback, a second call records none, and a reconcile after a fallback is
       a no-op).
     verify: >-
-      out=$(node --test --test-reporter=tap --test-name-pattern 'no-body response retains the estimate|records at most one outcome' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(no-body response retains the estimate|records at most one outcome)'); test "$n" -ge 5 || { printf 'expected at least 5 tests, got %s\n' "$n"; exit 1; }
+      out=$(node --test --test-reporter=tap --test-name-pattern 'no-body response retains the estimate|empty 200 body retains the estimate|records at most one outcome' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(no-body response retains the estimate|empty 200 body retains the estimate|records at most one outcome)'); test "$n" -ge 5 || { printf 'expected at least 5 tests, got %s\n' "$n"; exit 1; }
     risk: P0
     security: none
-    status: failing
+    status: passing
     allure:
       severity: critical
       categories:
