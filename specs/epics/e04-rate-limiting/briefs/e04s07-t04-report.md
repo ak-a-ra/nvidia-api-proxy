@@ -103,3 +103,9 @@ Focused evidence:
 - `npm test`: 199 tests, 21 suites, 199 pass, 0 fail.
 - `npm run check`: clean.
 - `git diff --check`: clean.
+## Confirmation run (fix round 2)
+
+- `npm test`: 199 tests, 21 suites, 199 pass, 0 fail.
+- `git diff --check`: clean.
+
+This confirms the earlier SIGTERM failure was environmental flake; the strengthened client-disconnect assertion remains green. Prior evidence is preserved: initial task-4 full run was 199/199 green; the fix-round run was 198/199 with one SIGTERM shutdown flake.
