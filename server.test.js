@@ -5116,4 +5116,19 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
     assert.equal(second.status, 429, "malformed usage keeps the estimate");
   });
+  test("non-streaming observation overflow detaches without affecting pass-through", async (t) => {
+    const body = "a".repeat(JSON_OBSERVATION_BYTE_BOUND + 100);
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1500", PROXY_SAFETY_MARGIN_PCT: "0" },
+      headers: { "content-type": "text/plain" },
+      body,
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(res.status, 200);
+    const buf = Buffer.from(await res.arrayBuffer());
+    assert.equal(buf.length, body.length);
+    assert.deepEqual(buf, Buffer.from(body));
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "detached observation keeps the estimate");
+  });
 });
