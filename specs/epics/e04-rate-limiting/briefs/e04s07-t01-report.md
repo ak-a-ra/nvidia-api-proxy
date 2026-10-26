@@ -1,6 +1,6 @@
 # e04s07 Task 1 Report
 
-- status: `done_with_concerns`
+- status: `passing`
 - branch: `e04s07-reconcile-non-streaming-usage`
 - worktree: `/data/data/com.termux/files/home/workspace/e04s07-reconcile-non-streaming-usage`
 - base commit: `e10638858526be25e9ad2102c98eb48b8b5a4a02` (`chore(e04s07): add task 1 brief and progress ledger`)
@@ -105,7 +105,7 @@ multi-byte characters decode correctly. No behavior regression resulted.
 
 - Test imports were consolidated and Prettier formatting applied in separate
   commits (`1d4edf0`, `087bd19`) after the eight RED/GREEN cycles.
-- `observer.js`, `server.test.js` changes only; `server.js`, `budget.js`,
+- `observer.js`, `server.test.js`, and `specs/epics/e04-rate-limiting/e04s07-tasks.yaml` changed; `server.js`, `budget.js`,
   `admission.js`, `config.js` untouched.
 - One pre-existing SIGTERM test fails on local Node v26.4.0 (see above);
   not caused by this task.
@@ -117,3 +117,28 @@ TL;DR: Added shared `usageTotalFromUsage`, `JSON_OBSERVATION_BYTE_BOUND`, and `c
 A second `npm test` run after the report commit completed with `183 tests, 183 pass, 0 fail`
 (duration 520s). This confirms the earlier SIGTERM failure was a flake and not a
 task-1 regression.
+
+## Fix round 1
+
+Finding: `usageTotalFromUsage` returned `prompt_tokens + completion_tokens` without
+checking that the sum is finite. Two finite non-negative components can sum to
+`Infinity`, violating the contract that the helper returns a finite non-negative
+total.
+
+- Test file/name: `server.test.js`, `usageTotalFromUsage rejects unusable values`
+- Exact focused command: `node --test --test-name-pattern 'usageTotalFromUsage rejects unusable values' server.test.js`
+- RED failure evidence: `AssertionError [ERR_ASSERTION]: non-finite sum is unusable`
+  (`Infinity !== null`)
+- GREEN output: `pass 1`, `fail 0`
+- Fix commits:
+  - `50c66b5` `test(e04s07): usageTotalFromUsage rejects non-finite sums`
+  - `bd7296d` `feat(observer): guard non-finite usage totals`
+  - `187914f` `style(test): apply prettier formatting`
+- Final checks:
+  - focused helper test: pass 1, fail 0
+  - SSE reconciliation regression: pass 14, fail 0
+  - `npm run check`: clean
+  - `git diff --check`: clean
+  - `npm test`: 183 tests, 183 pass, 0 fail
+
+TL;DR: Fixed non-finite usage-total sums with a RED/GREEN cycle; helper and tests now reject them, full suite green.
