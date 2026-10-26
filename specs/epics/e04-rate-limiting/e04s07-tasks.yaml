@@ -155,7 +155,7 @@ tasks:
       out=$(node --test --test-reporter=tap --test-name-pattern 'passes through exactly once|upstream 429 retains the estimate|generic 502|mid-stream non-streaming failure|commits the estimate' server.test.js 2>&1); rc=$?; test "$rc" -eq 0 || { printf '%s\n' "$out"; exit "$rc"; }; n=$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*ok [0-9]+ - .*(passes through exactly once|upstream 429 retains the estimate|generic 502|mid-stream non-streaming failure|commits the estimate)'); test "$n" -ge 5 || { printf 'expected at least 5 tests, got %s\n' "$n"; exit 1; }
     risk: P0
     security: none
-    status: failing
+    status: passing
     allure:
       severity: critical
       categories:
