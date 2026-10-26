@@ -91,6 +91,43 @@ function startStubUpstream(status, body, headers, mode) {
           res.end(b);
           return;
         }
+        if (mode === "t05seq2") {
+          if (requestCount === 1) {
+            const b = JSON.stringify({ usage: { total_tokens: 12 }, marker: "ok" });
+            res.writeHead(200, {
+              "content-type": "application/json",
+              "content-length": String(Buffer.byteLength(b)),
+            });
+            res.end(b);
+            return;
+          }
+          if (requestCount === 2) {
+            res.writeHead(204, { "content-type": "application/json" });
+            res.end();
+            return;
+          }
+          if (requestCount === 3) {
+            const b = JSON.stringify({ data: [1, 2, 3] });
+            res.writeHead(200, {
+              "content-type": "application/json",
+              "content-length": String(Buffer.byteLength(b)),
+            });
+            res.end();
+            return;
+          }
+          if (requestCount === 4) {
+            // abortable: one chunk, then hold open until the client cancels.
+            res.write("part1-");
+            return;
+          }
+          const b = JSON.stringify({ usage: { total_tokens: 12 }, marker: "ok" });
+          res.writeHead(200, {
+            "content-type": "application/json",
+            "content-length": String(Buffer.byteLength(b)),
+          });
+          res.end(b);
+          return;
+        }
         if (mode === "silent") return; // accept request, never send response headers
         // Real APIs (like NVIDIA) declare content-length on JSON responses;
         // mirror that so pass-through behavior is exercised realistically.
@@ -374,8 +411,8 @@ async function withProxy(
 // (closed without finishing), then assert the abort actually happened. The
 // timeout only exists to fail fast on regression; the failure message names
 // the lifecycle flags observed so the cause is diagnosable from test output.
-async function assertUpstreamAborted(teardowns, timeoutMs = 2000) {
-  const record = teardowns[0];
+async function assertUpstreamAborted(teardowns, timeoutMs = 2000, index = 0) {
+  const record = teardowns[index];
   assert.ok(record, "upstream received a request");
   let timer;
   const timedOut = await Promise.race([
@@ -5417,5 +5454,73 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     assert.equal(fourth.status, 200);
     assert.equal(await fourth.text(), JSON.stringify({ foo: 1 }));
     assert.equal(receivedRequests.length, 4, "one upstream request per attempted client request");
+  });
+
+  test("every terminal path in sequence releases each slot", async (t) => {
+    const { proxy, receivedRequests, teardowns } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_RPM: "60",
+        PROXY_TPM: "100000",
+        PROXY_SAFETY_MARGIN_PCT: "0",
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "1",
+      },
+      mode: "t05seq2",
+    });
+
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200);
+    assert.equal(await first.text(), JSON.stringify({ usage: { total_tokens: 12 }, marker: "ok" }));
+    assert.equal(receivedRequests.length, 1);
+
+
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 204);
+    await second.text();
+    assert.equal(receivedRequests.length, 2);
+
+
+    const headRes = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "HEAD",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+    });
+    assert.equal(headRes.status, 200);
+    assert.equal(
+      headRes.headers.get("content-length"),
+      String(Buffer.byteLength(JSON.stringify({ data: [1, 2, 3] })))
+    );
+    assert.equal(await headRes.text(), "");
+    assert.equal(receivedRequests.length, 3);
+
+
+    const fourth = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(fourth.status, 200);
+    const reader = fourth.body.getReader();
+    const firstRead = await reader.read();
+    assert.equal(firstRead.done, false);
+    await reader.cancel();
+    let postCancelRead = null;
+    let postCancelError = null;
+    try {
+      postCancelRead = await reader.read();
+    } catch (err) {
+      postCancelError = err;
+    }
+    const postCancelValue =
+      postCancelRead && postCancelRead.value ? new TextDecoder().decode(postCancelRead.value) : "";
+    assert.ok(!postCancelValue.includes("Bad gateway"), "post-cancel read carries no 502 body");
+    assert.ok(
+      postCancelError || (postCancelRead && postCancelRead.done),
+      "post-cancel read terminates instead of delivering a 502"
+    );
+    assert.equal(receivedRequests.length, 4);
+    await assertUpstreamAborted(teardowns, 2000, 3);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const fifth = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(fifth.status, 200);
+    assert.equal(await fifth.text(), JSON.stringify({ usage: { total_tokens: 12 }, marker: "ok" }));
+    assert.equal(receivedRequests.length, 5, "one upstream request per attempted client request");
   });
 });
