@@ -3,6 +3,8 @@
 // client. The request path owns the bytes; this module owns the copy.
 export const SSE_OBSERVATION_BYTE_BOUND = 262144;
 
+export const JSON_OBSERVATION_BYTE_BOUND = 1048576;
+
 export function createSseObserver(onUsage) {
   const observer = {
     buffer: "",
@@ -127,6 +129,42 @@ export function createSseObserver(onUsage) {
       }
       this.finished = true;
       if (typeof onUsage === "function") onUsage(this.captured);
+    },
+  };
+  return observer;
+}
+
+export function createJsonObserver(onUsage) {
+  const observer = {
+    buffer: "",
+    detached: false,
+    finished: false,
+    outcomeDelivered: false,
+
+    observe(chunk) {
+      if (this.finished || this.detached || this.outcomeDelivered) return;
+      this.buffer += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+    },
+
+    end() {
+      if (this.finished || this.detached || this.outcomeDelivered) return;
+      this.finished = true;
+      this.outcomeDelivered = true;
+      const json = JSON.parse(this.buffer);
+      const total = json.usage.total_tokens;
+      this.buffer = "";
+      if (typeof onUsage === "function") onUsage(total);
+    },
+
+    detach() {
+      if (this.detached) return;
+      this.detached = true;
+      this.buffer = "";
+      if (!this.outcomeDelivered) {
+        this.outcomeDelivered = true;
+        this.finished = true;
+        if (typeof onUsage === "function") onUsage(null);
+      }
     },
   };
   return observer;
