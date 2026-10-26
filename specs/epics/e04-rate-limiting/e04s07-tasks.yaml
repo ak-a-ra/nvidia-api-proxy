@@ -104,7 +104,7 @@ tasks:
       grep -q 'pipeline(src, res, onComplete)' server.js
     risk: P0
     security: none
-    status: failing
+    status: passing
     allure:
       severity: critical
       categories:
