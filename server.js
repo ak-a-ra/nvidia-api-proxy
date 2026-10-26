@@ -504,11 +504,10 @@ const server = http.createServer(async (req, res) => {
       // Reconcile only on successful completion. A disconnect, a mid-stream
       // failure, or a shutdown that cuts the stream keeps the estimate.
       if (!error && budgetReservation && (sseObserver || jsonObserver)) {
-        if (sseObserver) {
-          budgetReservation.reconcile(observedUsage);
-        } else if (jsonObserver && observedUsage !== null) {
-          budgetReservation.reconcile(observedUsage);
-        }
+        // Reconcile once with the observed total, including null: a missing,
+        // malformed, or unusable body records one fallback and keeps the
+        // estimate. SSE already follows this contract.
+        budgetReservation.reconcile(observedUsage);
       }
       if (error) {
         // error.code names the abort source (e.g. UND_ERR_BODY_TIMEOUT from
