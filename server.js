@@ -351,10 +351,10 @@ const server = http.createServer(async (req, res) => {
 
     const method = req.method;
     const body =
-      forwardedBody !== undefined
-        ? forwardedBody
-        : method === "GET" || method === "HEAD"
-          ? undefined
+      method === "GET" || method === "HEAD"
+        ? undefined
+        : forwardedBody !== undefined
+          ? forwardedBody
           : req;
 
     // In rate-limit mode the caller's body is a buffer we read in full, so
