@@ -4967,4 +4967,17 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     obs.end();
     assert.equal(total, null);
   });
+  test("json observer decodes a multi-byte split body", () => {
+    let total = null;
+    const obs = createJsonObserver((t) => {
+      total = t;
+    });
+    const text = JSON.stringify({ usage: { total_tokens: 7 }, note: "café" });
+    const buf = Buffer.from(text, "utf8");
+    const splitAt = buf.indexOf(0xc3) + 1;
+    obs.observe(buf.subarray(0, splitAt));
+    obs.observe(buf.subarray(splitAt));
+    obs.end();
+    assert.equal(total, 7);
+  });
 });
