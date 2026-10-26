@@ -425,6 +425,9 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(upstream.status, responseHeaders);
 
     if (!upstream.body) {
+      if (budgetReservation) {
+        budgetReservation.reconcile(null);
+      }
       res.removeListener("close", onDownstreamClose);
       return res.end();
     }
