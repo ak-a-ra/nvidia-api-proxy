@@ -5002,4 +5002,29 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     obs2.end();
     assert.deepEqual(calls2, [null], "end stays inert after detach");
   });
+  test("json observer invokes onUsage exactly once", () => {
+    // end() twice delivers one outcome.
+    const calls = [];
+    const obs = createJsonObserver((v) => calls.push(v));
+    obs.observe(Buffer.from(JSON.stringify({ usage: { total_tokens: 9 } })));
+    obs.end();
+    obs.end();
+    obs.observe(Buffer.from("x"));
+    assert.deepEqual(calls, [9], "second end and post-end observe are inert");
+
+    // Detached path delivers one outcome.
+    const calls2 = [];
+    const obs2 = createJsonObserver((v) => calls2.push(v));
+    const bound = JSON_OBSERVATION_BYTE_BOUND;
+    obs2.observe(Buffer.alloc(bound + 1, 0x61));
+    obs2.end();
+    assert.deepEqual(calls2, [null], "detached then end delivers one outcome");
+
+    // Callback failure does not escape.
+    const obs3 = createJsonObserver(() => {
+      throw new Error("boom");
+    });
+    obs3.observe(Buffer.from(JSON.stringify({ usage: { total_tokens: 1 } })));
+    assert.doesNotThrow(() => obs3.end(), "callback failure is contained");
+  });
 });
