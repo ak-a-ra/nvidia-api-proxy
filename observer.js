@@ -136,14 +136,25 @@ export function createSseObserver(onUsage) {
 
 export function createJsonObserver(onUsage) {
   const observer = {
-    buffer: "",
+    chunks: [],
+    byteTotal: 0,
     detached: false,
     finished: false,
     outcomeDelivered: false,
 
     observe(chunk) {
       if (this.finished || this.detached || this.outcomeDelivered) return;
-      this.buffer += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+      try {
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        this.chunks.push(buf);
+        this.byteTotal += buf.length;
+      } catch (error) {
+        try {
+          this.detach();
+        } catch (inner) {
+          // ignore
+        }
+      }
     },
 
     end() {
@@ -152,20 +163,24 @@ export function createJsonObserver(onUsage) {
       this.outcomeDelivered = true;
       let total = null;
       try {
-        const json = JSON.parse(this.buffer);
+        const buf = Buffer.concat(this.chunks);
+        const text = buf.toString("utf8");
+        const json = JSON.parse(text);
         const v = json?.usage?.total_tokens;
         total = typeof v === "number" ? v : null;
-      } catch {
+      } catch (error) {
         total = null;
       }
-      this.buffer = "";
+      this.chunks = [];
+      this.byteTotal = 0;
       if (typeof onUsage === "function") onUsage(total);
     },
 
     detach() {
       if (this.detached) return;
       this.detached = true;
-      this.buffer = "";
+      this.chunks = [];
+      this.byteTotal = 0;
       if (!this.outcomeDelivered) {
         this.outcomeDelivered = true;
         this.finished = true;
