@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import zlib from "node:zlib";
 import { createBudget, estimateCost } from "./budget.js";
 import { createJsonObserver } from "./observer.js";
+import { JSON_OBSERVATION_BYTE_BOUND } from "./observer.js";
 
 // Stub upstream: records requests, returns canned responses, can be told to
 // stream SSE, return multi-value set-cookie, abort mid-stream, or be unreachable.
@@ -4979,5 +4980,26 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     obs.observe(buf.subarray(splitAt));
     obs.end();
     assert.equal(total, 7);
+  });
+  test("json observer detaches past the byte bound", () => {
+    const bound = JSON_OBSERVATION_BYTE_BOUND;
+    // One byte beyond the bound detaches on arrival.
+    const calls = [];
+    const obs = createJsonObserver((v) => calls.push(v));
+    obs.observe(Buffer.alloc(bound + 1, 0x61));
+    assert.deepEqual(calls, [null], "overflow detaches and delivers null once");
+    obs.observe(Buffer.from("x"));
+    obs.end();
+    assert.deepEqual(calls, [null], "detached observer stays inert");
+
+    // Exactly the bound stays within the bound; one more byte detaches.
+    const calls2 = [];
+    const obs2 = createJsonObserver((v) => calls2.push(v));
+    obs2.observe(Buffer.alloc(bound, 0x61));
+    assert.deepEqual(calls2, [], "exactly the bound does not detach");
+    obs2.observe(Buffer.from("a"));
+    assert.deepEqual(calls2, [null], "one byte beyond detaches");
+    obs2.end();
+    assert.deepEqual(calls2, [null], "end stays inert after detach");
   });
 });
