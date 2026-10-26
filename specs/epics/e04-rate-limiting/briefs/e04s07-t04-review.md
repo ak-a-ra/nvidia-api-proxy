@@ -82,3 +82,41 @@ None.
 ## Conclusion
 
 Task 4 meets its scope: five exact tests pin conservative terminal-path behavior, stub changes are minimal and deterministic, no production files changed, quality gate clean. PASS.
+---
+
+## Scoped re-review: fix round 1/5
+
+### Finding resolution
+
+1. **Client-disconnect no-502 assertion — ADDRESSED**
+   - `server.test.js:5327`: `assert.notEqual(res.status, 502, "disconnected client never receives a proxy 502")`.
+   - `server.test.js:5330-5331`: first chunk decoded and asserted not to contain `Bad gateway`.
+   - `server.test.js:5337-5346`: post-cancel read decoded and asserted not to contain `Bad gateway`; read terminates via error or `done`.
+   - Upstream-abort proof remains at `server.test.js:5347` (`assertUpstreamAborted(teardowns)`).
+   - Estimate-retention proof remains at `server.test.js:5350` (`second.status === 429`).
+
+2. **Report base commit / changed-files wording — ADDRESSED**
+   - `e04s07-t04-report.md:11`: base commit now `901eec0`.
+   - `e04s07-t04-report.md:77`: changed files now `server.test.js`, task 4 status row, and report; no stale task-4-brief wording.
+
+3. **SIGTERM flake disclosure — ADDRESSED**
+   - `e04s07-t04-report.md:57`: final verification includes SIGTERM flake disclosure.
+   - `e04s07-t04-report.md:90`: concerns section includes SIGTERM flake disclosure.
+   - `e04s07-t04-report.md:96-106`: Fix round 1 records focused, verify, full-suite, check, and diff-check evidence.
+
+### New-breakage check (fix diff only)
+
+- `a989417` changes only test assertions; no production files changed.
+- `assert.notEqual(res.status, 502)` is valid because the abortable path responds 200 before holding.
+- Post-cancel read termination assertion accepts either an error or `done`, matching stream cancellation behavior.
+- Focused run: `client disconnect commits the estimate without a 502` — 1 test, 1 suite, 0 fail.
+- `npm run check` — clean.
+- `git diff --check` — clean.
+
+### Evidence caveat
+
+Report final verification and Fix round 1 state 199/199 green, while the latest full-suite result is 198/199 due a known environmental SIGTERM flake. This does not reopen the three findings above; if the report must reflect the latest run, adjust the final count to 198/199 or note the flaky rerun explicitly. This is a documentation-consistency note, not a code or test breakage.
+
+### Scoped verdict
+
+PASS. Addressed: 3. Open: 0.
