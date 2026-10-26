@@ -170,3 +170,45 @@ None. The implementation's functional requirements are met; see verification bel
 - Full `npm test` (189/189) was not rerun by the reviewer.
 - Fallback-count behavior for missing/malformed usage was not exercised by a server-level test in this task; the defect is identified from the reconciliation call site and `budget.js` reconcile semantics.
 - Task 3/4/5 behavior remains out of scope and untested here.
+
+---
+
+## Scoped re-review: fix round 2/5
+
+- scoped verdict: PASS
+- open count: 0
+- reviewer: independent re-review
+- base for this round: f835bd6 through HEAD
+
+### Finding disposition
+
+1. **Round 1 MUST-FIX (null reconciliation skipped)** — ADDRESSED.
+   - `server.js:506-512` now calls `budgetReservation.reconcile(observedUsage)` exactly once when `!error && budgetReservation && (sseObserver || jsonObserver)`. There is no `observedUsage !== null` guard and no separate JSON branch.
+   - Missing, malformed, or unusable usage therefore reaches `reconcile(null)`, which retains the estimate and records one fallback per `budget.js` reconcile semantics.
+   - SSE remains unchanged: `sseObserver` is the same observer path and `reconcile(observedUsage)` is still called once on successful completion.
+   - Error completions remain excluded by the `!error` gate; `jsonObserver.end()` is still called for cleanup but no outcome is recorded.
+
+2. **Round 1 SHOULD-FIX (report overstated final implementation)** — ADDRESSED.
+   - Report now states that reconciliation is unconditional with respect to a usable observed total, including `null`, and that no upper-bound or null guard remains.
+   - Report's fix-round-2 section documents the null reconciliation change and focused missing/malformed verification.
+
+### New-breakage check (fix diff only)
+
+- Double reconciliation: none. There is a single `budgetReservation.reconcile(observedUsage)` call in `onComplete`; SSE transform does not reconcile separately.
+- SSE behavior: unchanged; same `sseObserver` creation, data path, and completion gating.
+- Error completion: reconcile remains gated on `!error`; no change to that condition.
+- Observer lifecycle: `jsonObserver.end()` is still called in `onComplete` for both success and error paths; overflow detach still delivers `null`.
+- Report accuracy: updated statements match `server.js:506-512`; focused verification and task verify command reported passing.
+
+### Verification evidence
+
+- Task 2 verify command: `rc=0`, `n=7` (6 required tests plus suite line).
+- `grep -q 'pipeline(src, res, onComplete)' server.js`: exit 0.
+- Focused SSE usage reconciliation tests: 0 failures.
+- `git diff --check`: clean.
+- Report records 189/189 full suite and clean check; full suite not rerun by reviewer.
+
+### Cannot-verify items
+
+- Full `npm test` (189/189) was not rerun by the reviewer.
+- Fallback-counter increments remain internal and are not asserted by HTTP tests in this task.
