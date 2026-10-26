@@ -506,11 +506,7 @@ const server = http.createServer(async (req, res) => {
       if (!error && budgetReservation && (sseObserver || jsonObserver)) {
         if (sseObserver) {
           budgetReservation.reconcile(observedUsage);
-        } else if (
-          jsonObserver &&
-          observedUsage !== null &&
-          observedUsage <= budgetReservation.cost.totalTokens
-        ) {
+        } else if (jsonObserver && observedUsage !== null) {
           budgetReservation.reconcile(observedUsage);
         }
       }
