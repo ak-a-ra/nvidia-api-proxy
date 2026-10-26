@@ -5315,4 +5315,25 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     assert.equal(second.status, 200);
     assert.equal(await second.text(), body);
   });
+
+  test("client disconnect commits the estimate without a 502", async (t) => {
+    const body = JSON.stringify({ usage: { total_tokens: 12 }, marker: "ok" });
+    const { proxy, teardowns } = await withProxy(t, {
+      proxyEnv: { ...RATE_ON, UPSTREAM_IDLE_TIMEOUT_SECONDS: "0" },
+      status: 200,
+      body,
+      headers: { "content-type": "application/json" },
+      mode: "abortable",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(res.status, 200);
+    const reader = res.body.getReader();
+    const first = await reader.read();
+    assert.equal(first.done, false);
+    await reader.cancel();
+    await assertUpstreamAborted(teardowns);
+    await new Promise((r) => setTimeout(r, 50));
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "estimate remains after client disconnect");
+  });
 });
