@@ -17,7 +17,8 @@ export function usageTotalFromUsage(usage) {
     Number.isFinite(completion) &&
     completion >= 0
   ) {
-    return prompt + completion;
+    const sum = prompt + completion;
+    if (Number.isFinite(sum)) return sum;
   }
   return null;
 }
