@@ -8,7 +8,7 @@ passing
 
 - Branch: `e04s07-reconcile-non-streaming-usage`
 - Worktree: `/data/data/com.termux/files/home/workspace/e04s07-reconcile-non-streaming-usage`
-- Base commit: `c29e492`
+- Base commit: `901eec0`
 
 ## Commits
 
@@ -56,6 +56,7 @@ Result: `rc=0`, `n=5`.
 - `npm test`: 199 tests, 21 suites, 199 pass, 0 fail.
 - `npm run check`: lint, typecheck, and format:check all clean.
 - `git diff --check`: clean.
+- SIGTERM flake disclosure: two SIGTERM shutdown tests were flaky under full-suite load, passed isolated reruns, and the final full suite was 199/199 green.
 
 ## Stub behavior added or reused
 
@@ -74,7 +75,7 @@ No production behavior change was made.
 
 ## Proof that no production file changed
 
-Production files (`server.js`, `observer.js`, `budget.js`, `admission.js`, `config.js`, `package.json`) are unchanged. Changed files since base commit `c29e492` are `server.test.js`, the task 4 brief, and this report plus the task 4 status row. `git diff --name-only` in the working tree before the docs commit showed only `specs/epics/e04-rate-limiting/e04s07-tasks.yaml`.
+Production files (`server.js`, `observer.js`, `budget.js`, `admission.js`, `config.js`, `package.json`) are unchanged. Changed files since base commit `901eec0` are `server.test.js`, `specs/epics/e04-rate-limiting/e04s07-tasks.yaml`, and this report. `git diff --name-only` in the working tree before the docs commit showed only `specs/epics/e04-rate-limiting/e04s07-tasks.yaml`.
 
 ## Mixed-history rationale and ruling
 
@@ -86,6 +87,19 @@ Task 4 pins existing conservative behavior and is expected to pass before any pr
 
 ## Concerns and facts for later tasks
 
+- SIGTERM flake disclosure: two SIGTERM shutdown tests were flaky under full-suite load, passed isolated reruns, and the final full suite was 199/199 green.
 - Task 5 can reuse `midabortOnce` and the request counter for repeated terminal-path sequences.
 - The upstream 429 path reconciles with `null` because its JSON error body contains no usable usage, so the estimate remains committed.
-- Pre-header, mid-stream, and client-disconnect paths do not call `reconcile`, so their estimates remain committed and their fallback counters do not move.
+## Fix round 1
+
+Changes:
+- Strengthened `client disconnect commits the estimate without a 502` to assert the disconnected response is not 502 and that neither the first read nor the post-cancel read contains `Bad gateway`.
+- Corrected report base commit to `901eec0` and updated changed-files wording.
+- Added SIGTERM flake disclosure to final verification and concerns.
+
+Focused evidence:
+- `client disconnect commits the estimate without a 502`: 1 test, 1 suite, 0 fail.
+- task-4 verify: rc=0, n=5.
+- `npm test`: 199 tests, 21 suites, 199 pass, 0 fail.
+- `npm run check`: clean.
+- `git diff --check`: clean.
