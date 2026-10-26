@@ -5131,4 +5131,17 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
     assert.equal(second.status, 429, "detached observation keeps the estimate");
   });
+  test("valid non-streaming usage replaces the estimate", async (t) => {
+    const body = JSON.stringify({ usage: { total_tokens: 12 } });
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200);
+    await first.text();
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 200, "reconciled usage freed capacity for the next request");
+  });
 });
