@@ -100,7 +100,7 @@ Changes:
 Focused evidence:
 - `client disconnect commits the estimate without a 502`: 1 test, 1 suite, 0 fail.
 - task-4 verify: rc=0, n=5.
-- `npm test`: 199 tests, 21 suites, 199 pass, 0 fail.
+- `npm test`: 198/199 pass (1 fail: `SIGTERM rejects queued requests with 503 and no upstream call`).
 - `npm run check`: clean.
 - `git diff --check`: clean.
 ## Confirmation run (fix round 2)
