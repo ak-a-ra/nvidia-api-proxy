@@ -4,7 +4,11 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import zlib from "node:zlib";
 import { createBudget, estimateCost } from "./budget.js";
-import { createJsonObserver, JSON_OBSERVATION_BYTE_BOUND, usageTotalFromUsage } from "./observer.js";
+import {
+  createJsonObserver,
+  JSON_OBSERVATION_BYTE_BOUND,
+  usageTotalFromUsage,
+} from "./observer.js";
 
 // Stub upstream: records requests, returns canned responses, can be told to
 // stream SSE, return multi-value set-cookie, abort mid-stream, or be unreachable.
@@ -5033,12 +5037,12 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     assert.equal(
       usageTotalFromUsage({ total_tokens: -1, prompt_tokens: 1, completion_tokens: 2 }),
       3,
-      "negative total falls back to components",
+      "negative total falls back to components"
     );
     assert.equal(
       usageTotalFromUsage({ total_tokens: Number.NaN, prompt_tokens: 1, completion_tokens: 2 }),
       3,
-      "non-finite total falls back to components",
+      "non-finite total falls back to components"
     );
 
     // unusable inputs
