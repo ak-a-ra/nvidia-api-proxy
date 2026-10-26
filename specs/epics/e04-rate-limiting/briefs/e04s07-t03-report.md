@@ -148,6 +148,9 @@ The GET/HEAD request-body selection change is necessary, not optional:
 - The GET/HEAD body-selection correction in rate-limit mode means request bodies are not forwarded for those methods.
 - Test count is now 194 in 21 suites; task 6 owns living-doc count synchronization.
 - Task 3's status row in `e04s07-tasks.yaml` is set to `passing`.
+## Fix round 2
+
+- Removed stray `EOF` and `echo written` lines so the report ends at the TL;DR line.
+- Verified the report tail and `git diff --check`.
+
 TL;DR: Task 3 complete after fix round 1: honest RED/PASS history, split GET/HEAD and no-body fixes, exact test names, verify 5/5, full suite 194/194, checks clean.
-EOF
-echo written
