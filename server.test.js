@@ -5229,4 +5229,21 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     assert.equal(budget.fallbackCount, 1, "no extra fallback is recorded");
     assert.equal(budget.reconciledCount, 0, "no reconciliation is recorded");
   });
+
+  test("upstream 429 passes through exactly once", async (t) => {
+    const body = JSON.stringify({ error: "rate limited", retry_after: 7 });
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      status: 429,
+      body,
+      headers: { "content-type": "application/json", "retry-after": "7" },
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(res.status, 429);
+    assert.equal(await res.text(), body);
+    assert.equal(res.headers.get("retry-after"), "7");
+    assert.equal(receivedRequests.length, 1);
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(receivedRequests.length, 1, "no delayed replay");
+  });
 });
