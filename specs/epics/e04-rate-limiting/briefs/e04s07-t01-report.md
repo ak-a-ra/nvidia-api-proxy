@@ -111,3 +111,9 @@ multi-byte characters decode correctly. No behavior regression resulted.
   not caused by this task.
 
 TL;DR: Added shared `usageTotalFromUsage`, `JSON_OBSERVATION_BYTE_BOUND`, and `createJsonObserver` in `observer.js`, delegated SSE validity to the helper, added eight tests, marked task 1 passing; check clean, 182/183 pass with one pre-existing SIGTERM failure.
+
+## Additional full-suite rerun
+
+A second `npm test` run after the report commit completed with `183 tests, 183 pass, 0 fail`
+(duration 520s). This confirms the earlier SIGTERM failure was a flake and not a
+task-1 regression.
