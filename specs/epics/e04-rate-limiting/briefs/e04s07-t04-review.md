@@ -120,3 +120,26 @@ Report final verification and Fix round 1 state 199/199 green, while the latest 
 ### Scoped verdict
 
 PASS. Addressed: 3. Open: 0.
+
+---
+
+## Scoped re-review: fix round 2/5 (report-evidence reconciliation)
+
+### Finding resolution
+
+1. **Full-suite evidence reconciliation — PARTIALLY ADDRESSED / NOT FULLY CONSISTENT**
+   - Addressed: `e04s07-t04-report.md:106-111` adds a `## Confirmation run (fix round 2)` section recording one exact run: `npm test`: 199 tests, 21 suites, 199 pass, 0 fail; `git diff --check`: clean.
+   - Addressed: `e04s07-t04-report.md:111` preserves both facts: initial task-4 full run was 199/199 green; the fix-round run was 198/199 with one SIGTERM shutdown flake.
+   - Not addressed / inconsistent: `e04s07-t04-report.md:101` still records Fix round 1 `npm test`: 199 tests, 21 suites, 199 pass, 0 fail, while the confirmation note states that same fix-round run was 198/199. This leaves a stale false-green claim in the report.
+   - Required correction: change Fix round 1's `npm test` line to 198/199 (or explicitly relabel it as a rerun after the flake) so no false green claim remains.
+
+### Report consistency check
+
+- `Final verification` (`report.md:54-59`): 199/199 green plus SIGTERM flake disclosure.
+- `Fix round 1` (`report.md:96-105`): claims 199/199 for `npm test`.
+- `Confirmation run (fix round 2)` (`report.md:106-111`): 199/199 confirmation run and preserves 198/199 fix-round flake.
+- The Fix round 1 claim conflicts with the preserved 198/199 fact. No production or test change is involved.
+
+### Scoped verdict
+
+FAIL (documentation consistency only). Addressed: 1. Open: 1.
