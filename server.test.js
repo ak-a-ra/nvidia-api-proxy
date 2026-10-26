@@ -5523,4 +5523,15 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     assert.equal(await fifth.text(), JSON.stringify({ usage: { total_tokens: 12 }, marker: "ok" }));
     assert.equal(receivedRequests.length, 5, "one upstream request per attempted client request");
   });
+
+  test("a second reconciliation records no additional outcome", () => {
+    const budget = createBudget({ rpm: 60, tpm: 60 }, { safetyMarginPct: 0 }, null);
+    const first = budget.reserve({ requestCharge: 1, totalTokens: 50, model: null });
+    const ok = first.reservation.reconcile(10);
+    assert.equal(ok, true, "reconcile(actual) succeeds");
+    const second = first.reservation.reconcile(20);
+    assert.equal(second, false, "a second reconciliation is a no-op");
+    assert.equal(budget.reconciledCount, 1, "reconciledCount stays one");
+    assert.equal(budget.fallbackCount, 0, "no fallback is recorded");
+  });
 });
