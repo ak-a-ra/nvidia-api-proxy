@@ -75,3 +75,10 @@ None.
 
 Task 5 meets its scope: four exact tests pin exactly-once cleanup and reconciliation behavior, stub changes are minimal and deterministic, four separate test-only commits are present, no production files changed, quality gate clean. PASS.
 TL;DR: Task 5 PASS — 4 exact tests verified, no production changes, 0 must-fix and 1 should-fix report wording.
+
+## Scoped re-review: fix round 1 (changed-file list)
+
+- Finding 1 (report changed-file list omitted report and task 5 status row): ADDRESSED. Evidence: `e04s07-t05-report.md:23` now lists `specs/.../e04s07-tasks.yaml` and `specs/.../briefs/e04s07-t05-report.md` for commit 5; lines 25-29 add `## Files changed` with `server.test.js`, `specs/.../e04s07-tasks.yaml`, and `specs/.../briefs/e04s07-t05-report.md`.
+- Addressed: 1. Open: 0.
+- Scoped verdict: PASS.
+- Concern: `e04s07-t05-report.md:107` still says `git diff --name-only 88b19d0..HEAD` lists only `server.test.js` and the task 5 brief; actual range also includes report, task status row, and brief. Cosmetic; no production impact.
