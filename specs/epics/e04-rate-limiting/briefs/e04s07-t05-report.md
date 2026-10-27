@@ -20,7 +20,13 @@ passing
    - Files changed: `server.test.js`
 4. `a086565b583fc96d06e3adf7b72737b336465431` — `test(e04s07): counters do not double-count across repeated paths`
    - Files changed: `server.test.js`
-5. Docs/status commit (this report + task 5 status row) — `server.test.js` unchanged by this commit beyond prior test commits; `specs/epics/e04-rate-limiting/e04s07-tasks.yaml` and this report.
+5. Docs/status commit (this report + task 5 status row) — `specs/epics/e04-rate-limiting/e04s07-tasks.yaml`, `specs/epics/e04-rate-limiting/briefs/e04s07-t05-report.md`.
+
+## Files changed
+
+- `server.test.js`
+- `specs/epics/e04-rate-limiting/e04s07-tasks.yaml`
+- `specs/epics/e04-rate-limiting/briefs/e04s07-t05-report.md`
 
 ## Test counts
 
@@ -120,3 +126,8 @@ Task 5 pins existing exactly-once behavior and is expected to pass before any pr
 - Test count is now 203; living docs still state 175/199-era counts and must be synced by task 6.
 - Story-level status and epic manifest updates are intentionally left to task 6.
 - No production behavior changed; task 5 is test-only plus task-status/report docs.
+## Fix round 1
+
+- Corrected the docs/status changed-file wording and added the task-level `Files changed` list.
+- `git diff --check`: clean.
+- Task-5 verify: `rc=0 n=4`.
