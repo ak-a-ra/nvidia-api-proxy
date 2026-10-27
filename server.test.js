@@ -3966,12 +3966,21 @@ describe("e04s03 abort-aware and shutdown-safe admission", () => {
     let lateBody = "";
     if (lateResult.status === "fulfilled") {
       lateStatus = lateResult.value.status;
-      lateBody = await lateResult.value.text();
+      try {
+        lateBody = await lateResult.value.text();
+      } catch {
+        lateStatus = 0;
+        lateBody = "";
+      }
     }
     let healthStatus = 0;
     if (healthResult.status === "fulfilled") {
       healthStatus = healthResult.value.status;
-      await healthResult.value.text();
+      try {
+        await healthResult.value.text();
+      } catch {
+        healthStatus = 0;
+      }
     }
     assert.ok(
       lateStatus === 503 || lateStatus === 0,

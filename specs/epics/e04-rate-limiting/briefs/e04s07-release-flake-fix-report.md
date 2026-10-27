@@ -8,6 +8,7 @@ Fix: await both requests with `Promise.allSettled([late, health])` immediately a
 
 Files changed:
 - `server.test.js` (test only)
+- `specs/epics/e04-rate-limiting/briefs/e04s07-release-flake-fix-report.md` (this report)
 
 Verification (Node 24, `LD_LIBRARY_PATH=`):
 - Focused flaky test: 15/15 pass.
@@ -18,4 +19,4 @@ Verification (Node 24, `LD_LIBRARY_PATH=`):
 Risks:
 - Fix is test-harness only; proxy SIGTERM behavior unchanged.
 - `settle(50)` post-SIGTERM window retained; if future environments need more time, revisit separately.
-- No co-author footer; commit pending.
+- Committed as `0322324` (no co-author footer).
