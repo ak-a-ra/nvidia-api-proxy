@@ -23,13 +23,13 @@ active_story: e04s07
 session_start: 2026-10-16T18:02:00Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: develop-tdd
-  source: kickoff-branch
+  next_skill: audit-code
+  source: task6
   note: >-
     e04s05 landed on main: budget.js (per-model windows, atomic reserve with
     model_rpm/model_tpm reasons, estimator model field), server.js passes
-    config.modelLimits to createBudget, 175 tests green, npm run check clean.
-    e04s06 kickoff: branch e04s06-reconcile-sse-usage, preflight green (175/175, check clean).
+    config.modelLimits to createBudget, 203 tests green, npm run check clean.
+    e04s06 kickoff: branch e04s06-reconcile-sse-usage, preflight green (203/203, check clean).
     Next: develop-tdd.
     e04s07 planned (issue #20, non-streaming usage reconciliation): spec and tasks
     written, 8 BCPs, 4 P0 tasks. Three operator decisions locked at plan time:
@@ -37,7 +37,8 @@ handoff:
     shared usageTotalFromUsage validity helper, and observation is content-type
     agnostic. e04s07 kickoff: branch e04s07-reconcile-non-streaming-usage, worktree
     /data/data/com.termux/files/home/workspace/e04s07-reconcile-non-streaming-usage,
-    preflight green (175/175, check clean). Next: develop-tdd.
+    preflight green (203/203, check clean). Next: develop-tdd.
+    e04s07 task 6 complete: living docs, counts, status, and verification evidence synced; 203 tests green.
 
 decisions:
   - decision: Per-model window pairs are built at construction time, and the story's "lazily" sentence is corrected
@@ -171,7 +172,7 @@ decisions:
     rationale: >-
       Decided 2026-10-21, for e04s05 task 5. The ledger's task-5 verify counts
       the ok lines of the TAP output and calls that the test count. Measured on
-      this tree: that count is 176 while the suite is 175 tests, because the TAP
+      this tree: that count is 176 while the suite is 203 tests, because the TAP
       reporter emits one ok line per test, one per describe block and one for
       the file. The gate then greps the docs for 176, finds nothing, and fails
       on a tree whose counts are all correct. The count comes from the "# tests

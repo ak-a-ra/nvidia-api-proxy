@@ -1,0 +1,28 @@
+story_id: e04s07
+verified_at: "2026-10-27T00:00:00Z"
+verifier: verify-work
+phases:
+  smoke:
+    passed: true
+  build:
+    passed: true
+  typecheck:
+    passed: true
+  lint:
+    passed: true
+  tests:
+    passed: true
+    count: 203
+  terminal_verdict:
+    command: "npm test"
+    exit_code: 0
+    captured_at: "2026-10-27T00:00:00Z"
+    note: "Single run — 203 tests, 0 fail"
+  manual:
+    steps:
+      - step: "Non-streaming bytes byte-identical to upstream"
+        expected: "Forwarded bytes unchanged"
+        actual: "Verified by test"
+        passed: true
+gaps:
+  closed: true

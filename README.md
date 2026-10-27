@@ -6,7 +6,7 @@
 
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.14-3c873a?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](package.json)
-[![Tests](https://img.shields.io/badge/tests-175%20passing-blue?style=flat-square)](server.test.js)
+[![Tests](https://img.shields.io/badge/tests-203%20passing-blue?style=flat-square)](server.test.js)
 
 [Features](#features) • [How it works](#how-it-works) • [Quick start](#quick-start) • [Configuration](#configuration) • [Endpoints](#endpoints) • [Deploy](#deploy-to-render)
 
@@ -108,7 +108,7 @@ const client = new OpenAI({
 ```
 
 > [!TIP]
-> Run the test suite (175 tests, no deps needed):
+> Run the test suite (203 tests, no deps needed):
 > ```bash
 > npm test
 > ```
@@ -176,7 +176,7 @@ export PROXY_AUTH_TOKEN="FIXME"  # token your clients will send
 # export PROXY_MAX_CONCURRENT_REQUESTS="16"  # absent, blank, or 0 disables the ceiling
 # export PROXY_MAX_QUEUE_SIZE="32"         # requests that may wait for capacity
 # export PROXY_QUEUE_TIMEOUT_SECONDS="30"  # how long a request may wait
-# ---- budgets (global pair enforced since e04s04; PROXY_RPM and PROXY_TPM are a mandatory pair) ----
+# ---- budgets (global pair enforced since e04s04; non-streaming reconciliation since e04s07; only #21/#22 remain; PROXY_RPM and PROXY_TPM are a mandatory pair) ----
 # export PROXY_RPM="60"                   # requests per minute (rolling 60s window, enforced)
 # export PROXY_TPM="200000"                # tokens per minute (rolling 60s window, enforced)
 # export PROXY_SAFETY_MARGIN_PCT="5"       # headroom reserved against both budgets, 0-50; effective limit is max(1, floor(limit * (1 - margin / 100)))

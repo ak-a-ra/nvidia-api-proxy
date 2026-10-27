@@ -1,6 +1,6 @@
 story_id: e04s07
 title: Reconcile non-streaming usage and terminal fallbacks
-status: failing
+status: passing
 bcps: 8
 issue: 20
 type: feat
@@ -214,7 +214,7 @@ tasks:
       grep -q 'non-streaming' specs/tech-architecture/tech-stack.md || { echo 'tech-stack.md does not record non-streaming reconciliation'; exit 1; }
     risk: P2
     security: none
-    status: failing
+    status: passing
     allure:
       severity: normal
       categories:

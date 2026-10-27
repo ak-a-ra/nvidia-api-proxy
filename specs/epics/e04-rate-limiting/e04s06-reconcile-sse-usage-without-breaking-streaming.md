@@ -5,7 +5,7 @@
 * Type: feat
 * Risk: P0
 * Context: infra
-* Status: failing
+* Status: passing
 
 ## 1. Business narrative
 

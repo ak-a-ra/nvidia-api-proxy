@@ -39,7 +39,7 @@ and failure details are scrubbed from every locally generated response.
 | Rate budget | A rolling 60-second allowance for requests per minute, or for estimated and reconciled tokens per minute. Not a lifetime cap: the window rolls, so spent allowance returns. |
 | Per-model budget | A rolling 60-second allowance applying only to requests naming an exact configured model ID. Not a fallback: model IDs match case-sensitively, and an omitted field inherits the global allowance rather than denying. |
 | Safety margin | A percentage reduction applied to raw RPM and TPM limits before enforcement. Not a correction of estimated usage: it reserves headroom against the limit, because the estimate itself drifts. |
-| Usage reconciliation | Replacing a request's estimated token cost with valid actual usage reported by the Upstream. Implemented for SSE via `observer.js`: on successful completion the reservation is reconciled with valid usage; absent, invalid, or unavailable usage keeps the estimate and records one fallback. |
+| Usage reconciliation | Replacing a request's estimated token cost with valid actual usage reported by the Upstream. Implemented for SSE and non-streaming responses via `observer.js`: on successful completion the reservation is reconciled with valid usage; absent, invalid, or unavailable usage keeps the estimate and records one fallback. The SSE observer and the JSON observer both use the shared `usageTotalFromUsage` validity rule. |
 
 Admission control and Queue are enforced at request time: since e04s02 the concurrency ceiling
 (`PROXY_MAX_CONCURRENT_REQUESTS`, with `PROXY_MAX_QUEUE_SIZE` and
@@ -50,5 +50,5 @@ proxy reads at request time: `PROXY_RPM`, `PROXY_TPM`, `PROXY_SAFETY_MARGIN_PCT`
 read by the root-level `budget.js` gate on every request. The rate budget and the per-model
 budget are enforced — the rate budget since e04s04, the per-model budget since e04s05 — while the
 safety margin and the body cap are read at request time since e04s04. Usage reconciliation is
-implemented for SSE since e04s06 via `observer.js`. The configuration regime is recorded in
+implemented for SSE since e04s06 and non-streaming since e04s07 via `observer.js`. The configuration regime is recorded in
 `docs/adr/0002-config-operational-fail-fast.md`.
