@@ -7,7 +7,7 @@
 ```yaml
 vcs:
   kind: git
-  commit: 8142d64
+  commit: 486b51a
   branch: e04s07-reconcile-non-streaming-usage
   worktree: /data/data/com.termux/files/home/workspace/e04s07-reconcile-non-streaming-usage
   landed:
@@ -23,8 +23,8 @@ active_story: e04s07
 session_start: 2026-10-16T18:02:00Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: audit-code
-  source: task6
+  next_skill: release-branch
+  source: final-review
   note: >-
     e04s05 landed on main: budget.js (per-model windows, atomic reserve with
     model_rpm/model_tpm reasons, estimator model field), server.js passes
@@ -39,6 +39,7 @@ handoff:
     /data/data/com.termux/files/home/workspace/e04s07-reconcile-non-streaming-usage,
     preflight green (203/203, check clean). Next: develop-tdd.
     e04s07 task 6 complete: living docs, counts, status, and verification evidence synced; 203 tests green.
+    e04s07 final review complete: PASS, 0 must-fix, 0 should-fix, deferred minors and parked items triaged for final review.
 
 decisions:
   - decision: Per-model window pairs are built at construction time, and the story's "lazily" sentence is corrected
