@@ -22,5 +22,6 @@ Task 4: fix round 3/5 (1 addressed, 0 open — correct fix-round suite evidence;
 Task 4: complete (commits 901eec0..5d014a5, review clean)
 Task 5: fix round 1/5 (1 addressed, 0 open — report changed-file list; commits 661181e..4ebcadf)
 Task 5: complete (commits 661181e..a48fbb6, review clean)
-Task 6: in progress
-Final review: todo
+Task 6: fix round 1/5 (2 addressed, 0 open — AGENTS observer line count and state TAP wording; commits f9a9743..1aa83fb)
+Task 6: complete (commits d313b42..1aa83fb, review clean)
+Final review: in progress
