@@ -41,3 +41,32 @@ Implementer report (b562029) matches the changed file set and verification evide
 - `CONVENTIONS.md` architecture line still says `server.js` ~481 lines (outside task 6 scope).
 - `AGENTS.md` `server.js` ~553 vs 587 total / 544 non-blank lines (approximate only).
 - State.yaml TAP ok-line count (176) is now stale relative to the 203-test suite.
+## Scoped re-review: fix round 1/5
+
+- scoped verdict: PASS
+- open count: 0
+- reviewer: independent re-review
+- base for this round: f9a9743 through HEAD
+
+### Finding disposition
+
+1. **Original SHOULD-FIX (AGENTS.md observer line count ~133 vs actual 211)** — ADDRESSED.
+   - `AGENTS.md:85` now states `observer.js` (~211 lines); `wc -l observer.js` = 211.
+   - The same line also refreshes `server.js` to ~587, matching `wc -l server.js` = 587.
+
+2. **Original SHOULD-FIX (state.yaml TAP ok-line count 176 vs 203-test suite)** — ADDRESSED.
+   - `specs/state.yaml:175` now reads "that count is 204 while the suite is 203 tests" (was 176).
+   - The only change in this round touches documentation; no production or test files changed.
+
+### New-breakage check (fix diff only)
+
+- No code, test, or config changes in the fix commit; documentation-only diff.
+- `AGENTS.md` module-count line now matches measured line counts for `server.js` and `observer.js`.
+- `specs/state.yaml` TAP wording no longer references the stale 176 figure.
+
+### Verification evidence
+
+- `wc -l observer.js` = 211; `wc -l server.js` = 587 (`AGENTS.md:85`).
+- `specs/state.yaml:175` TAP ok-line sentence now uses 204.
+- Fix commit: `9ad83e6` (`docs(e04s07): correct module line counts and TAP wording`).
+- Full suite not rerun per scoped review instruction; prior verify evidence (203 tests, exit 0) stands.
