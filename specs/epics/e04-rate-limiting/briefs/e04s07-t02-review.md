@@ -25,7 +25,7 @@ No changes to `observer.js`, `budget.js`, `admission.js`, `config.js`, or other 
 1. **TDD commit policy violated** — Brief requires vertical RED→GREEN cycles, one required behavior per cycle, with each behavior producing a separate `test(e04s07): ...` RED commit immediately followed by a `feat(server): ...` GREEN commit, and never combining a test with its implementation. The actual history contains only one test commit and one implementation commit:
    - `05b541d` `test(e04s07): add non-streaming usage reconciliation tests` (all six tests at once)
    - `b1de3af` `feat(server): integrate non-streaming usage observation and reconciliation`
-   
+
    Evidence: `git log --oneline 7d3528c..HEAD`. The verification contract in the brief requires `git log --oneline` to show each RED commit immediately followed by its GREEN commit; it does not.
 
    Location: `server.test.js` (all six tests in one commit), `server.js` (implementation in one commit).

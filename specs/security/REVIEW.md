@@ -1,9 +1,12 @@
 # Security Review — Release Gate
 
-- Generated: 2026-10-27T20:40:00Z
+- Generated: 2026-10-27T21:28:40Z
 - Base SHA: 8142d64e1087d008c59f27dbb15eb8660c33ed49 (main)
-- HEAD SHA: 0322324862d6be8717f9dd6add5e6ce33f2df756
+- HEAD SHA (pre-commit): 8d87f70ec16e734d2224fd59c4ae01777ca85cd6
 - Branch: e04s07-reconcile-non-streaming-usage
+- Reviewed production diff at 8d87f70ec16e734d2224fd59c4ae01777ca85cd6
+- Production files unchanged by this metadata-only commit.
+- Subsequent release-artifact-only commits do not alter production scope.
 - Scope: production diff `main...HEAD` (`observer.js`, `server.js`)
 
 ## Methodology

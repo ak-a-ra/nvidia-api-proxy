@@ -35,7 +35,7 @@ exist in `server.js`.
 - `admission.js` — Admission control: the active count, the FIFO wait queue, and per-ticket settled state behind `createAdmission`, `acquire`, and `release`. A reader of `config.limits` at request time; `server.js` calls it and re-exports none of it
 - `budget.js` — Rate budgets: the rolling 60-second RPM and TPM windows, the Safety margin effective limits, the cost estimator, and the byte cap's caller. The other reader of `config.limits` and of `config.rateLimit` at request time; reads no environment and carries no default
 - `observer.js` — SSE and JSON observers: bounded parsing of usage from copied streams, with detach on overflow, malformed input, or non-JSON; shared `usageTotalFromUsage` (211 lines)
-- `server.test.js` — Test suite (~4289 lines)
+- `server.test.js` — Test suite (~5556 lines)
 - Modules split by concern; `config.js` imports nothing from `server.js`, so configuration can be read without starting a listener
 
 ## Naming Conventions
