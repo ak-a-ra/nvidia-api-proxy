@@ -3958,22 +3958,20 @@ describe("e04s03 abort-aware and shutdown-safe admission", () => {
       headers: { authorization: "Bearer pt" },
     });
     const health = proxiedFetch(proxy.port, "/health");
+    // Await both together so neither promise is left unhandled while the
+    // other settles: a rejection on `health` that lands before `late` is
+    // awaited used to surface as an unhandled rejection under the runner.
+    const [lateResult, healthResult] = await Promise.allSettled([late, health]);
     let lateStatus = 0;
     let lateBody = "";
-    try {
-      const res = await late;
-      lateStatus = res.status;
-      lateBody = await res.text();
-    } catch {
-      lateStatus = 0;
+    if (lateResult.status === "fulfilled") {
+      lateStatus = lateResult.value.status;
+      lateBody = await lateResult.value.text();
     }
     let healthStatus = 0;
-    try {
-      const res = await health;
-      healthStatus = res.status;
-      await res.text();
-    } catch {
-      healthStatus = 0;
+    if (healthResult.status === "fulfilled") {
+      healthStatus = healthResult.value.status;
+      await healthResult.value.text();
     }
     assert.ok(
       lateStatus === 503 || lateStatus === 0,
