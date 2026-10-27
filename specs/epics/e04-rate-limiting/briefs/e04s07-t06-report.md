@@ -40,7 +40,7 @@ passing
 ## Docs / sites updated
 
 - `AGENTS.md` — npm test count 203; currently-175 bullet 203; module line counts
-  refreshed (server.js ~553, budget.js ~495, observer.js ~133); sites list 203.
+  refreshed (server.js ~587, budget.js ~495, observer.js ~211); sites list 203.
 - `CONVENTIONS.md` — npm test count 203; rate-limit category now states global,
   per-model, and non-streaming reconciliation implemented; issues #21–#22 remain.
 - `README.md` — badge and tip 203; budget comment block notes non-streaming
