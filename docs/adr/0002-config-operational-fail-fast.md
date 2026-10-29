@@ -715,3 +715,16 @@ Implemented. `observer.js` provides `createSseObserver` and `SSE_OBSERVATION_BYT
 `Transform` observes a copy and reconciles the reservation with the reported usage
 on successful completion. Detach occurs on overflow, malformed input, or decode
 failure; the estimate is retained and one fallback is recorded in those cases.
+
+## Non-streaming usage reconciliation (e04s07)
+
+Implemented. `observer.js` provides `createJsonObserver` and
+`JSON_OBSERVATION_BYTE_BOUND` (1048576), plus shared `usageTotalFromUsage`.
+In rate-limit mode, non-SSE responses pass through byte-identically while a
+side listener observes a bounded copy and reconciles the reservation with the
+reported usage on successful completion. No `Transform` is inserted into the
+non-SSE forwarding path. Detach occurs on overflow, malformed input, decode
+failure, or non-JSON body; the estimate is retained and one fallback is recorded
+in those cases. No-body responses, HEAD, 204, 304, and empty bodies record one
+fallback. Abnormal terminal paths record no outcome. Upstream 429 passes
+through exactly once with no retry or circuit policy.

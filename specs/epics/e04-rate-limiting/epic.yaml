@@ -1,7 +1,7 @@
 id: e04
 title: Rate limiting and admission control
 wsjf: 2.9
-total_bcps: 25
+total_bcps: 67
 status: in_progress
 issue: 13
 parent_issue: 13
@@ -67,7 +67,7 @@ stories:
   - id: e04s07
     title: Reconcile non-streaming usage and terminal fallbacks
     bcps: 8
-    status: failing
+    status: passing
     issue: 20
     blocked_by: [e04s06]
     spec: e04s07-reconcile-non-streaming-usage-and-terminal-fallbacks.md
@@ -76,7 +76,7 @@ stories:
   - id: e04s08
     title: Expose authenticated aggregate stats
     bcps: 0
-    status: blocked
+    status: todo
     issue: 21
     blocked_by: [e04s07]
     spec: null

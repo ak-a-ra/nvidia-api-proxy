@@ -4,6 +4,11 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import zlib from "node:zlib";
 import { createBudget, estimateCost } from "./budget.js";
+import {
+  createJsonObserver,
+  JSON_OBSERVATION_BYTE_BOUND,
+  usageTotalFromUsage,
+} from "./observer.js";
 
 // Stub upstream: records requests, returns canned responses, can be told to
 // stream SSE, return multi-value set-cookie, abort mid-stream, or be unreachable.
@@ -12,6 +17,7 @@ import { createBudget, estimateCost } from "./budget.js";
 function startStubUpstream(status, body, headers, mode) {
   return new Promise((resolve) => {
     const receivedRequests = [];
+    let requestCount = 0;
     // One record per arriving request, in arrival order. Registered at request
     // entry (not in the `end` handler) so a request aborted mid-body still
     // produces a record.
@@ -20,6 +26,7 @@ function startStubUpstream(status, body, headers, mode) {
     // triggers them to release admitted requests and observe queueing.
     const heldResponses = [];
     const srv = http.createServer((req, res) => {
+      requestCount += 1;
       let resolveClosed;
       const record = {
         reqAborted: false,
@@ -51,6 +58,76 @@ function startStubUpstream(status, body, headers, mode) {
           contentEncoding: req.headers["content-encoding"],
           setCookie: req.headers["set-cookie"],
         });
+        if (mode === "t05seq1") {
+          if (requestCount === 1) {
+            const b = JSON.stringify({ usage: { total_tokens: 12 } });
+            res.writeHead(200, {
+              "content-type": "application/json",
+              "content-length": String(Buffer.byteLength(b)),
+            });
+            res.end(b);
+            return;
+          }
+          if (requestCount === 2) {
+            res.writeHead(204, { "content-type": "application/json" });
+            res.end();
+            return;
+          }
+          if (requestCount === 3) {
+            const b = JSON.stringify({ error: "rate limited" });
+            res.writeHead(429, {
+              "content-type": "application/json",
+              "retry-after": "1",
+              "content-length": String(Buffer.byteLength(b)),
+            });
+            res.end(b);
+            return;
+          }
+          const b = JSON.stringify({ foo: 1 });
+          res.writeHead(200, {
+            "content-type": "application/json",
+            "content-length": String(Buffer.byteLength(b)),
+          });
+          res.end(b);
+          return;
+        }
+        if (mode === "t05seq2") {
+          if (requestCount === 1) {
+            const b = JSON.stringify({ usage: { total_tokens: 12 }, marker: "ok" });
+            res.writeHead(200, {
+              "content-type": "application/json",
+              "content-length": String(Buffer.byteLength(b)),
+            });
+            res.end(b);
+            return;
+          }
+          if (requestCount === 2) {
+            res.writeHead(204, { "content-type": "application/json" });
+            res.end();
+            return;
+          }
+          if (requestCount === 3) {
+            const b = JSON.stringify({ data: [1, 2, 3] });
+            res.writeHead(200, {
+              "content-type": "application/json",
+              "content-length": String(Buffer.byteLength(b)),
+            });
+            res.end();
+            return;
+          }
+          if (requestCount === 4) {
+            // abortable: one chunk, then hold open until the client cancels.
+            res.write("part1-");
+            return;
+          }
+          const b = JSON.stringify({ usage: { total_tokens: 12 }, marker: "ok" });
+          res.writeHead(200, {
+            "content-type": "application/json",
+            "content-length": String(Buffer.byteLength(b)),
+          });
+          res.end(b);
+          return;
+        }
         if (mode === "silent") return; // accept request, never send response headers
         // Real APIs (like NVIDIA) declare content-length on JSON responses;
         // mirror that so pass-through behavior is exercised realistically.
@@ -136,6 +213,11 @@ function startStubUpstream(status, body, headers, mode) {
         if (mode === "midabort") {
           res.write("data: partial");
           req.socket.destroy();
+          return;
+        }
+        if (mode === "midabortOnce" && requestCount === 1) {
+          res.write('{"partial":true');
+          setImmediate(() => req.socket.destroy());
           return;
         }
         if (mode === "abortable") {
@@ -329,8 +411,8 @@ async function withProxy(
 // (closed without finishing), then assert the abort actually happened. The
 // timeout only exists to fail fast on regression; the failure message names
 // the lifecycle flags observed so the cause is diagnosable from test output.
-async function assertUpstreamAborted(teardowns, timeoutMs = 2000) {
-  const record = teardowns[0];
+async function assertUpstreamAborted(teardowns, timeoutMs = 2000, index = 0) {
+  const record = teardowns[index];
   assert.ok(record, "upstream received a request");
   let timer;
   const timedOut = await Promise.race([
@@ -3876,22 +3958,29 @@ describe("e04s03 abort-aware and shutdown-safe admission", () => {
       headers: { authorization: "Bearer pt" },
     });
     const health = proxiedFetch(proxy.port, "/health");
+    // Await both together so neither promise is left unhandled while the
+    // other settles: a rejection on `health` that lands before `late` is
+    // awaited used to surface as an unhandled rejection under the runner.
+    const [lateResult, healthResult] = await Promise.allSettled([late, health]);
     let lateStatus = 0;
     let lateBody = "";
-    try {
-      const res = await late;
-      lateStatus = res.status;
-      lateBody = await res.text();
-    } catch {
-      lateStatus = 0;
+    if (lateResult.status === "fulfilled") {
+      lateStatus = lateResult.value.status;
+      try {
+        lateBody = await lateResult.value.text();
+      } catch {
+        lateStatus = 0;
+        lateBody = "";
+      }
     }
     let healthStatus = 0;
-    try {
-      const res = await health;
-      healthStatus = res.status;
-      await res.text();
-    } catch {
-      healthStatus = 0;
+    if (healthResult.status === "fulfilled") {
+      healthStatus = healthResult.value.status;
+      try {
+        await healthResult.value.text();
+      } catch {
+        healthStatus = 0;
+      }
     }
     assert.ok(
       lateStatus === 503 || lateStatus === 0,
@@ -4926,5 +5015,542 @@ describe("e04s06 SSE usage reconciliation", () => {
     await new Promise((r) => setTimeout(r, 50));
     const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
     assert.equal(second.status, 429, "a mid-stream failure keeps the estimate");
+  });
+});
+
+describe("e04s07 non-streaming usage reconciliation", () => {
+  test("json observer captures valid usage from a complete body", () => {
+    let total = null;
+    const obs = createJsonObserver((t) => {
+      total = t;
+    });
+    obs.observe(Buffer.from(JSON.stringify({ usage: { total_tokens: 42 } })));
+    obs.end();
+    assert.equal(total, 42);
+  });
+  test("json observer returns null for a body without usage", () => {
+    let total = "unset";
+    const obs = createJsonObserver((t) => {
+      total = t;
+    });
+    obs.observe(Buffer.from(JSON.stringify({ foo: 1 })));
+    obs.end();
+    assert.equal(total, null);
+  });
+  test("json observer returns null for malformed usage", () => {
+    let total = "unset";
+    const obs = createJsonObserver((t) => {
+      total = t;
+    });
+    obs.observe(Buffer.from(JSON.stringify({ usage: { total_tokens: "bad" } })));
+    obs.end();
+    assert.equal(total, null);
+  });
+  test("json observer returns null for a non-JSON body", () => {
+    let total = "unset";
+    const obs = createJsonObserver((t) => {
+      total = t;
+    });
+    obs.observe(Buffer.from("not json"));
+    obs.end();
+    assert.equal(total, null);
+  });
+  test("json observer decodes a multi-byte split body", () => {
+    let total = null;
+    const obs = createJsonObserver((t) => {
+      total = t;
+    });
+    const text = JSON.stringify({ usage: { total_tokens: 7 }, note: "café" });
+    const buf = Buffer.from(text, "utf8");
+    const splitAt = buf.indexOf(0xc3) + 1;
+    obs.observe(buf.subarray(0, splitAt));
+    obs.observe(buf.subarray(splitAt));
+    obs.end();
+    assert.equal(total, 7);
+  });
+  test("json observer detaches past the byte bound", () => {
+    const bound = JSON_OBSERVATION_BYTE_BOUND;
+    // One byte beyond the bound detaches on arrival.
+    const calls = [];
+    const obs = createJsonObserver((v) => calls.push(v));
+    obs.observe(Buffer.alloc(bound + 1, 0x61));
+    assert.deepEqual(calls, [null], "overflow detaches and delivers null once");
+    obs.observe(Buffer.from("x"));
+    obs.end();
+    assert.deepEqual(calls, [null], "detached observer stays inert");
+
+    // Exactly the bound stays within the bound; one more byte detaches.
+    const calls2 = [];
+    const obs2 = createJsonObserver((v) => calls2.push(v));
+    obs2.observe(Buffer.alloc(bound, 0x61));
+    assert.deepEqual(calls2, [], "exactly the bound does not detach");
+    obs2.observe(Buffer.from("a"));
+    assert.deepEqual(calls2, [null], "one byte beyond detaches");
+    obs2.end();
+    assert.deepEqual(calls2, [null], "end stays inert after detach");
+  });
+  test("json observer invokes onUsage exactly once", () => {
+    // end() twice delivers one outcome.
+    const calls = [];
+    const obs = createJsonObserver((v) => calls.push(v));
+    obs.observe(Buffer.from(JSON.stringify({ usage: { total_tokens: 9 } })));
+    obs.end();
+    obs.end();
+    obs.observe(Buffer.from("x"));
+    assert.deepEqual(calls, [9], "second end and post-end observe are inert");
+
+    // Detached path delivers one outcome.
+    const calls2 = [];
+    const obs2 = createJsonObserver((v) => calls2.push(v));
+    const bound = JSON_OBSERVATION_BYTE_BOUND;
+    obs2.observe(Buffer.alloc(bound + 1, 0x61));
+    obs2.end();
+    assert.deepEqual(calls2, [null], "detached then end delivers one outcome");
+
+    // Callback failure does not escape.
+    const obs3 = createJsonObserver(() => {
+      throw new Error("boom");
+    });
+    obs3.observe(Buffer.from(JSON.stringify({ usage: { total_tokens: 1 } })));
+    assert.doesNotThrow(() => obs3.end(), "callback failure is contained");
+  });
+  test("usageTotalFromUsage rejects unusable values", () => {
+    assert.equal(usageTotalFromUsage({ total_tokens: 5 }), 5);
+    assert.equal(usageTotalFromUsage({ total_tokens: 1.5 }), 1.5);
+    assert.equal(usageTotalFromUsage({ prompt_tokens: 2, completion_tokens: 3 }), 5);
+    assert.equal(
+      usageTotalFromUsage({ prompt_tokens: Number.MAX_VALUE, completion_tokens: Number.MAX_VALUE }),
+      null,
+      "non-finite sum is unusable"
+    );
+    assert.equal(
+      usageTotalFromUsage({ total_tokens: -1, prompt_tokens: 1, completion_tokens: 2 }),
+      3,
+      "negative total falls back to components"
+    );
+    assert.equal(
+      usageTotalFromUsage({ total_tokens: Number.NaN, prompt_tokens: 1, completion_tokens: 2 }),
+      3,
+      "non-finite total falls back to components"
+    );
+
+    // unusable inputs
+    assert.equal(usageTotalFromUsage(undefined), null);
+    assert.equal(usageTotalFromUsage(null), null);
+    assert.equal(usageTotalFromUsage([1, 2]), null);
+    assert.equal(usageTotalFromUsage(42), null);
+    assert.equal(usageTotalFromUsage("x"), null);
+    assert.equal(usageTotalFromUsage({}), null);
+    assert.equal(usageTotalFromUsage({ total_tokens: -1 }), null);
+    assert.equal(usageTotalFromUsage({ total_tokens: Number.NaN }), null);
+    assert.equal(usageTotalFromUsage({ total_tokens: Number.POSITIVE_INFINITY }), null);
+    assert.equal(usageTotalFromUsage({ total_tokens: "5" }), null);
+    assert.equal(usageTotalFromUsage({ prompt_tokens: -1, completion_tokens: 1 }), null);
+    assert.equal(usageTotalFromUsage({ prompt_tokens: 1, completion_tokens: Number.NaN }), null);
+    assert.equal(usageTotalFromUsage({ prompt_tokens: "1", completion_tokens: 1 }), null);
+    assert.equal(usageTotalFromUsage({ prompt_tokens: 1 }), null);
+    assert.equal(usageTotalFromUsage({ completion_tokens: 1 }), null);
+  });
+  const RATE_ON = { PROXY_RPM: "60", PROXY_TPM: "1500", PROXY_SAFETY_MARGIN_PCT: "0" };
+
+  function chatOpts(body) {
+    return {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: body || JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    };
+  }
+
+  test("non-streaming JSON bytes are identical to upstream", async (t) => {
+    const body = JSON.stringify({ usage: { total_tokens: 12 }, marker: "bytes" });
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "100000", PROXY_SAFETY_MARGIN_PCT: "0" },
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(res.status, 200);
+    const buf = Buffer.from(await res.arrayBuffer());
+    assert.deepEqual(buf, Buffer.from(body));
+    assert.equal(res.headers.get("content-length"), String(Buffer.byteLength(body)));
+  });
+  test("missing non-streaming usage retains the estimate", async (t) => {
+    const body = JSON.stringify({ foo: 1 });
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200);
+    await first.text();
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "missing usage keeps the estimate");
+  });
+  test("malformed non-streaming usage retains the estimate", async (t) => {
+    const body = JSON.stringify({ usage: { total_tokens: "bad" } });
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200);
+    await first.text();
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "malformed usage keeps the estimate");
+  });
+  test("non-streaming observation overflow detaches without affecting pass-through", async (t) => {
+    const body = "a".repeat(JSON_OBSERVATION_BYTE_BOUND + 100);
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1500", PROXY_SAFETY_MARGIN_PCT: "0" },
+      headers: { "content-type": "text/plain" },
+      body,
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(res.status, 200);
+    const buf = Buffer.from(await res.arrayBuffer());
+    assert.equal(buf.length, body.length);
+    assert.deepEqual(buf, Buffer.from(body));
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "detached observation keeps the estimate");
+  });
+  test("valid non-streaming usage replaces the estimate", async (t) => {
+    const body = JSON.stringify({ usage: { total_tokens: 12 } });
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200);
+    await first.text();
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 200, "reconciled usage freed capacity for the next request");
+  });
+  test("higher actual non-streaming usage raises current usage", async (t) => {
+    const body = JSON.stringify({ usage: { total_tokens: 6000 } });
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "2500", PROXY_SAFETY_MARGIN_PCT: "0" },
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200, "the response is delivered despite the high actual");
+    const received = await first.text();
+    assert.equal(received, body);
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "raised usage blocks the next request");
+  });
+  test("204 no-body response retains the estimate", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      status: 204,
+      headers: { "content-type": "application/json" },
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 204);
+    await first.text();
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "no-body 204 keeps the estimate");
+  });
+  test("304 no-body response retains the estimate", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      status: 304,
+      headers: { "content-type": "application/json" },
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 304);
+    await first.text();
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "no-body 304 keeps the estimate");
+  });
+  test("empty 200 body retains the estimate", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      status: 200,
+      body: "",
+      headers: { "content-type": "application/json" },
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200);
+    assert.equal(await first.text(), "");
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "empty body keeps the estimate");
+  });
+  test("HEAD no-body response retains the estimate", async (t) => {
+    const body = JSON.stringify({ data: [1, 2, 3] });
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      body,
+      headers: { "content-type": "application/json" },
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "HEAD",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+    });
+    assert.equal(first.status, 200);
+    assert.equal(first.headers.get("content-length"), String(Buffer.byteLength(body)));
+    assert.equal(await first.text(), "");
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "no-body HEAD keeps the estimate");
+  });
+  test("a terminal path records at most one outcome", () => {
+    const budget = createBudget({ rpm: 60, tpm: 60 }, { safetyMarginPct: 0 }, null);
+    const first = budget.reserve({ requestCharge: 1, totalTokens: 50, model: null });
+    const ok = first.reservation.reconcile(null);
+    assert.equal(ok, false, "fallback does not reconcile");
+    assert.equal(budget.fallbackCount, 1, "one fallback is recorded");
+    assert.equal(budget.reconciledCount, 0, "nothing is reconciled");
+
+    const second = first.reservation.reconcile(null);
+    assert.equal(second, false, "a second fallback records none");
+    assert.equal(budget.fallbackCount, 1, "fallback count stays one");
+
+    const third = first.reservation.reconcile(10);
+    assert.equal(third, false, "reconcile after fallback is a no-op");
+    assert.equal(budget.fallbackCount, 1, "no extra fallback is recorded");
+    assert.equal(budget.reconciledCount, 0, "no reconciliation is recorded");
+  });
+
+  test("upstream 429 passes through exactly once", async (t) => {
+    const body = JSON.stringify({ error: "rate limited", retry_after: 7 });
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      status: 429,
+      body,
+      headers: { "content-type": "application/json", "retry-after": "7" },
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(res.status, 429);
+    assert.equal(await res.text(), body);
+    assert.equal(res.headers.get("retry-after"), "7");
+    assert.equal(receivedRequests.length, 1);
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(receivedRequests.length, 1, "no delayed replay");
+  });
+
+  test("upstream 429 retains the estimate", async (t) => {
+    const body = JSON.stringify({ error: "rate limited" });
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      status: 429,
+      body,
+      headers: { "content-type": "application/json", "retry-after": "1" },
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 429);
+    await first.text();
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "estimate remains after upstream 429");
+    assert.equal(receivedRequests.length, 1, "rejected request never reached upstream");
+  });
+
+  test("pre-header failure remains a generic 502", async (t) => {
+    const { proxy, base } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      mode: "preabort",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(res.status, 502);
+    const text = await res.text();
+    assert.deepEqual(JSON.parse(text), { error: "Bad gateway" });
+    const url = new URL(base);
+    for (const needle of [base, url.hostname, String(url.port)]) {
+      assert.ok(!text.includes(needle), `body leaked ${needle}`);
+    }
+    assert.ok(!/nvidia/i.test(text));
+    const health = await fetch(`http://127.0.0.1:${proxy.port}/health`);
+    assert.equal(health.status, 200);
+    assert.deepEqual(await health.json(), { status: "ok" });
+  });
+
+  test("mid-stream non-streaming failure destroys only the response", async (t) => {
+    const body = JSON.stringify({ usage: { total_tokens: 12 }, marker: "ok" });
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "100000", PROXY_SAFETY_MARGIN_PCT: "0" },
+      status: 200,
+      body,
+      headers: { "content-type": "application/json" },
+      mode: "midabortOnce",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(res.status, 200);
+    let readError = null;
+    let received = "";
+    try {
+      received = await res.text();
+    } catch (err) {
+      readError = err;
+    }
+    assert.ok(readError || received.length < body.length, "response terminated mid-body");
+    await new Promise((r) => setTimeout(r, 50));
+    const health = await fetch(`http://127.0.0.1:${proxy.port}/health`);
+    assert.equal(health.status, 200);
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 200);
+    assert.equal(await second.text(), body);
+  });
+
+  test("client disconnect commits the estimate without a 502", async (t) => {
+    const body = JSON.stringify({ usage: { total_tokens: 12 }, marker: "ok" });
+    const { proxy, teardowns } = await withProxy(t, {
+      proxyEnv: { ...RATE_ON, UPSTREAM_IDLE_TIMEOUT_SECONDS: "0" },
+      status: 200,
+      body,
+      headers: { "content-type": "application/json" },
+      mode: "abortable",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(res.status, 200);
+    assert.notEqual(res.status, 502, "disconnected client never receives a proxy 502");
+    const reader = res.body.getReader();
+    const firstRead = await reader.read();
+    assert.equal(firstRead.done, false);
+    const firstReadValue = firstRead.value ? new TextDecoder().decode(firstRead.value) : "";
+    assert.ok(!firstReadValue.includes("Bad gateway"), "first chunk is not a 502 body");
+    await reader.cancel();
+    let postCancelRead = null;
+    let postCancelError = null;
+    try {
+      postCancelRead = await reader.read();
+    } catch (err) {
+      postCancelError = err;
+    }
+    const postCancelValue =
+      postCancelRead && postCancelRead.value ? new TextDecoder().decode(postCancelRead.value) : "";
+    assert.ok(!postCancelValue.includes("Bad gateway"), "post-cancel read carries no 502 body");
+    assert.ok(
+      postCancelError || (postCancelRead && postCancelRead.done),
+      "post-cancel read terminates instead of delivering a 502"
+    );
+    await assertUpstreamAborted(teardowns);
+    await new Promise((r) => setTimeout(r, 50));
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 429, "estimate remains after client disconnect");
+  });
+
+  test("repeated cleanup sequences admit every request", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_RPM: "60",
+        PROXY_TPM: "100000",
+        PROXY_SAFETY_MARGIN_PCT: "0",
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+      },
+      mode: "t05seq1",
+    });
+
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200);
+    assert.equal(await first.text(), JSON.stringify({ usage: { total_tokens: 12 } }));
+    assert.equal(receivedRequests.length, 1);
+
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 204);
+    await second.text();
+    assert.equal(receivedRequests.length, 2);
+
+    const third = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(third.status, 429);
+    assert.equal(await third.text(), JSON.stringify({ error: "rate limited" }));
+    assert.equal(receivedRequests.length, 3);
+
+    const fourth = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(fourth.status, 200);
+    assert.equal(await fourth.text(), JSON.stringify({ foo: 1 }));
+    assert.equal(receivedRequests.length, 4, "one upstream request per attempted client request");
+  });
+
+  test("every terminal path in sequence releases each slot", async (t) => {
+    const { proxy, receivedRequests, teardowns } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_RPM: "60",
+        PROXY_TPM: "100000",
+        PROXY_SAFETY_MARGIN_PCT: "0",
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "1",
+      },
+      mode: "t05seq2",
+    });
+
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(first.status, 200);
+    assert.equal(await first.text(), JSON.stringify({ usage: { total_tokens: 12 }, marker: "ok" }));
+    assert.equal(receivedRequests.length, 1);
+
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(second.status, 204);
+    await second.text();
+    assert.equal(receivedRequests.length, 2);
+
+    const headRes = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "HEAD",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+    });
+    assert.equal(headRes.status, 200);
+    assert.equal(
+      headRes.headers.get("content-length"),
+      String(Buffer.byteLength(JSON.stringify({ data: [1, 2, 3] })))
+    );
+    assert.equal(await headRes.text(), "");
+    assert.equal(receivedRequests.length, 3);
+
+    const fourth = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(fourth.status, 200);
+    const reader = fourth.body.getReader();
+    const firstRead = await reader.read();
+    assert.equal(firstRead.done, false);
+    await reader.cancel();
+    let postCancelRead = null;
+    let postCancelError = null;
+    try {
+      postCancelRead = await reader.read();
+    } catch (err) {
+      postCancelError = err;
+    }
+    const postCancelValue =
+      postCancelRead && postCancelRead.value ? new TextDecoder().decode(postCancelRead.value) : "";
+    assert.ok(!postCancelValue.includes("Bad gateway"), "post-cancel read carries no 502 body");
+    assert.ok(
+      postCancelError || (postCancelRead && postCancelRead.done),
+      "post-cancel read terminates instead of delivering a 502"
+    );
+    assert.equal(receivedRequests.length, 4);
+    await assertUpstreamAborted(teardowns, 2000, 3);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const fifth = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(fifth.status, 200);
+    assert.equal(await fifth.text(), JSON.stringify({ usage: { total_tokens: 12 }, marker: "ok" }));
+    assert.equal(receivedRequests.length, 5, "one upstream request per attempted client request");
+  });
+
+  test("a second reconciliation records no additional outcome", () => {
+    const budget = createBudget({ rpm: 60, tpm: 60 }, { safetyMarginPct: 0 }, null);
+    const first = budget.reserve({ requestCharge: 1, totalTokens: 50, model: null });
+    const ok = first.reservation.reconcile(10);
+    assert.equal(ok, true, "reconcile(actual) succeeds");
+    const second = first.reservation.reconcile(20);
+    assert.equal(second, false, "a second reconciliation is a no-op");
+    assert.equal(budget.reconciledCount, 1, "reconciledCount stays one");
+    assert.equal(budget.fallbackCount, 0, "no fallback is recorded");
+  });
+
+  test("counters do not double-count across repeated paths", () => {
+    const budget = createBudget({ rpm: 60, tpm: 60 }, { safetyMarginPct: 0 }, null);
+    const first = budget.reserve({ requestCharge: 1, totalTokens: 50, model: null });
+    const one = first.reservation.reconcile(null);
+    assert.equal(one, false, "fallback does not reconcile");
+    const two = first.reservation.reconcile(null);
+    assert.equal(two, false, "a second fallback records none");
+    assert.equal(budget.fallbackCount, 1, "fallbackCount stays one");
+    assert.equal(budget.reconciledCount, 0, "nothing is reconciled");
+    const three = first.reservation.reconcile(10);
+    assert.equal(three, false, "a later reconcile adds no outcome");
+    assert.equal(budget.fallbackCount, 1, "fallbackCount unchanged");
+    assert.equal(budget.reconciledCount, 0, "reconciledCount unchanged");
   });
 });

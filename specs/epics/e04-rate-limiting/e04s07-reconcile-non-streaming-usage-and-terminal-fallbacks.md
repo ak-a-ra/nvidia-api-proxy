@@ -6,7 +6,7 @@
 * Type: feat
 * Risk: P0
 * Context: infra
-* Status: failing
+* Status: passing
 
 ## 1. Business narrative
 
@@ -425,7 +425,7 @@ and circuit-breaker policy for upstream 429 — explicitly excluded by story 166
 
 * **Purpose**: hermetic process-level integration suite.
 * **Change surface**: new stub modes and a new `describe` block; every existing
-  test stays byte-identical, including the 175-test count stated in living docs
+  test stays byte-identical, including the 203-test count stated in living docs
   until the doc task updates it.
 
 ## 20. Slopcheck

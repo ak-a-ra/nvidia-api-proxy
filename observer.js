@@ -3,6 +3,28 @@
 // client. The request path owns the bytes; this module owns the copy.
 export const SSE_OBSERVATION_BYTE_BOUND = 262144;
 
+export function usageTotalFromUsage(usage) {
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) return null;
+  const total = usage.total_tokens;
+  if (typeof total === "number" && Number.isFinite(total) && total >= 0) return total;
+  const prompt = usage.prompt_tokens;
+  const completion = usage.completion_tokens;
+  if (
+    typeof prompt === "number" &&
+    Number.isFinite(prompt) &&
+    prompt >= 0 &&
+    typeof completion === "number" &&
+    Number.isFinite(completion) &&
+    completion >= 0
+  ) {
+    const sum = prompt + completion;
+    if (Number.isFinite(sum)) return sum;
+  }
+  return null;
+}
+
+export const JSON_OBSERVATION_BYTE_BOUND = 1048576;
+
 export function createSseObserver(onUsage) {
   const observer = {
     buffer: "",
@@ -71,9 +93,9 @@ export function createSseObserver(onUsage) {
       if (data === "" || data === "[DONE]") return;
       try {
         const json = JSON.parse(data);
-        const usage = json?.usage;
-        if (this.isValidUsage(usage)) {
-          this.captured = this.usageTotal(usage);
+        const total = usageTotalFromUsage(json?.usage);
+        if (total !== null) {
+          this.captured = total;
         }
       } catch (error) {
         // Malformed usage or event: retain any previously captured usage.
@@ -81,24 +103,11 @@ export function createSseObserver(onUsage) {
     },
 
     isValidUsage(usage) {
-      if (!usage || typeof usage !== "object" || Array.isArray(usage)) return false;
-      if (
-        Number.isFinite(usage.total_tokens) &&
-        usage.total_tokens >= 0
-      ) {
-        return true;
-      }
-      return (
-        Number.isFinite(usage.prompt_tokens) &&
-        usage.prompt_tokens >= 0 &&
-        Number.isFinite(usage.completion_tokens) &&
-        usage.completion_tokens >= 0
-      );
+      return usageTotalFromUsage(usage) !== null;
     },
 
     usageTotal(usage) {
-      if (Number.isFinite(usage.total_tokens)) return usage.total_tokens;
-      return usage.prompt_tokens + usage.completion_tokens;
+      return usageTotalFromUsage(usage);
     },
 
     detach() {
@@ -127,6 +136,75 @@ export function createSseObserver(onUsage) {
       }
       this.finished = true;
       if (typeof onUsage === "function") onUsage(this.captured);
+    },
+  };
+  return observer;
+}
+
+export function createJsonObserver(onUsage) {
+  const observer = {
+    chunks: [],
+    byteTotal: 0,
+    detached: false,
+    finished: false,
+    outcomeDelivered: false,
+
+    observe(chunk) {
+      if (this.finished || this.detached || this.outcomeDelivered) return;
+      try {
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        const prospective = this.byteTotal + buf.length;
+        if (prospective > JSON_OBSERVATION_BYTE_BOUND) {
+          this.detach();
+          return;
+        }
+        this.chunks.push(buf);
+        this.byteTotal = prospective;
+      } catch (error) {
+        try {
+          this.detach();
+        } catch (inner) {
+          // ignore
+        }
+      }
+    },
+
+    end() {
+      if (this.finished || this.detached || this.outcomeDelivered) return;
+      this.finished = true;
+      this.outcomeDelivered = true;
+      let total = null;
+      try {
+        const buf = Buffer.concat(this.chunks);
+        const text = buf.toString("utf8");
+        const json = JSON.parse(text);
+        total = usageTotalFromUsage(json?.usage);
+      } catch (error) {
+        total = null;
+      }
+      this.chunks = [];
+      this.byteTotal = 0;
+      try {
+        if (typeof onUsage === "function") onUsage(total);
+      } catch (error) {
+        // ignore callback failure
+      }
+    },
+
+    detach() {
+      if (this.detached) return;
+      this.detached = true;
+      this.chunks = [];
+      this.byteTotal = 0;
+      if (!this.outcomeDelivered) {
+        this.outcomeDelivered = true;
+        this.finished = true;
+        try {
+          if (typeof onUsage === "function") onUsage(null);
+        } catch (error) {
+          // ignore callback failure
+        }
+      }
     },
   };
   return observer;
