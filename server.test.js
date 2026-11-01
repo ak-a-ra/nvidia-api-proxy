@@ -6047,7 +6047,7 @@ describe("e04s08 counter deltas", () => {
       headers: { authorization: "Bearer pt" },
     });
     assert.equal(res.status, 200, "/stats must be 200 on a configured proxy");
-    return await res.json();
+    return res.json();
   }
 
   const RATE_ON = { PROXY_RPM: "60", PROXY_TPM: "100000", PROXY_SAFETY_MARGIN_PCT: "0" };
@@ -6261,7 +6261,11 @@ describe("e04s08 counter deltas", () => {
     await res.text();
     await settle(100);
     const after = await readStats(proxy);
-    assert.equal(after.usageReconciled, before.usageReconciled + 1, "usageReconciled must advance exactly once");
+    assert.equal(
+      after.usageReconciled,
+      before.usageReconciled + 1,
+      "usageReconciled must advance exactly once"
+    );
   });
 
   test("counter delta: usageEstimateFallbacks +1 on unusable usage", async (t) => {
@@ -6303,7 +6307,8 @@ describe("e04s08 counter deltas", () => {
     await res.text();
     const after = await readStats(proxy);
     assert.ok(
-      after.trackedModels >= before.trackedModels && after.trackedModels <= before.trackedModels + 1,
+      after.trackedModels >= before.trackedModels &&
+        after.trackedModels <= before.trackedModels + 1,
       "trackedModels rises at most one for a new model"
     );
   });

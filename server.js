@@ -602,7 +602,7 @@ const server = http.createServer(async (req, res) => {
       pipeline(src, res, onComplete);
     }
   } catch (error) {
-    if (error.name === "AbortError" && error.message === "client disconnected") {
+    if (error.message === "client disconnected") {
       // Client went away: nothing to report, no response to send.
       activeClientDisconnects++;
       return;
