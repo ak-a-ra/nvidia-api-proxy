@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import zlib from "node:zlib";
 import { createBudget, estimateCost } from "./budget.js";
+import { createAdmission } from "./admission.js";
 import {
   createJsonObserver,
   JSON_OBSERVATION_BYTE_BOUND,
@@ -671,6 +672,245 @@ describe("proxy", () => {
       assert.equal(res.status, 404, `expected 404 for ${path}, got ${res.status}`);
     }
     assert.equal(receivedRequests.length, 0); // short-circuited, never proxied
+  });
+
+  test("GET /stats returns 401 without a token", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {});
+    const res = await proxiedFetch(proxy.port, "/stats");
+    assert.equal(res.status, 401);
+    assert.deepEqual(await res.json(), { error: "Unauthorized" });
+    assert.equal(receivedRequests.length, 0, "/stats 401 path never contacts upstream");
+  });
+
+  test("GET /stats returns 401 with an invalid token", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, { token: "pt-secret" });
+    const res = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer wrong" },
+    });
+    assert.equal(res.status, 401);
+    assert.deepEqual(await res.json(), { error: "Unauthorized" });
+    assert.equal(receivedRequests.length, 0, "/stats 401 path never contacts upstream");
+  });
+
+  test("GET /stats returns 503 while unconfigured with a valid token", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, { key: " " });
+    const res = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 503);
+    assert.deepEqual(await res.json(), { error: "Proxy is not configured" });
+    assert.equal(receivedRequests.length, 0, "/stats 503 path never contacts upstream");
+  });
+
+  test("GET /stats returns 200 while saturated", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "1",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    const holder = proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    });
+    holder.catch(() => {});
+    await waitForCount("the holder to occupy the slot", () => heldResponses.length, 1);
+    await settle(100);
+
+    // Gate saturated: the single slot is held and /stats must still answer 200
+    // without touching admission, budgets, or upstream.
+    const before = receivedRequests.length;
+    const stats = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(stats.status, 200, "/stats answers while saturated");
+    const body = await stats.json();
+    assert.equal(Object.keys(body).length, 21, "exactly 21 top-level keys");
+    endHeld(heldResponses);
+    await Promise.allSettled([holder]);
+    assert.equal(receivedRequests.length, before, "/stats contacts no upstream");
+  });
+
+  test("non-GET /stats returns 404", async (t) => {
+    const { proxy } = await withProxy(t, {});
+    for (const method of ["POST", "PUT", "DELETE", "PATCH", "HEAD"]) {
+      const res = await proxiedFetch(proxy.port, "/stats", {
+        method,
+        headers: { authorization: "Bearer pt" },
+      });
+      assert.equal(res.status, 404, `expected 404 for ${method} /stats, got ${res.status}`);
+      if (method !== "HEAD") {
+        assert.deepEqual(await res.json(), { error: "Not found" });
+      }
+    }
+  });
+
+  test("upstream receives zero requests for /stats", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {});
+    const res = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(Object.keys(await res.json()).length, 21, "full 21-key shape");
+    assert.equal(receivedRequests.length, 0, "/stats never contacts upstream");
+  });
+
+  test("exact allowlist field set on /stats 200", async (t) => {
+    const { proxy } = await withProxy(t, {});
+    const res = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    const expected = [
+      "rateLimitEnabled",
+      "effectiveGlobalRpm",
+      "effectiveGlobalTpm",
+      "safetyMarginPct",
+      "maxConcurrentRequests",
+      "maxQueueSize",
+      "queueTimeoutSeconds",
+      "active",
+      "queued",
+      "admitted",
+      "waits",
+      "queueFullRejections",
+      "queueTimeoutRejections",
+      "oversizedBodyRejections",
+      "costOverLimitRejections",
+      "queuedClientDisconnects",
+      "activeClientDisconnects",
+      "completed",
+      "usageReconciled",
+      "usageEstimateFallbacks",
+      "trackedModels",
+    ];
+    assert.deepEqual(
+      Object.keys(body).sort(),
+      expected.slice().sort(),
+      "exactly the 21-key allowlist"
+    );
+  });
+
+  test("disabled shape: rateLimitEnabled false, effective RPM/TPM null", async (t) => {
+    const { proxy } = await withProxy(t, {});
+    const res = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.rateLimitEnabled, false);
+    assert.equal(body.effectiveGlobalRpm, null);
+    assert.equal(body.effectiveGlobalTpm, null);
+    assert.equal(body.safetyMarginPct, 5);
+    assert.equal(body.maxConcurrentRequests, null);
+    assert.equal(body.maxQueueSize, 32);
+    assert.equal(body.queueTimeoutSeconds, 30);
+    assert.equal(body.active, 0);
+    assert.equal(body.queued, 0);
+    assert.equal(body.admitted, 0);
+    assert.equal(body.waits, 0);
+    assert.equal(body.queueFullRejections, 0);
+    assert.equal(body.queueTimeoutRejections, 0);
+    assert.equal(body.oversizedBodyRejections, 0);
+    assert.equal(body.costOverLimitRejections, 0);
+    assert.equal(body.queuedClientDisconnects, 0);
+    assert.equal(body.activeClientDisconnects, 0);
+    assert.equal(body.completed, 0);
+    assert.equal(body.usageReconciled, 0);
+    assert.equal(body.usageEstimateFallbacks, 0);
+    assert.equal(body.trackedModels, 0);
+  });
+
+  test("privacy exclusions on /stats", async (t) => {
+    const { proxy } = await withProxy(t, {});
+    const res = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    const json = JSON.parse(text);
+    const forbidden = [
+      "path",
+      "query",
+      "prompt",
+      "completion",
+      "apiKey",
+      "proxyToken",
+      "authorization",
+      "api_key",
+      "proxy_auth_token",
+      "upstream",
+      "baseURL",
+      "host",
+      "origin",
+    ];
+    const flat = JSON.stringify(json);
+    for (const key of forbidden) {
+      assert.ok(!flat.includes(key.toLowerCase()), `body must not leak ${key}`);
+    }
+    // trackedModels is a count, not per-model data: no model IDs or per-model entries appear.
+    assert.ok(!flat.includes('"models"'), "body must not list models");
+    assert.deepEqual(
+      Object.keys(json).sort(),
+      [
+        "active",
+        "activeClientDisconnects",
+        "admitted",
+        "costOverLimitRejections",
+        "completed",
+        "effectiveGlobalRpm",
+        "effectiveGlobalTpm",
+        "maxConcurrentRequests",
+        "maxQueueSize",
+        "oversizedBodyRejections",
+        "queueFullRejections",
+        "queueTimeoutRejections",
+        "queueTimeoutSeconds",
+        "queued",
+        "queuedClientDisconnects",
+        "rateLimitEnabled",
+        "safetyMarginPct",
+        "trackedModels",
+        "usageEstimateFallbacks",
+        "usageReconciled",
+        "waits",
+      ].sort(),
+      "only the 21 allowlist keys, no privacy-leaking keys"
+    );
+  });
+
+  test("self-exclusion: stats moves no counter", async (t) => {
+    const { proxy } = await withProxy(t, {});
+    const first = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(first.status, 200);
+    const before = await first.json();
+    const second = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(second.status, 200);
+    const after = await second.json();
+    assert.deepEqual(before, after, "two /stats calls produce identical counters (self-exclusion)");
+  });
+
+  test("GET /stats reports effective RPM/TPM when rate limiting enabled", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "2000" },
+    });
+    const res = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.rateLimitEnabled, true);
+    assert.equal(body.effectiveGlobalRpm, Math.floor(60 * 0.95));
+    assert.equal(body.effectiveGlobalTpm, Math.floor(2000 * 0.95));
+    assert.equal(Object.keys(body).length, 21, "exactly 21 top-level keys");
   });
 
   test("multi-value set-cookie preserved (not merged)", async (t) => {
@@ -5552,5 +5792,524 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     assert.equal(three, false, "a later reconcile adds no outcome");
     assert.equal(budget.fallbackCount, 1, "fallbackCount unchanged");
     assert.equal(budget.reconciledCount, 0, "reconciledCount unchanged");
+  });
+});
+
+describe("e04s08 admission counters", () => {
+  const baseLimits = { maxQueueSize: 4, queueTimeoutSeconds: 30 };
+
+  test("disabled path exposes zero-valued read-only getters", async (_t) => {
+    const disabled = createAdmission({
+      maxConcurrentRequests: null,
+      ...baseLimits,
+    });
+    assert.equal(disabled.active, 0);
+    assert.equal(disabled.queued, 0);
+    assert.equal(disabled.admitted, 0);
+    assert.equal(disabled.waits, 0);
+    assert.equal(disabled.queueFullRejections, 0);
+    assert.equal(disabled.queueTimeoutRejections, 0);
+    assert.equal(disabled.queuedClientDisconnects, 0);
+    // Read-only: assignment must not land.
+    assert.throws(() => {
+      disabled.active = 9;
+    });
+    assert.equal(disabled.active, 0);
+    // Counter stays zero after a real admission on the disabled path.
+    const a = await disabled.acquire(null);
+    assert.equal(a.admitted, true);
+    await Promise.resolve();
+    assert.equal(disabled.active, 0);
+    assert.equal(disabled.admitted, 0);
+    a.release?.();
+  });
+
+  test("enabled path: immediate admission increments admitted once", async (_t) => {
+    const admission = createAdmission({
+      maxConcurrentRequests: 2,
+      ...baseLimits,
+    });
+    assert.equal(admission.active, 0);
+    assert.equal(admission.admitted, 0);
+    const a1 = await admission.acquire(null);
+    assert.equal(a1.admitted, true);
+    assert.equal(admission.active, 1);
+    assert.equal(admission.admitted, 1);
+    assert.equal(admission.waits, 0);
+    const a2 = await admission.acquire(null);
+    assert.equal(a2.admitted, true);
+    assert.equal(admission.active, 2);
+    assert.equal(admission.admitted, 2);
+    a1.release?.();
+    a2.release?.();
+    // Release frees capacity but does not re-count admission.
+    assert.equal(admission.active, 0);
+    assert.equal(admission.admitted, 2);
+  });
+
+  test("enabled path: waits increments once per ticket that enters the queue", async (_t) => {
+    const admission = createAdmission({
+      maxConcurrentRequests: 1,
+      ...baseLimits,
+    });
+    const holder = await admission.acquire(null);
+    assert.equal(admission.active, 1);
+    assert.equal(admission.waits, 0);
+    const queuedPromise = admission.acquire(null);
+    assert.equal(admission.waits, 1, "queuing a ticket increments waits once");
+    assert.equal(admission.queued, 1);
+    // Release the holder: the waiter is admitted onto the freed slot.
+    holder.release?.();
+    const queued = await queuedPromise;
+    assert.equal(queued.admitted, true);
+    assert.equal(admission.admitted, 2);
+    assert.equal(admission.active, 1);
+    assert.equal(admission.queued, 0);
+    queued.release?.();
+  });
+
+  test("enabled path: queue-full rejection increments once and admits nothing", async (_t) => {
+    const admission = createAdmission({
+      maxConcurrentRequests: 1,
+      maxQueueSize: 0,
+      queueTimeoutSeconds: 30,
+    });
+    const a1 = await admission.acquire(null);
+    assert.equal(a1.admitted, true);
+    assert.equal(admission.queueFullRejections, 0);
+    const full = await admission.acquire(null);
+    assert.equal(full.admitted, false);
+    assert.equal(admission.queueFullRejections, 1);
+    assert.equal(admission.active, 1);
+    assert.equal(admission.queued, 0);
+    a1.release?.();
+  });
+
+  test("enabled path: queue-timeout rejection increments once and ticket never admits", async (_t) => {
+    const admission = createAdmission({
+      maxConcurrentRequests: 1,
+      maxQueueSize: 1,
+      queueTimeoutSeconds: 1,
+    });
+    const u1 = await admission.acquire(null);
+    assert.equal(u1.admitted, true);
+    const u2promise = admission.acquire(null);
+    assert.equal(admission.waits, 1);
+    await new Promise((r) => setTimeout(r, 1200));
+    const u2 = await u2promise;
+    assert.equal(u1.admitted, true);
+    assert.equal(u2.admitted, false);
+    assert.equal(admission.queueTimeoutRejections, 1);
+    assert.equal(admission.queued, 0);
+    assert.equal(typeof admission.active, "number");
+    assert.equal(typeof admission.queued, "number");
+    assert.equal(typeof admission.admitted, "number");
+    assert.equal(typeof admission.queuedClientDisconnects, "number");
+    u1.release?.();
+  });
+
+  test("enabled path: queued client disconnect increments queuedClientDisconnects once", async (_t) => {
+    const admission = createAdmission({
+      maxConcurrentRequests: 1,
+      maxQueueSize: 1,
+      queueTimeoutSeconds: 30,
+    });
+    const holder = await admission.acquire(null);
+    const controller = new AbortController();
+    const queuedPromise = admission.acquire(controller.signal);
+    assert.equal(admission.waits, 1);
+    assert.equal(admission.queuedClientDisconnects, 0);
+    controller.abort();
+    const queued = await queuedPromise;
+    assert.equal(queued.admitted, false);
+    assert.equal(admission.queuedClientDisconnects, 1);
+    assert.equal(admission.queued, 0);
+    // Slot still held by the holder; next acquire must queue, not ride the
+    // cancelled ticket's ghost capacity.
+    const next = admission.acquire(null);
+    assert.equal(admission.waits, 2);
+    holder.release?.();
+    const nextRes = await next;
+    assert.equal(nextRes.admitted, true);
+    nextRes.release?.();
+  });
+
+  test("counters settle once per terminal outcome", async (_t) => {
+    const admission = createAdmission({
+      maxConcurrentRequests: 1,
+      maxQueueSize: 1,
+      queueTimeoutSeconds: 1,
+    });
+    const holder = await admission.acquire(null);
+    const timeoutPromise = admission.acquire(null);
+    await new Promise((r) => setTimeout(r, 1200));
+    await timeoutPromise;
+    // Duplicate settle attempt through a second acquire on the same queue
+    // position is not possible (single ticket), so verify count is exactly 1
+    // and the released holder still frees capacity.
+    assert.equal(admission.queueTimeoutRejections, 1);
+    holder.release?.();
+    const next = await admission.acquire(null);
+    assert.equal(next.admitted, true, "capacity restored after timeout settles once");
+    next.release?.();
+  });
+});
+
+describe("e04s08 budget counters", () => {
+  test("disabled path exposes zero-valued read-only getters", () => {
+    const disabled = createBudget(null, { safetyMarginPct: 5 }, null);
+    assert.equal(disabled.costOverLimitRejections, 0);
+    assert.equal(disabled.trackedModels, 0);
+    assert.equal(disabled.usageReconciled, 0);
+    assert.equal(disabled.usageEstimateFallbacks, 0);
+    // Read-only: assignment must not land.
+    assert.throws(() => {
+      disabled.costOverLimitRejections = 9;
+    });
+    assert.equal(disabled.costOverLimitRejections, 0);
+  });
+
+  test("enabled path: admitted reserve does not increment costOverLimitRejections", () => {
+    const b = createBudget({ rpm: 60, tpm: 2000 }, { safetyMarginPct: 0 }, null);
+    const c1 = estimateCost(
+      { model: "m", messages: [{ role: "user", content: "hi" }] },
+      Buffer.from("{}")
+    );
+    const r1 = b.reserve(c1);
+    assert.equal(r1.admitted, true);
+    assert.equal(b.costOverLimitRejections, 0);
+  });
+
+  test("enabled path: rejected reserve increments costOverLimitRejections once", () => {
+    const b = createBudget({ rpm: 60, tpm: 2000 }, { safetyMarginPct: 0 }, null);
+    const c1 = estimateCost(
+      { model: "m", messages: [{ role: "user", content: "hi" }] },
+      Buffer.from("{}")
+    );
+    assert.equal(b.reserve(c1).admitted, true);
+    // 200k chars -> ~50k input tokens + 1024 output, exceeds tpm 2000.
+    const c2 = estimateCost({ model: "m" }, Buffer.from("x".repeat(200000)));
+    const r2 = b.reserve(c2);
+    assert.equal(r2.admitted, false);
+    assert.equal(b.costOverLimitRejections, 1);
+  });
+
+  test("enabled path: same model twice -> trackedModels 1", () => {
+    const b = createBudget({ rpm: 60, tpm: 200000 }, { safetyMarginPct: 0 }, null);
+    const c1 = estimateCost(
+      { model: "m", messages: [{ role: "user", content: "hi" }] },
+      Buffer.from("{}")
+    );
+    const c2 = estimateCost(
+      { model: "m", messages: [{ role: "user", content: "hi" }] },
+      Buffer.from("{}")
+    );
+    assert.equal(b.reserve(c1).admitted, true);
+    assert.equal(b.reserve(c2).admitted, true);
+    assert.equal(b.trackedModels, 1);
+  });
+
+  test("enabled path: __proto__ model tracked as ordinary key", () => {
+    const b = createBudget({ rpm: 60, tpm: 200000 }, { safetyMarginPct: 0 }, null);
+    const c1 = estimateCost(
+      { model: "__proto__", messages: [{ role: "user", content: "hi" }] },
+      Buffer.from("{}")
+    );
+    const c2 = estimateCost(
+      { model: "m", messages: [{ role: "user", content: "hi" }] },
+      Buffer.from("{}")
+    );
+    assert.equal(b.reserve(c1).admitted, true);
+    assert.equal(b.reserve(c2).admitted, true);
+    assert.equal(b.trackedModels, 2);
+  });
+
+  test("enabled path: aliases match existing getters", () => {
+    const b = createBudget({ rpm: 60, tpm: 200000 }, { safetyMarginPct: 0 }, null);
+    const c = estimateCost(
+      { model: null, messages: [{ role: "user", content: "hi" }] },
+      Buffer.from("{}")
+    );
+    const r = b.reserve(c);
+    assert.equal(r.admitted, true);
+    assert.equal(r.reservation.reconcile(10), true);
+    assert.equal(b.usageReconciled, b.reconciledCount);
+    assert.equal(b.usageEstimateFallbacks, b.fallbackCount);
+    assert.equal(b.usageReconciled, 1);
+    assert.equal(b.usageEstimateFallbacks, 0);
+  });
+});
+
+describe("e04s08 counter deltas", () => {
+  // /stats moves no counter (self-exclusion), so before/after reads isolate exact deltas.
+  async function readStats(proxy) {
+    const res = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200, "/stats must be 200 on a configured proxy");
+    return res.json();
+  }
+
+  const RATE_ON = { PROXY_RPM: "60", PROXY_TPM: "100000", PROXY_SAFETY_MARGIN_PCT: "0" };
+
+  test("counter delta: completed +1 on proxied completion, active returns to prior", async (t) => {
+    const { proxy } = await withProxy(t, {
+      body: "{}",
+      headers: { "content-type": "application/json" },
+    });
+    const before = await readStats(proxy);
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    });
+    assert.equal(res.status, 200);
+    await res.text();
+    await settle(100);
+    const after = await readStats(proxy);
+    assert.equal(after.completed, before.completed + 1, "completed must advance exactly once");
+    assert.equal(after.active, before.active, "active must return to its prior value");
+  });
+
+  test("counter delta: oversizedBodyRejections +1 on over-cap body, upstream not contacted", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: { ...RATE_ON, PROXY_MAX_BUFFERED_BODY_BYTES: "16" },
+      body: "{}",
+      headers: { "content-type": "application/json" },
+    });
+    const before = await readStats(proxy);
+    const big = JSON.stringify({
+      model: "m",
+      messages: [{ role: "user", content: "x".repeat(512) }],
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: big,
+    });
+    assert.equal(res.status, 413, "over-cap body is refused with 413");
+    assert.equal(receivedRequests.length, 0, "over-cap body never reached upstream");
+    const after = await readStats(proxy);
+    assert.equal(
+      after.oversizedBodyRejections,
+      before.oversizedBodyRejections + 1,
+      "oversizedBodyRejections must advance exactly once"
+    );
+  });
+
+  test("counter delta: costOverLimitRejections +1 on over-TPM, upstream not contacted", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1", PROXY_SAFETY_MARGIN_PCT: "0" },
+      body: "{}",
+    });
+    const before = await readStats(proxy);
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    });
+    assert.equal(res.status, 429, "over-budget request is refused with 429");
+    assert.equal(receivedRequests.length, 0, "over-budget request never reached upstream");
+    const after = await readStats(proxy);
+    assert.equal(
+      after.costOverLimitRejections,
+      before.costOverLimitRejections + 1,
+      "costOverLimitRejections must advance exactly once"
+    );
+  });
+
+  test("counter delta: queueFullRejections +1 when the queue is full", async (t) => {
+    const { proxy, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "1",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    const before = await readStats(proxy);
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    holder.catch(() => {});
+    await waitForCount("holder occupies slot", () => heldResponses.length, 1);
+    const waiter = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    waiter.catch(() => {});
+    // Waiter is queued (not held), so heldResponses stays at 1 while the slot
+    // is busy; a third request now finds the queue full.
+    await settle(100);
+    const overflow = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(overflow.status, 429, "third request is refused with 429");
+    const after = await readStats(proxy);
+    assert.equal(
+      after.queueFullRejections,
+      before.queueFullRejections + 1,
+      "queueFullRejections must advance exactly once"
+    );
+    heldResponses.shift().end();
+    await Promise.allSettled([holder, waiter]);
+  });
+
+  test("counter delta: queueTimeoutRejections +1 when a queued ticket times out", async (t) => {
+    const { proxy, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "1",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "1",
+      },
+      mode: "hold",
+    });
+    const before = await readStats(proxy);
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    holder.catch(() => {});
+    await waitForCount("holder occupies slot", () => heldResponses.length, 1);
+    const waiter = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(waiter.status, 429, "timed-out waiter is rejected with 429");
+    await settle(200);
+    const after = await readStats(proxy);
+    assert.equal(
+      after.queueTimeoutRejections,
+      before.queueTimeoutRejections + 1,
+      "queueTimeoutRejections must advance exactly once"
+    );
+    heldResponses.shift().end();
+    await holder.catch(() => {});
+  });
+
+  test("counter delta: queuedClientDisconnects +1 when a queued client disconnects", async (t) => {
+    const { proxy, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "4",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    const before = await readStats(proxy);
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    holder.catch(() => {});
+    await waitForCount("holder occupies slot", () => heldResponses.length, 1);
+    const ac = new AbortController();
+    const waiter = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+      signal: ac.signal,
+    });
+    waiter.catch(() => {});
+    await waitForCount("waiter is queued", () => heldResponses.length, 1);
+    await settle(50);
+    ac.abort();
+    await waiter.catch(() => {});
+    await settle(100);
+    const after = await readStats(proxy);
+    assert.equal(
+      after.queuedClientDisconnects,
+      before.queuedClientDisconnects + 1,
+      "queuedClientDisconnects must advance exactly once"
+    );
+    heldResponses.shift().end();
+    await holder.catch(() => {});
+  });
+
+  test("counter delta: activeClientDisconnects +1 when an admitted client disconnects", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      mode: "silent", // upstream never sends headers; the fetch stays pending
+      proxyEnv: { UPSTREAM_CONNECT_TIMEOUT_SECONDS: "30" },
+    });
+    const before = await readStats(proxy);
+    const ac = new AbortController();
+    const promise = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+      signal: ac.signal,
+    });
+    // Let the proxy admit the request and forward it upstream before the client
+    // gives up, so this is an admitted-client disconnect, not a pre-admission one.
+    await waitForCount("the admitted request reached upstream", () => receivedRequests.length, 1);
+    ac.abort();
+    await promise.catch(() => {});
+    await settle(100);
+    const after = await readStats(proxy);
+    assert.equal(
+      after.activeClientDisconnects,
+      before.activeClientDisconnects + 1,
+      "activeClientDisconnects must advance exactly once"
+    );
+  });
+
+  test("counter delta: usageReconciled +1 on valid usage", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ usage: { total_tokens: 12 } }),
+    });
+    const before = await readStats(proxy);
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    });
+    assert.equal(res.status, 200);
+    await res.text();
+    await settle(100);
+    const after = await readStats(proxy);
+    assert.equal(
+      after.usageReconciled,
+      before.usageReconciled + 1,
+      "usageReconciled must advance exactly once"
+    );
+  });
+
+  test("counter delta: usageEstimateFallbacks +1 on unusable usage", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ usage: { total_tokens: "bad" } }),
+    });
+    const before = await readStats(proxy);
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    });
+    assert.equal(res.status, 200);
+    await res.text();
+    await settle(100);
+    const after = await readStats(proxy);
+    assert.equal(
+      after.usageEstimateFallbacks,
+      before.usageEstimateFallbacks + 1,
+      "usageEstimateFallbacks must advance exactly once"
+    );
+  });
+
+  test("counter delta: trackedModels increases at most 1 for a new model", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      body: "{}",
+      headers: { "content-type": "application/json" },
+    });
+    const before = await readStats(proxy);
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: JSON.stringify({ model: "new-model", messages: [{ role: "user", content: "hi" }] }),
+    });
+    assert.equal(res.status, 200);
+    await res.text();
+    const after = await readStats(proxy);
+    assert.ok(
+      after.trackedModels >= before.trackedModels &&
+        after.trackedModels <= before.trackedModels + 1,
+      "trackedModels rises at most one for a new model"
+    );
   });
 });

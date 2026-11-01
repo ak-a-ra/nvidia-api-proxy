@@ -75,12 +75,12 @@ stories:
 
   - id: e04s08
     title: Expose authenticated aggregate stats
-    bcps: 0
-    status: todo
+    bcps: 7
+    status: passing
     issue: 21
     blocked_by: [e04s07]
-    spec: null
-    tasks: null
+    spec: e04s08-expose-authenticated-aggregate-stats.md
+    tasks: e04s08-tasks.yaml
 
   - id: e04s09
     title: Integrate, document, and verify rate limiting

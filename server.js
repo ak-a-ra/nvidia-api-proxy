@@ -36,6 +36,12 @@ const BASE_ORIGIN = new URL(config.baseURL).origin;
 
 export { CONNECT_TIMEOUT_SECONDS, IDLE_TIMEOUT_SECONDS };
 
+// Process-lifetime monotonic counters, read by /stats. Incremented exactly
+// once per terminal event, never reset.
+let completed = 0;
+let oversizedBodyRejections = 0;
+let activeClientDisconnects = 0;
+
 // Headers stripped when copying in either direction. Not all of these are
 // hop-by-hop: host is re-derived per upstream call and content-length is
 // re-evaluated (stripped during copying and selectively restored for
@@ -92,6 +98,7 @@ async function readBodyWithCap(req, res, maxBytes) {
   for await (const chunk of req) {
     seen += chunk.length;
     if (seen > maxBytes) {
+      oversizedBodyRejections++;
       if (!res.destroyed && !res.writableEnded) {
         sendJson(req, res, 413, { error: "Request too large" });
       }
@@ -205,6 +212,44 @@ const server = http.createServer(async (req, res) => {
     if (incoming.pathname === "/health") {
       if (config.unconfigured) return sendJson(req, res, 503, { status: "unconfigured" });
       return sendJson(req, res, 200, { status: "ok" });
+    }
+
+    // /stats bypasses admission and budgets and never contacts the upstream.
+    // Authentication precedes the unconfigured check so a missing token leaks
+    // as 401, never 503. /stats increments no counter (self-exclusion).
+    if (incoming.pathname === "/stats") {
+      if (!authorized(req)) {
+        return sendJson(req, res, 401, { error: "Unauthorized" });
+      }
+      if (config.unconfigured) {
+        return sendJson(req, res, 503, { error: "Proxy is not configured" });
+      }
+      if (req.method !== "GET") {
+        return sendJson(req, res, 404, { error: "Not found" });
+      }
+      return sendJson(req, res, 200, {
+        rateLimitEnabled: config.rateLimit !== null,
+        effectiveGlobalRpm: config.rateLimit ? budget.effective.rpm : null,
+        effectiveGlobalTpm: config.rateLimit ? budget.effective.tpm : null,
+        safetyMarginPct: config.limits.safetyMarginPct,
+        maxConcurrentRequests: config.limits.maxConcurrentRequests,
+        maxQueueSize: config.limits.maxQueueSize,
+        queueTimeoutSeconds: config.limits.queueTimeoutSeconds,
+        active: admission.active,
+        queued: admission.queued,
+        admitted: admission.admitted,
+        waits: admission.waits,
+        queueFullRejections: admission.queueFullRejections,
+        queueTimeoutRejections: admission.queueTimeoutRejections,
+        oversizedBodyRejections,
+        costOverLimitRejections: budget.costOverLimitRejections,
+        queuedClientDisconnects: admission.queuedClientDisconnects,
+        activeClientDisconnects,
+        completed,
+        usageReconciled: budget.usageReconciled,
+        usageEstimateFallbacks: budget.usageEstimateFallbacks,
+        trackedModels: budget.trackedModels,
+      });
     }
 
     // Bare /v1 or /v1/ — the proxy forwards /v1/* paths, not the /v1
@@ -330,6 +375,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (res.destroyed || res.writableEnded) {
       releaseOnce();
+      completed++;
       return;
     }
 
@@ -425,6 +471,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(upstream.status, responseHeaders);
 
     if (!upstream.body) {
+      completed++;
       if (budgetReservation) {
         budgetReservation.reconcile(null);
       }
@@ -489,6 +536,7 @@ const server = http.createServer(async (req, res) => {
 
     const onComplete = (error) => {
       clearTimeout(idleTimer);
+      completed++;
       if (sseObserver) {
         try {
           sseObserver.end();
@@ -554,8 +602,9 @@ const server = http.createServer(async (req, res) => {
       pipeline(src, res, onComplete);
     }
   } catch (error) {
-    if (error.name === "AbortError" && error.message === "client disconnected") {
+    if (error.message === "client disconnected") {
       // Client went away: nothing to report, no response to send.
+      activeClientDisconnects++;
       return;
     }
     console.error(error);

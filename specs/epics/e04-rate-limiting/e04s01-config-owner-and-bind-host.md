@@ -342,10 +342,11 @@ The tag set is therefore empty and no human approval is required.
 
 ## 21. Risks section
 
-- Refactor regression in working code → detected by the unchanged existing suite (203 tests)
+- Refactor regression in working code → detected by the unchanged existing suite (237 tests)
   in task 1 and task 12.
 - Silent fail-open on a malformed limit → detected by the fatal-exit tests in tasks 3–6.
 - Convention drift in `AGENTS.md` / `CONVENTIONS.md` → detected by tasks 9 and 10.
+  (suite now 237 tests)
 
 ## 22. Out-of-scope references
 

@@ -1,0 +1,82 @@
+story_id: e04s08
+task_id: 7
+verified_at: "2026-11-01T00:00:00Z"
+verifier: verify-work
+branch: feat/e04s08-stats
+phases:
+  lint_typecheck_format:
+    command: "npm run check"
+    exit_code: 0
+    captured_at: "2026-11-01T00:00:00Z"
+    note: "rc 0"
+  tests:
+    command: "node --test --test-reporter=tap server.test.js"
+    captured_at: "2026-11-01T00:00:00Z"
+    summary: "tests 237, pass 237, fail 0"
+    count: 237
+  task7_verify:
+    command: "task 7 count gate (N derived from '# tests N' TAP line, sweep living docs excluding plans/, docs/research/config-invariant-guard-tests.md, LOG.md, specs/epics/*/briefs/, specs/epics/*/*-tasks.yaml, specs/verifications/)"
+    exit_code: 0
+    captured_at: "2026-11-01T00:00:00Z"
+    note: "count sweep CLEAN N=237; epic.yaml spec/tasks filenames present"
+  rerun_2026_11_01:
+    captured_at: "2026-11-01T01:00:00Z"
+    note: "verify-work re-run on HEAD d7ce5e5, risk P0, all phases fresh"
+    task_verifies:
+      t1_admission_counters: "OK"
+      t2_budget_counters: "OK"
+      t3_server_counters_present: "OK"
+      t4_stats_route_tests: "OK (10 matched, need >=10)"
+      t5_counter_delta_tests: "OK (11 matched, need >=8)"
+      t6_full_suite: "OK (npm test, 237 pass / 0 fail)"
+      t7_count_gate: "OK (N=237, sweep clean, epic.yaml filenames present)"
+    mechanical_gates:
+      npm_test: "exit 0, tests 237 pass 237 fail 0"
+      npm_run_check: "exit 0 (lint + typecheck + format:check)"
+    uat:
+      - step: "GET /health cold start"
+        expected: "200"
+        actual: "200"
+        passed: true
+      - step: "GET /stats no token"
+        expected: "401 {\"error\":\"Unauthorized\"}"
+        actual: "401 {\"error\":\"Unauthorized\"}"
+        passed: true
+      - step: "GET /stats bad token"
+        expected: "401"
+        actual: "401 {\"error\":\"Unauthorized\"}"
+        passed: true
+      - step: "GET /stats valid token"
+        expected: "200, 21-key aggregate allowlist, all counters 0 on fresh boot"
+        actual: "200, 21 keys, counters 0"
+        passed: true
+      - step: "POST /stats valid token"
+        expected: "404 {\"error\":\"Not found\"}"
+        actual: "404 {\"error\":\"Not found\"}"
+        passed: true
+      - step: "GET /stats valid token while unconfigured (no NVIDIA_API_KEY)"
+        expected: "503 {\"error\":\"Proxy is not configured\"}"
+        actual: "503 {\"error\":\"Proxy is not configured\"}"
+        passed: true
+    security_review:
+      verdict: "CLEAN"
+      high_findings: 0
+      medium_findings: 0
+      low_findings:
+        - "specs/security/REVIEW.md stale (covers e04s07, not e04s08)"
+        - "specs/security/EXCEPTIONS.md missing"
+      note: "subagent review of git diff main...HEAD: timing-safe auth on /stats, aggregate-only counters, null-prototype trackedModels count, no secrets in output/logs, no SSRF, generic 503 after auth"
+reviewer_verdicts:
+  t01: PASS
+  t02: waived combined commit
+  t04: PASS
+  t05: review file may be missing — note if so
+doc_count: 237
+story_allowlist_keys: 21
+terminal_verdict:
+  command: "npm test"
+  exit_code: 0
+  captured_at: "2026-11-01T00:00:00Z"
+  note: "237 tests, 0 fail"
+gaps:
+  closed: true

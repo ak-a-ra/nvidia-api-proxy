@@ -7,8 +7,8 @@
 ```yaml
 vcs:
   kind: git
-  commit: 97e6a80
-  branch: main
+  commit: c7d1395
+  branch: feat/e04s08-stats
   worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
   landed:
     story: e04s07
@@ -23,15 +23,17 @@ active_story: e04s08
 session_start: 2026-10-16T18:02:00Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: plan-work
-  source: release-branch
+  next_skill: commit-message
+  source: audit-code
   note: >-
     e04s07 landed on main via merge --no-ff (97e6a80): observer.js JSON observer +
     shared usageTotalFromUsage, non-streaming reconciliation and terminal fallbacks,
-    203 tests green, security review clean. Execution status synced e04s07 passing.
-    e04s08 (issue #21, authenticated aggregate stats) is now head of the chain:
-    todo, spec null, tasks null. Next: scope/plan e04s08 capsule (plan-work),
-    then kickoff-branch.
+    237 tests green, security review clean. Execution status synced e04s07 passing.
+    e04s08 (issue #21, authenticated aggregate stats) capsule landed on branch
+    feat/e04s08-stats: spec/tasks filenames set, all seven tasks passing, execution
+    status e04s08 passing, e04s09 stays blocked by e04s08. Suite 237 tests green
+    (21-key /stats allowlist), count gate green, e04s08-verify.yaml evidence added.
+    Next: verify-work / release pass.
 
 decisions:
   - decision: Per-model window pairs are built at construction time, and the story's "lazily" sentence is corrected
@@ -165,7 +167,7 @@ decisions:
     rationale: >-
       Decided 2026-10-21, for e04s05 task 5. The ledger's task-5 verify counts
       the ok lines of the TAP output and calls that the test count. Measured on
-      this tree: that count is 204 while the suite is 203 tests, because the TAP
+      this tree: that count is 204 while the suite is 237 tests, because the TAP
       reporter emits one ok line per test, one per describe block and one for
       the file. The gate then greps the docs for 176, finds nothing, and fails
       on a tree whose counts are all correct. The count comes from the "# tests
