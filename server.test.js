@@ -737,7 +737,10 @@ describe("proxy", () => {
   test("non-GET /stats returns 404", async (t) => {
     const { proxy } = await withProxy(t, {});
     for (const method of ["POST", "PUT", "DELETE", "PATCH", "HEAD"]) {
-      const res = await proxiedFetch(proxy.port, "/stats", { method, headers: { authorization: "Bearer pt" } });
+      const res = await proxiedFetch(proxy.port, "/stats", {
+        method,
+        headers: { authorization: "Bearer pt" },
+      });
       assert.equal(res.status, 404, `expected 404 for ${method} /stats, got ${res.status}`);
       if (method !== "HEAD") {
         assert.deepEqual(await res.json(), { error: "Not found" });
@@ -785,7 +788,11 @@ describe("proxy", () => {
       "usageEstimateFallbacks",
       "trackedModels",
     ];
-    assert.deepEqual(Object.keys(body).sort(), expected.slice().sort(), "exactly the 24-key allowlist");
+    assert.deepEqual(
+      Object.keys(body).sort(),
+      expected.slice().sort(),
+      "exactly the 24-key allowlist"
+    );
   });
 
   test("disabled shape: rateLimitEnabled false, effective RPM/TPM null", async (t) => {
@@ -827,39 +834,53 @@ describe("proxy", () => {
     const text = await res.text();
     const json = JSON.parse(text);
     const forbidden = [
-      "path", "query", "prompt", "completion",
-      "apiKey", "proxyToken", "authorization", "api_key", "proxy_auth_token",
-      "upstream", "baseURL", "host", "origin",
+      "path",
+      "query",
+      "prompt",
+      "completion",
+      "apiKey",
+      "proxyToken",
+      "authorization",
+      "api_key",
+      "proxy_auth_token",
+      "upstream",
+      "baseURL",
+      "host",
+      "origin",
     ];
     const flat = JSON.stringify(json);
     for (const key of forbidden) {
       assert.ok(!flat.includes(key.toLowerCase()), `body must not leak ${key}`);
     }
     // trackedModels is a count, not per-model data: no model IDs or per-model entries appear.
-    assert.ok(!flat.includes('"models"'), 'body must not list models');
-    assert.deepEqual(Object.keys(json).sort(), [
-      "active",
-      "activeClientDisconnects",
-      "admitted",
-      "costOverLimitRejections",
-      "completed",
-      "effectiveGlobalRpm",
-      "effectiveGlobalTpm",
-      "maxConcurrentRequests",
-      "maxQueueSize",
-      "oversizedBodyRejections",
-      "queueFullRejections",
-      "queueTimeoutRejections",
-      "queueTimeoutSeconds",
-      "queued",
-      "queuedClientDisconnects",
-      "rateLimitEnabled",
-      "safetyMarginPct",
-      "trackedModels",
-      "usageEstimateFallbacks",
-      "usageReconciled",
-      "waits",
-    ].sort(), "only the 24 allowlist keys, no privacy-leaking keys");
+    assert.ok(!flat.includes('"models"'), "body must not list models");
+    assert.deepEqual(
+      Object.keys(json).sort(),
+      [
+        "active",
+        "activeClientDisconnects",
+        "admitted",
+        "costOverLimitRejections",
+        "completed",
+        "effectiveGlobalRpm",
+        "effectiveGlobalTpm",
+        "maxConcurrentRequests",
+        "maxQueueSize",
+        "oversizedBodyRejections",
+        "queueFullRejections",
+        "queueTimeoutRejections",
+        "queueTimeoutSeconds",
+        "queued",
+        "queuedClientDisconnects",
+        "rateLimitEnabled",
+        "safetyMarginPct",
+        "trackedModels",
+        "usageEstimateFallbacks",
+        "usageReconciled",
+        "waits",
+      ].sort(),
+      "only the 24 allowlist keys, no privacy-leaking keys"
+    );
   });
 
   test("self-exclusion: stats moves no counter", async (t) => {
