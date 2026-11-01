@@ -6039,3 +6039,272 @@ describe("e04s08 budget counters", () => {
     assert.equal(b.usageEstimateFallbacks, 0);
   });
 });
+
+describe("e04s08 counter deltas", () => {
+  // /stats moves no counter (self-exclusion), so before/after reads isolate exact deltas.
+  async function readStats(proxy) {
+    const res = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200, "/stats must be 200 on a configured proxy");
+    return await res.json();
+  }
+
+  const RATE_ON = { PROXY_RPM: "60", PROXY_TPM: "100000", PROXY_SAFETY_MARGIN_PCT: "0" };
+
+  test("completed +1 on proxied completion, active returns to prior", async (t) => {
+    const { proxy } = await withProxy(t, {
+      body: "{}",
+      headers: { "content-type": "application/json" },
+    });
+    const before = await readStats(proxy);
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    });
+    assert.equal(res.status, 200);
+    await res.text();
+    await settle(100);
+    const after = await readStats(proxy);
+    assert.equal(after.completed, before.completed + 1, "completed must advance exactly once");
+    assert.equal(after.active, before.active, "active must return to its prior value");
+  });
+
+  test("oversizedBodyRejections +1 on over-cap body, upstream not contacted", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: { ...RATE_ON, PROXY_MAX_BUFFERED_BODY_BYTES: "16" },
+      body: "{}",
+      headers: { "content-type": "application/json" },
+    });
+    const before = await readStats(proxy);
+    const big = JSON.stringify({
+      model: "m",
+      messages: [{ role: "user", content: "x".repeat(512) }],
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: big,
+    });
+    assert.equal(res.status, 413, "over-cap body is refused with 413");
+    assert.equal(receivedRequests.length, 0, "over-cap body never reached upstream");
+    const after = await readStats(proxy);
+    assert.equal(
+      after.oversizedBodyRejections,
+      before.oversizedBodyRejections + 1,
+      "oversizedBodyRejections must advance exactly once"
+    );
+  });
+
+  test("costOverLimitRejections +1 on over-TPM, upstream not contacted", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1", PROXY_SAFETY_MARGIN_PCT: "0" },
+      body: "{}",
+    });
+    const before = await readStats(proxy);
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    });
+    assert.equal(res.status, 429, "over-budget request is refused with 429");
+    assert.equal(receivedRequests.length, 0, "over-budget request never reached upstream");
+    const after = await readStats(proxy);
+    assert.equal(
+      after.costOverLimitRejections,
+      before.costOverLimitRejections + 1,
+      "costOverLimitRejections must advance exactly once"
+    );
+  });
+
+  test("queueFullRejections +1 when the queue is full", async (t) => {
+    const { proxy, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "1",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    const before = await readStats(proxy);
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    holder.catch(() => {});
+    await waitForCount("holder occupies slot", () => heldResponses.length, 1);
+    const waiter = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    waiter.catch(() => {});
+    // Waiter is queued (not held), so heldResponses stays at 1 while the slot
+    // is busy; a third request now finds the queue full.
+    await settle(100);
+    const overflow = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(overflow.status, 429, "third request is refused with 429");
+    const after = await readStats(proxy);
+    assert.equal(
+      after.queueFullRejections,
+      before.queueFullRejections + 1,
+      "queueFullRejections must advance exactly once"
+    );
+    heldResponses.shift().end();
+    await Promise.allSettled([holder, waiter]);
+  });
+
+  test("queueTimeoutRejections +1 when a queued ticket times out", async (t) => {
+    const { proxy, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "1",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "1",
+      },
+      mode: "hold",
+    });
+    const before = await readStats(proxy);
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    holder.catch(() => {});
+    await waitForCount("holder occupies slot", () => heldResponses.length, 1);
+    const waiter = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(waiter.status, 429, "timed-out waiter is rejected with 429");
+    await settle(200);
+    const after = await readStats(proxy);
+    assert.equal(
+      after.queueTimeoutRejections,
+      before.queueTimeoutRejections + 1,
+      "queueTimeoutRejections must advance exactly once"
+    );
+    heldResponses.shift().end();
+    await holder.catch(() => {});
+  });
+
+  test("queuedClientDisconnects +1 when a queued client disconnects", async (t) => {
+    const { proxy, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "4",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    const before = await readStats(proxy);
+    const holder = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    holder.catch(() => {});
+    await waitForCount("holder occupies slot", () => heldResponses.length, 1);
+    const ac = new AbortController();
+    const waiter = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+      signal: ac.signal,
+    });
+    waiter.catch(() => {});
+    await waitForCount("waiter is queued", () => heldResponses.length, 1);
+    await settle(50);
+    ac.abort();
+    await waiter.catch(() => {});
+    await settle(100);
+    const after = await readStats(proxy);
+    assert.equal(
+      after.queuedClientDisconnects,
+      before.queuedClientDisconnects + 1,
+      "queuedClientDisconnects must advance exactly once"
+    );
+    heldResponses.shift().end();
+    await holder.catch(() => {});
+  });
+
+  test("activeClientDisconnects +1 when an admitted client disconnects", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      mode: "silent", // upstream never sends headers; the fetch stays pending
+      proxyEnv: { UPSTREAM_CONNECT_TIMEOUT_SECONDS: "30" },
+    });
+    const before = await readStats(proxy);
+    const ac = new AbortController();
+    const promise = proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+      signal: ac.signal,
+    });
+    // Let the proxy admit the request and forward it upstream before the client
+    // gives up, so this is an admitted-client disconnect, not a pre-admission one.
+    await waitForCount("the admitted request reached upstream", () => receivedRequests.length, 1);
+    ac.abort();
+    await promise.catch(() => {});
+    await settle(100);
+    const after = await readStats(proxy);
+    assert.equal(
+      after.activeClientDisconnects,
+      before.activeClientDisconnects + 1,
+      "activeClientDisconnects must advance exactly once"
+    );
+  });
+
+  test("usageReconciled +1 on valid usage", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ usage: { total_tokens: 12 } }),
+    });
+    const before = await readStats(proxy);
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    });
+    assert.equal(res.status, 200);
+    await res.text();
+    await settle(100);
+    const after = await readStats(proxy);
+    assert.equal(after.usageReconciled, before.usageReconciled + 1, "usageReconciled must advance exactly once");
+  });
+
+  test("usageEstimateFallbacks +1 on unusable usage", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ usage: { total_tokens: "bad" } }),
+    });
+    const before = await readStats(proxy);
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    });
+    assert.equal(res.status, 200);
+    await res.text();
+    await settle(100);
+    const after = await readStats(proxy);
+    assert.equal(
+      after.usageEstimateFallbacks,
+      before.usageEstimateFallbacks + 1,
+      "usageEstimateFallbacks must advance exactly once"
+    );
+  });
+
+  test("trackedModels increases at most 1 for a new model", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: RATE_ON,
+      body: "{}",
+      headers: { "content-type": "application/json" },
+    });
+    const before = await readStats(proxy);
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: JSON.stringify({ model: "new-model", messages: [{ role: "user", content: "hi" }] }),
+    });
+    assert.equal(res.status, 200);
+    await res.text();
+    const after = await readStats(proxy);
+    assert.ok(
+      after.trackedModels >= before.trackedModels && after.trackedModels <= before.trackedModels + 1,
+      "trackedModels rises at most one for a new model"
+    );
+  });
+});
