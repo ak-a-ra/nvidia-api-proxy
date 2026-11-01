@@ -5627,14 +5627,14 @@ describe("e04s08 admission counters", () => {
     const queuedPromise = admission.acquire(null);
     assert.equal(admission.waits, 1, "queuing a ticket increments waits once");
     assert.equal(admission.queued, 1);
-    // Settle the waiter without releasing yet: time out instead so the slot
-    // frees and the ticket leaves the queue cleanly.
-    await new Promise((r) => setTimeout(r, 50));
+    // Release the holder: the waiter is admitted onto the freed slot.
     holder.release?.();
     const queued = await queuedPromise;
-    assert.equal(queued.admitted, false);
-    assert.equal(admission.queueTimeoutRejections, 1);
+    assert.equal(queued.admitted, true);
+    assert.equal(admission.admitted, 2);
+    assert.equal(admission.active, 1);
     assert.equal(admission.queued, 0);
+    queued.release?.();
   });
 
   test("enabled path: queue-full rejection increments once and admits nothing", async (t) => {

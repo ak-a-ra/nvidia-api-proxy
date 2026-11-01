@@ -44,7 +44,7 @@ export function createAdmission(limits) {
   if (maxConcurrent === null) {
     let closed = false;
     const noopRelease = () => {};
-    return {
+    const admission = {
       acquire(signal) {
         if (closed) {
           return Promise.resolve({
@@ -61,11 +61,26 @@ export function createAdmission(limits) {
         closed = true;
       },
     };
+    Object.defineProperties(admission, {
+      active: { get: () => 0, enumerable: true },
+      queued: { get: () => 0, enumerable: true },
+      admitted: { get: () => 0, enumerable: true },
+      waits: { get: () => 0, enumerable: true },
+      queueFullRejections: { get: () => 0, enumerable: true },
+      queueTimeoutRejections: { get: () => 0, enumerable: true },
+      queuedClientDisconnects: { get: () => 0, enumerable: true },
+    });
+    return admission;
   }
 
   let active = 0;
   const queue = [];
   let closed = false;
+  let admittedCount = 0;
+  let waitsCount = 0;
+  let queueFullRejectionsCount = 0;
+  let queueTimeoutRejectionsCount = 0;
+  let queuedClientDisconnectsCount = 0;
 
   // One terminal transition per ticket. The first caller wins; later ones are
   // no-ops. Timer, listener, and queue removal are handled by callers that
@@ -103,6 +118,7 @@ export function createAdmission(limits) {
         const next = queue.shift();
         if (next.settled) continue;
         const nextRelease = createReleaseHandle();
+        admittedCount++;
         settleTicket(next, {
           admitted: true,
           release: nextRelease,
@@ -143,6 +159,7 @@ export function createAdmission(limits) {
 
     if (active < maxConcurrent && queue.length === 0) {
       active++;
+      admittedCount++;
       return Promise.resolve({
         admitted: true,
         release: createReleaseHandle(),
@@ -150,6 +167,7 @@ export function createAdmission(limits) {
     }
 
     if (queue.length >= maxQueueSize) {
+      queueFullRejectionsCount++;
       return Promise.resolve({
         admitted: false,
         reason: REJECTION_REASONS.QUEUE_FULL,
@@ -168,6 +186,7 @@ export function createAdmission(limits) {
       ticket.timer = setTimeout(() => {
         if (ticket.settled) return;
         removeTicket(ticket);
+        queueTimeoutRejectionsCount++;
         settleTicket(ticket, {
           admitted: false,
           reason: REJECTION_REASONS.QUEUE_TIMEOUT,
@@ -182,6 +201,7 @@ export function createAdmission(limits) {
         if (signal.aborted) {
           // An already-aborted ticket is never queued: retro-firing is not
           // guaranteed by EventTarget, so settle it now and free the slot path.
+          queuedClientDisconnectsCount++;
           settleTicket(ticket, {
             admitted: false,
             reason: REJECTION_REASONS.CANCELLED,
@@ -191,6 +211,7 @@ export function createAdmission(limits) {
         const listener = () => {
           if (ticket.settled) return;
           removeTicket(ticket);
+          queuedClientDisconnectsCount++;
           settleTicket(ticket, {
             admitted: false,
             reason: REJECTION_REASONS.CANCELLED,
@@ -200,12 +221,23 @@ export function createAdmission(limits) {
         signal.addEventListener("abort", listener, { once: true });
       }
 
+      waitsCount++;
       queue.push(ticket);
     });
   }
 
-  return {
+  const enabled = {
     acquire,
     close,
   };
+  Object.defineProperties(enabled, {
+    active: { get: () => active, enumerable: true },
+    queued: { get: () => queue.length, enumerable: true },
+    admitted: { get: () => admittedCount, enumerable: true },
+    waits: { get: () => waitsCount, enumerable: true },
+    queueFullRejections: { get: () => queueFullRejectionsCount, enumerable: true },
+    queueTimeoutRejections: { get: () => queueTimeoutRejectionsCount, enumerable: true },
+    queuedClientDisconnects: { get: () => queuedClientDisconnectsCount, enumerable: true },
+  });
+  return enabled;
 }
