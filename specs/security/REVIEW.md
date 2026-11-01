@@ -26,3 +26,22 @@ Reviewed surfaces in the diff:
 ## Release verdict
 
 PASS
+
+---
+
+# Security Review — e04s08 (branch feat/e04s08-stats)
+
+- Generated: 2026-11-01T02:00:00Z
+- HEAD SHA: d7ce5e5 (feat/e04s08-stats)
+- Scope: production diff `main...HEAD` (`server.js`, `admission.js`, `budget.js`, `server.test.js`)
+- Method: independent reviewer subagent traced the `/stats` data flow, auth ordering, allowlist construction, counter exposure, and logging; cross-checked against `.agents/skills/security-review/SKILL.md`.
+
+## Findings
+
+None. No HIGH, MEDIUM, or LOW findings with confidence >= 8.
+
+Verified: `authorized()` (SHA-256 digest + `timingSafeEqual`) runs before the unconfigured 503, so a missing token never leaks credential state; non-GET `/stats` → 404; `/stats` never contacts upstream and increments no counter; body is the exact 21-key aggregate allowlist with no tokens, keys, upstream host, paths, or model IDs (`trackedModels` exposed as a count only, null-prototype map so `__proto__` is an ordinary key); `sendJson` drains the request and sets fixed headers; request logging stays the closed 5-field set.
+
+## Release verdict
+
+PASS
