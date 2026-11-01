@@ -682,6 +682,203 @@ describe("proxy", () => {
     assert.equal(receivedRequests.length, 0, "/stats 401 path never contacts upstream");
   });
 
+  test("GET /stats returns 401 with an invalid token", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, { token: "pt-secret" });
+    const res = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer wrong" },
+    });
+    assert.equal(res.status, 401);
+    assert.deepEqual(await res.json(), { error: "Unauthorized" });
+    assert.equal(receivedRequests.length, 0, "/stats 401 path never contacts upstream");
+  });
+
+  test("GET /stats returns 503 while unconfigured with a valid token", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, { key: " " });
+    const res = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 503);
+    assert.deepEqual(await res.json(), { error: "Proxy is not configured" });
+    assert.equal(receivedRequests.length, 0, "/stats 503 path never contacts upstream");
+  });
+
+  test("GET /stats returns 200 while saturated", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: {
+        PROXY_MAX_CONCURRENT_REQUESTS: "1",
+        PROXY_MAX_QUEUE_SIZE: "1",
+        PROXY_QUEUE_TIMEOUT_SECONDS: "120",
+      },
+      mode: "hold",
+    });
+    const holder = proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    });
+    holder.catch(() => {});
+    await waitForCount("the holder to occupy the slot", () => heldResponses.length, 1);
+    await settle(100);
+    const queued = proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+    });
+    queued.catch(() => {});
+    await waitForCount("the queued request to fill the queue", () => heldResponses.length, 2);
+
+    // Gate saturated: holder + queued reject anything else, but /stats still answers 200.
+    const stats = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(stats.status, 200, "/stats answers while saturated");
+    const body = await stats.json();
+    assert.equal(Object.keys(body).length, 24, "exactly 24 top-level keys");
+    assert.equal(receivedRequests.length, 0, "/stats contacts no upstream");
+    endHeld(heldResponses);
+    await Promise.allSettled([holder, queued]);
+  });
+
+  test("non-GET /stats returns 404", async (t) => {
+    const { proxy } = await withProxy(t, {});
+    for (const method of ["POST", "PUT", "DELETE", "PATCH", "HEAD"]) {
+      const res = await proxiedFetch(proxy.port, "/stats", { method, headers: { authorization: "Bearer pt" } });
+      assert.equal(res.status, 404, `expected 404 for ${method} /stats, got ${res.status}`);
+      assert.deepEqual(await res.json(), { error: "Not found" });
+    }
+  });
+
+  test("upstream receives zero requests for /stats", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {});
+    const res = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), {});
+    assert.equal(receivedRequests.length, 0, "/stats never contacts upstream");
+  });
+
+  test("exact allowlist field set on /stats 200", async (t) => {
+    const { proxy } = await withProxy(t, {});
+    const res = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    const expected = [
+      "rateLimitEnabled",
+      "effectiveGlobalRpm",
+      "effectiveGlobalTpm",
+      "safetyMarginPct",
+      "maxConcurrentRequests",
+      "maxQueueSize",
+      "queueTimeoutSeconds",
+      "active",
+      "queued",
+      "admitted",
+      "waits",
+      "queueFullRejections",
+      "queueTimeoutRejections",
+      "oversizedBodyRejections",
+      "costOverLimitRejections",
+      "queuedClientDisconnects",
+      "activeClientDisconnects",
+      "completed",
+      "usageReconciled",
+      "usageEstimateFallbacks",
+      "trackedModels",
+    ];
+    assert.deepEqual(Object.keys(body).sort(), expected.slice().sort(), "exactly the 24-key allowlist");
+  });
+
+  test("disabled shape: rateLimitEnabled false, effective RPM/TPM null", async (t) => {
+    const { proxy } = await withProxy(t, {});
+    const res = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.rateLimitEnabled, false);
+    assert.equal(body.effectiveGlobalRpm, null);
+    assert.equal(body.effectiveGlobalTpm, null);
+    assert.equal(body.safetyMarginPct, 5);
+    assert.equal(body.maxConcurrentRequests, null);
+    assert.equal(body.maxQueueSize, 32);
+    assert.equal(body.queueTimeoutSeconds, 30);
+    assert.equal(body.active, 0);
+    assert.equal(body.queued, 0);
+    assert.equal(body.admitted, 0);
+    assert.equal(body.waits, 0);
+    assert.equal(body.queueFullRejections, 0);
+    assert.equal(body.queueTimeoutRejections, 0);
+    assert.equal(body.oversizedBodyRejections, 0);
+    assert.equal(body.costOverLimitRejections, 0);
+    assert.equal(body.queuedClientDisconnects, 0);
+    assert.equal(body.activeClientDisconnects, 0);
+    assert.equal(body.completed, 0);
+    assert.equal(body.usageReconciled, 0);
+    assert.equal(body.usageEstimateFallbacks, 0);
+    assert.equal(body.trackedModels, 0);
+  });
+
+  test("privacy exclusions on /stats", async (t) => {
+    const { proxy } = await withProxy(t, {});
+    const res = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    const json = JSON.parse(text);
+    const forbidden = [
+      "path", "query", "body", "prompt", "completion",
+      "apiKey", "proxyToken", "authorization", "api_key", "proxy_auth_token",
+      "upstream", "baseURL", "host", "origin",
+      "model", "models",
+    ];
+    const flat = JSON.stringify(json);
+    for (const key of forbidden) {
+      assert.ok(!flat.toLowerCase().includes(key.toLowerCase()), `body must not leak ${key}`);
+    }
+    assert.deepEqual(Object.keys(json).sort(), [
+      "active",
+      "activeClientDisconnects",
+      "admitted",
+      "costOverLimitRejections",
+      "completed",
+      "effectiveGlobalRpm",
+      "effectiveGlobalTpm",
+      "maxConcurrentRequests",
+      "maxQueueSize",
+      "oversizedBodyRejections",
+      "queueFullRejections",
+      "queueTimeoutRejections",
+      "queueTimeoutSeconds",
+      "queued",
+      "queuedClientDisconnects",
+      "rateLimitEnabled",
+      "safetyMarginPct",
+      "trackedModels",
+      "usageEstimateFallbacks",
+      "usageReconciled",
+      "waits",
+    ].sort(), "only the 24 allowlist keys, no privacy-leaking keys");
+  });
+
+  test("self-exclusion: stats moves no counter", async (t) => {
+    const { proxy } = await withProxy(t, {});
+    const first = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(first.status, 200);
+    const before = await first.json();
+    const second = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(second.status, 200);
+    const after = await second.json();
+    assert.deepEqual(before, after, "two /stats calls produce identical counters (self-exclusion)");
+  });
+
   test("multi-value set-cookie preserved (not merged)", async (t) => {
     const { proxy } = await withProxy(t, {
       body: "x",
