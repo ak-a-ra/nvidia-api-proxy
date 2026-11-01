@@ -340,7 +340,7 @@ function modelReason(reason) {
 // nothing is allocated.
 export function createBudget(rateLimit, limits, modelLimits) {
   if (!rateLimit) {
-    return {
+    const disabled = {
       enabled: false,
       effective: null,
       // Uniform shape: a caller reads modelEffective without knowing which
@@ -354,10 +354,21 @@ export function createBudget(rateLimit, limits, modelLimits) {
       release() {},
       close() {},
     };
+    Object.defineProperties(disabled, {
+      costOverLimitRejections: { get: () => 0, enumerable: true },
+      trackedModels: { get: () => 0, enumerable: true },
+      usageReconciled: { get: () => 0, enumerable: true },
+      usageEstimateFallbacks: { get: () => 0, enumerable: true },
+    });
+    return disabled;
   }
 
   let reconciledCount = 0;
   let fallbackCount = 0;
+  let costOverLimitRejectionsCount = 0;
+  // Null prototype: model ID is operator-supplied text; "__proto__" must be an
+  // ordinary entry, not swallowed by the prototype setter.
+  const trackedModels = Object.create(null);
 
   const margin = limits?.safetyMarginPct ?? 5;
   const effective = {
@@ -399,14 +410,19 @@ export function createBudget(rateLimit, limits, modelLimits) {
   // decision is synchronous, so nothing can interleave between the two
   // checks and the charges that follow them.
   function reserve(cost) {
+    if (typeof cost.model === "string") trackedModels[cost.model] = true;
     const global = globalWindow.check(cost);
-    if (!global.admitted) return global;
+    if (!global.admitted) {
+      costOverLimitRejectionsCount += 1;
+      return global;
+    }
 
     const modelWindow = modelWindowFor(cost);
     let model = null;
     if (modelWindow) {
       model = modelWindow.check(cost);
       if (!model.admitted) {
+        costOverLimitRejectionsCount += 1;
         return {
           admitted: false,
           reason: modelReason(model.reason),
@@ -487,6 +503,26 @@ export function createBudget(rateLimit, limits, modelLimits) {
     },
   });
   Object.defineProperty(budget, "fallbackCount", {
+    get() {
+      return fallbackCount;
+    },
+  });
+  Object.defineProperty(budget, "costOverLimitRejections", {
+    get() {
+      return costOverLimitRejectionsCount;
+    },
+  });
+  Object.defineProperty(budget, "trackedModels", {
+    get() {
+      return Object.keys(trackedModels).length;
+    },
+  });
+  Object.defineProperty(budget, "usageReconciled", {
+    get() {
+      return reconciledCount;
+    },
+  });
+  Object.defineProperty(budget, "usageEstimateFallbacks", {
     get() {
       return fallbackCount;
     },

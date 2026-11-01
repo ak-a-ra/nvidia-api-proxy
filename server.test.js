@@ -5567,7 +5567,7 @@ describe("e04s07 non-streaming usage reconciliation", () => {
 describe("e04s08 admission counters", () => {
   const baseLimits = { maxQueueSize: 4, queueTimeoutSeconds: 30 };
 
-  test("disabled path exposes zero-valued read-only getters", async (t) => {
+  test("disabled path exposes zero-valued read-only getters", async (_t) => {
     const disabled = createAdmission({
       maxConcurrentRequests: null,
       ...baseLimits,
@@ -5593,7 +5593,7 @@ describe("e04s08 admission counters", () => {
     a.release?.();
   });
 
-  test("enabled path: immediate admission increments admitted once", async (t) => {
+  test("enabled path: immediate admission increments admitted once", async (_t) => {
     const admission = createAdmission({
       maxConcurrentRequests: 2,
       ...baseLimits,
@@ -5616,7 +5616,7 @@ describe("e04s08 admission counters", () => {
     assert.equal(admission.admitted, 2);
   });
 
-  test("enabled path: waits increments once per ticket that enters the queue", async (t) => {
+  test("enabled path: waits increments once per ticket that enters the queue", async (_t) => {
     const admission = createAdmission({
       maxConcurrentRequests: 1,
       ...baseLimits,
@@ -5637,7 +5637,7 @@ describe("e04s08 admission counters", () => {
     queued.release?.();
   });
 
-  test("enabled path: queue-full rejection increments once and admits nothing", async (t) => {
+  test("enabled path: queue-full rejection increments once and admits nothing", async (_t) => {
     const admission = createAdmission({
       maxConcurrentRequests: 1,
       maxQueueSize: 0,
@@ -5654,7 +5654,7 @@ describe("e04s08 admission counters", () => {
     a1.release?.();
   });
 
-  test("enabled path: queue-timeout rejection increments once and ticket never admits", async (t) => {
+  test("enabled path: queue-timeout rejection increments once and ticket never admits", async (_t) => {
     const admission = createAdmission({
       maxConcurrentRequests: 1,
       maxQueueSize: 1,
@@ -5677,7 +5677,7 @@ describe("e04s08 admission counters", () => {
     u1.release?.();
   });
 
-  test("enabled path: queued client disconnect increments queuedClientDisconnects once", async (t) => {
+  test("enabled path: queued client disconnect increments queuedClientDisconnects once", async (_t) => {
     const admission = createAdmission({
       maxConcurrentRequests: 1,
       maxQueueSize: 1,
@@ -5703,7 +5703,7 @@ describe("e04s08 admission counters", () => {
     nextRes.release?.();
   });
 
-  test("counters settle once per terminal outcome", async (t) => {
+  test("counters settle once per terminal outcome", async (_t) => {
     const admission = createAdmission({
       maxConcurrentRequests: 1,
       maxQueueSize: 1,
@@ -5712,7 +5712,7 @@ describe("e04s08 admission counters", () => {
     const holder = await admission.acquire(null);
     const timeoutPromise = admission.acquire(null);
     await new Promise((r) => setTimeout(r, 1200));
-    const timedOut = await timeoutPromise;
+    await timeoutPromise;
     // Duplicate settle attempt through a second acquire on the same queue
     // position is not possible (single ticket), so verify count is exactly 1
     // and the released holder still frees capacity.
@@ -5721,5 +5721,90 @@ describe("e04s08 admission counters", () => {
     const next = await admission.acquire(null);
     assert.equal(next.admitted, true, "capacity restored after timeout settles once");
     next.release?.();
+  });
+});
+
+describe("e04s08 budget counters", () => {
+  test("disabled path exposes zero-valued read-only getters", () => {
+    const disabled = createBudget(null, { safetyMarginPct: 5 }, null);
+    assert.equal(disabled.costOverLimitRejections, 0);
+    assert.equal(disabled.trackedModels, 0);
+    assert.equal(disabled.usageReconciled, 0);
+    assert.equal(disabled.usageEstimateFallbacks, 0);
+    // Read-only: assignment must not land.
+    assert.throws(() => {
+      disabled.costOverLimitRejections = 9;
+    });
+    assert.equal(disabled.costOverLimitRejections, 0);
+  });
+
+  test("enabled path: admitted reserve does not increment costOverLimitRejections", () => {
+    const b = createBudget({ rpm: 60, tpm: 2000 }, { safetyMarginPct: 0 }, null);
+    const c1 = estimateCost(
+      { model: "m", messages: [{ role: "user", content: "hi" }] },
+      Buffer.from("{}")
+    );
+    const r1 = b.reserve(c1);
+    assert.equal(r1.admitted, true);
+    assert.equal(b.costOverLimitRejections, 0);
+  });
+
+  test("enabled path: rejected reserve increments costOverLimitRejections once", () => {
+    const b = createBudget({ rpm: 60, tpm: 2000 }, { safetyMarginPct: 0 }, null);
+    const c1 = estimateCost(
+      { model: "m", messages: [{ role: "user", content: "hi" }] },
+      Buffer.from("{}")
+    );
+    assert.equal(b.reserve(c1).admitted, true);
+    // 200k chars -> ~50k input tokens + 1024 output, exceeds tpm 2000.
+    const c2 = estimateCost({ model: "m" }, Buffer.from("x".repeat(200000)));
+    const r2 = b.reserve(c2);
+    assert.equal(r2.admitted, false);
+    assert.equal(b.costOverLimitRejections, 1);
+  });
+
+  test("enabled path: same model twice -> trackedModels 1", () => {
+    const b = createBudget({ rpm: 60, tpm: 200000 }, { safetyMarginPct: 0 }, null);
+    const c1 = estimateCost(
+      { model: "m", messages: [{ role: "user", content: "hi" }] },
+      Buffer.from("{}")
+    );
+    const c2 = estimateCost(
+      { model: "m", messages: [{ role: "user", content: "hi" }] },
+      Buffer.from("{}")
+    );
+    assert.equal(b.reserve(c1).admitted, true);
+    assert.equal(b.reserve(c2).admitted, true);
+    assert.equal(b.trackedModels, 1);
+  });
+
+  test("enabled path: __proto__ model tracked as ordinary key", () => {
+    const b = createBudget({ rpm: 60, tpm: 200000 }, { safetyMarginPct: 0 }, null);
+    const c1 = estimateCost(
+      { model: "__proto__", messages: [{ role: "user", content: "hi" }] },
+      Buffer.from("{}")
+    );
+    const c2 = estimateCost(
+      { model: "m", messages: [{ role: "user", content: "hi" }] },
+      Buffer.from("{}")
+    );
+    assert.equal(b.reserve(c1).admitted, true);
+    assert.equal(b.reserve(c2).admitted, true);
+    assert.equal(b.trackedModels, 2);
+  });
+
+  test("enabled path: aliases match existing getters", () => {
+    const b = createBudget({ rpm: 60, tpm: 200000 }, { safetyMarginPct: 0 }, null);
+    const c = estimateCost(
+      { model: null, messages: [{ role: "user", content: "hi" }] },
+      Buffer.from("{}")
+    );
+    const r = b.reserve(c);
+    assert.equal(r.admitted, true);
+    assert.equal(r.reservation.reconcile(10), true);
+    assert.equal(b.usageReconciled, b.reconciledCount);
+    assert.equal(b.usageEstimateFallbacks, b.fallbackCount);
+    assert.equal(b.usageReconciled, 1);
+    assert.equal(b.usageEstimateFallbacks, 0);
   });
 });
