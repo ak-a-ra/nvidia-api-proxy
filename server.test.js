@@ -791,7 +791,7 @@ describe("proxy", () => {
     assert.deepEqual(
       Object.keys(body).sort(),
       expected.slice().sort(),
-      "exactly the 24-key allowlist"
+      "exactly the 21-key allowlist"
     );
   });
 
