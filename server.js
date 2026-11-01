@@ -207,6 +207,13 @@ const server = http.createServer(async (req, res) => {
       return sendJson(req, res, 200, { status: "ok" });
     }
 
+    // /stats bypasses admission and budgets and never contacts the upstream.
+    // Authentication precedes the unconfigured check so a missing token leaks
+    // as 401, never 503. No 200 path or counters exist yet in this slice.
+    if (incoming.pathname === "/stats" && !authorized(req)) {
+      return sendJson(req, res, 401, { error: "Unauthorized" });
+    }
+
     // Bare /v1 or /v1/ — the proxy forwards /v1/* paths, not the /v1
     // prefix itself. With the default base URL this would hit NVIDIA's
     // API root, which isn't what clients expect from a /v1 proxy.
