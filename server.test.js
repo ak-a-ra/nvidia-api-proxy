@@ -673,6 +673,14 @@ describe("proxy", () => {
     assert.equal(receivedRequests.length, 0); // short-circuited, never proxied
   });
 
+  test("GET /stats returns 401 without a token", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {});
+    const res = await proxiedFetch(proxy.port, "/stats");
+    assert.equal(res.status, 401);
+    assert.deepEqual(await res.json(), { error: "Unauthorized" });
+    assert.equal(receivedRequests.length, 0, "/stats 401 path never contacts upstream");
+  });
+
   test("multi-value set-cookie preserved (not merged)", async (t) => {
     const { proxy } = await withProxy(t, {
       body: "x",
