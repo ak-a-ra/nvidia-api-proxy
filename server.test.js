@@ -879,7 +879,7 @@ describe("proxy", () => {
         "usageReconciled",
         "waits",
       ].sort(),
-      "only the 24 allowlist keys, no privacy-leaking keys"
+      "only the 21 allowlist keys, no privacy-leaking keys"
     );
   });
 
