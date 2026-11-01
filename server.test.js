@@ -6052,7 +6052,7 @@ describe("e04s08 counter deltas", () => {
 
   const RATE_ON = { PROXY_RPM: "60", PROXY_TPM: "100000", PROXY_SAFETY_MARGIN_PCT: "0" };
 
-  test("completed +1 on proxied completion, active returns to prior", async (t) => {
+  test("counter delta: completed +1 on proxied completion, active returns to prior", async (t) => {
     const { proxy } = await withProxy(t, {
       body: "{}",
       headers: { "content-type": "application/json" },
@@ -6071,7 +6071,7 @@ describe("e04s08 counter deltas", () => {
     assert.equal(after.active, before.active, "active must return to its prior value");
   });
 
-  test("oversizedBodyRejections +1 on over-cap body, upstream not contacted", async (t) => {
+  test("counter delta: oversizedBodyRejections +1 on over-cap body, upstream not contacted", async (t) => {
     const { proxy, receivedRequests } = await withProxy(t, {
       proxyEnv: { ...RATE_ON, PROXY_MAX_BUFFERED_BODY_BYTES: "16" },
       body: "{}",
@@ -6097,7 +6097,7 @@ describe("e04s08 counter deltas", () => {
     );
   });
 
-  test("costOverLimitRejections +1 on over-TPM, upstream not contacted", async (t) => {
+  test("counter delta: costOverLimitRejections +1 on over-TPM, upstream not contacted", async (t) => {
     const { proxy, receivedRequests } = await withProxy(t, {
       proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1", PROXY_SAFETY_MARGIN_PCT: "0" },
       body: "{}",
@@ -6118,7 +6118,7 @@ describe("e04s08 counter deltas", () => {
     );
   });
 
-  test("queueFullRejections +1 when the queue is full", async (t) => {
+  test("counter delta: queueFullRejections +1 when the queue is full", async (t) => {
     const { proxy, heldResponses } = await withProxy(t, {
       proxyEnv: {
         PROXY_MAX_CONCURRENT_REQUESTS: "1",
@@ -6154,7 +6154,7 @@ describe("e04s08 counter deltas", () => {
     await Promise.allSettled([holder, waiter]);
   });
 
-  test("queueTimeoutRejections +1 when a queued ticket times out", async (t) => {
+  test("counter delta: queueTimeoutRejections +1 when a queued ticket times out", async (t) => {
     const { proxy, heldResponses } = await withProxy(t, {
       proxyEnv: {
         PROXY_MAX_CONCURRENT_REQUESTS: "1",
@@ -6184,7 +6184,7 @@ describe("e04s08 counter deltas", () => {
     await holder.catch(() => {});
   });
 
-  test("queuedClientDisconnects +1 when a queued client disconnects", async (t) => {
+  test("counter delta: queuedClientDisconnects +1 when a queued client disconnects", async (t) => {
     const { proxy, heldResponses } = await withProxy(t, {
       proxyEnv: {
         PROXY_MAX_CONCURRENT_REQUESTS: "1",
@@ -6220,7 +6220,7 @@ describe("e04s08 counter deltas", () => {
     await holder.catch(() => {});
   });
 
-  test("activeClientDisconnects +1 when an admitted client disconnects", async (t) => {
+  test("counter delta: activeClientDisconnects +1 when an admitted client disconnects", async (t) => {
     const { proxy, receivedRequests } = await withProxy(t, {
       mode: "silent", // upstream never sends headers; the fetch stays pending
       proxyEnv: { UPSTREAM_CONNECT_TIMEOUT_SECONDS: "30" },
@@ -6245,7 +6245,7 @@ describe("e04s08 counter deltas", () => {
     );
   });
 
-  test("usageReconciled +1 on valid usage", async (t) => {
+  test("counter delta: usageReconciled +1 on valid usage", async (t) => {
     const { proxy } = await withProxy(t, {
       proxyEnv: RATE_ON,
       headers: { "content-type": "application/json" },
@@ -6264,7 +6264,7 @@ describe("e04s08 counter deltas", () => {
     assert.equal(after.usageReconciled, before.usageReconciled + 1, "usageReconciled must advance exactly once");
   });
 
-  test("usageEstimateFallbacks +1 on unusable usage", async (t) => {
+  test("counter delta: usageEstimateFallbacks +1 on unusable usage", async (t) => {
     const { proxy } = await withProxy(t, {
       proxyEnv: RATE_ON,
       headers: { "content-type": "application/json" },
@@ -6287,7 +6287,7 @@ describe("e04s08 counter deltas", () => {
     );
   });
 
-  test("trackedModels increases at most 1 for a new model", async (t) => {
+  test("counter delta: trackedModels increases at most 1 for a new model", async (t) => {
     const { proxy } = await withProxy(t, {
       proxyEnv: RATE_ON,
       body: "{}",
