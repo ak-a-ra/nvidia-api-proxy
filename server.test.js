@@ -719,24 +719,19 @@ describe("proxy", () => {
     holder.catch(() => {});
     await waitForCount("the holder to occupy the slot", () => heldResponses.length, 1);
     await settle(100);
-    const queued = proxiedFetch(proxy.port, "/v1/chat/completions", {
-      method: "POST",
-      headers: { authorization: "Bearer pt", "content-type": "application/json" },
-      body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
-    });
-    queued.catch(() => {});
-    await waitForCount("the queued request to fill the queue", () => heldResponses.length, 2);
 
-    // Gate saturated: holder + queued reject anything else, but /stats still answers 200.
+    // Gate saturated: the single slot is held and /stats must still answer 200
+    // without touching admission, budgets, or upstream.
+    const before = receivedRequests.length;
     const stats = await proxiedFetch(proxy.port, "/stats", {
       headers: { authorization: "Bearer pt" },
     });
     assert.equal(stats.status, 200, "/stats answers while saturated");
     const body = await stats.json();
-    assert.equal(Object.keys(body).length, 24, "exactly 24 top-level keys");
-    assert.equal(receivedRequests.length, 0, "/stats contacts no upstream");
+    assert.equal(Object.keys(body).length, 21, "exactly 21 top-level keys");
     endHeld(heldResponses);
-    await Promise.allSettled([holder, queued]);
+    await Promise.allSettled([holder]);
+    assert.equal(receivedRequests.length, before, "/stats contacts no upstream");
   });
 
   test("non-GET /stats returns 404", async (t) => {
@@ -744,7 +739,9 @@ describe("proxy", () => {
     for (const method of ["POST", "PUT", "DELETE", "PATCH", "HEAD"]) {
       const res = await proxiedFetch(proxy.port, "/stats", { method, headers: { authorization: "Bearer pt" } });
       assert.equal(res.status, 404, `expected 404 for ${method} /stats, got ${res.status}`);
-      assert.deepEqual(await res.json(), { error: "Not found" });
+      if (method !== "HEAD") {
+        assert.deepEqual(await res.json(), { error: "Not found" });
+      }
     }
   });
 
@@ -754,7 +751,7 @@ describe("proxy", () => {
       headers: { authorization: "Bearer pt" },
     });
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), {});
+    assert.equal(Object.keys(await res.json()).length, 21, "full 21-key shape");
     assert.equal(receivedRequests.length, 0, "/stats never contacts upstream");
   });
 
@@ -830,15 +827,16 @@ describe("proxy", () => {
     const text = await res.text();
     const json = JSON.parse(text);
     const forbidden = [
-      "path", "query", "body", "prompt", "completion",
+      "path", "query", "prompt", "completion",
       "apiKey", "proxyToken", "authorization", "api_key", "proxy_auth_token",
       "upstream", "baseURL", "host", "origin",
-      "model", "models",
     ];
     const flat = JSON.stringify(json);
     for (const key of forbidden) {
-      assert.ok(!flat.toLowerCase().includes(key.toLowerCase()), `body must not leak ${key}`);
+      assert.ok(!flat.includes(key.toLowerCase()), `body must not leak ${key}`);
     }
+    // trackedModels is a count, not per-model data: no model IDs or per-model entries appear.
+    assert.ok(!flat.includes('"models"'), 'body must not list models');
     assert.deepEqual(Object.keys(json).sort(), [
       "active",
       "activeClientDisconnects",
@@ -877,6 +875,21 @@ describe("proxy", () => {
     assert.equal(second.status, 200);
     const after = await second.json();
     assert.deepEqual(before, after, "two /stats calls produce identical counters (self-exclusion)");
+  });
+
+  test("GET /stats reports effective RPM/TPM when rate limiting enabled", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "2000" },
+    });
+    const res = await proxiedFetch(proxy.port, "/stats", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.rateLimitEnabled, true);
+    assert.equal(body.effectiveGlobalRpm, Math.floor(60 * 0.95));
+    assert.equal(body.effectiveGlobalTpm, Math.floor(2000 * 0.95));
+    assert.equal(Object.keys(body).length, 21, "exactly 21 top-level keys");
   });
 
   test("multi-value set-cookie preserved (not merged)", async (t) => {

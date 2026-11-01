@@ -36,18 +36,11 @@ const BASE_ORIGIN = new URL(config.baseURL).origin;
 
 export { CONNECT_TIMEOUT_SECONDS, IDLE_TIMEOUT_SECONDS };
 
-// Process-lifetime monotonic counters, read by /stats in a later task.
-// Incremented exactly once per terminal event, never reset. Private until
-// /stats (task 4) reads them; referenced here so lint does not flag them.
+// Process-lifetime monotonic counters, read by /stats. Incremented exactly
+// once per terminal event, never reset.
 let completed = 0;
 let oversizedBodyRejections = 0;
 let activeClientDisconnects = 0;
-
-// Kept private until /stats (task 4); these reads exist solely to satisfy
-// no-unused-vars on the write-only counters before /stats consumes them.
-void completed;
-void oversizedBodyRejections;
-void activeClientDisconnects;
 
 // Headers stripped when copying in either direction. Not all of these are
 // hop-by-hop: host is re-derived per upstream call and content-length is
@@ -223,9 +216,40 @@ const server = http.createServer(async (req, res) => {
 
     // /stats bypasses admission and budgets and never contacts the upstream.
     // Authentication precedes the unconfigured check so a missing token leaks
-    // as 401, never 503. No 200 path or counters exist yet in this slice.
-    if (incoming.pathname === "/stats" && !authorized(req)) {
-      return sendJson(req, res, 401, { error: "Unauthorized" });
+    // as 401, never 503. /stats increments no counter (self-exclusion).
+    if (incoming.pathname === "/stats") {
+      if (!authorized(req)) {
+        return sendJson(req, res, 401, { error: "Unauthorized" });
+      }
+      if (config.unconfigured) {
+        return sendJson(req, res, 503, { error: "Proxy is not configured" });
+      }
+      if (req.method !== "GET") {
+        return sendJson(req, res, 404, { error: "Not found" });
+      }
+      return sendJson(req, res, 200, {
+        rateLimitEnabled: config.rateLimit !== null,
+        effectiveGlobalRpm: config.rateLimit ? budget.effective.rpm : null,
+        effectiveGlobalTpm: config.rateLimit ? budget.effective.tpm : null,
+        safetyMarginPct: config.limits.safetyMarginPct,
+        maxConcurrentRequests: config.limits.maxConcurrentRequests,
+        maxQueueSize: config.limits.maxQueueSize,
+        queueTimeoutSeconds: config.limits.queueTimeoutSeconds,
+        active: admission.active,
+        queued: admission.queued,
+        admitted: admission.admitted,
+        waits: admission.waits,
+        queueFullRejections: admission.queueFullRejections,
+        queueTimeoutRejections: admission.queueTimeoutRejections,
+        oversizedBodyRejections,
+        costOverLimitRejections: budget.costOverLimitRejections,
+        queuedClientDisconnects: admission.queuedClientDisconnects,
+        activeClientDisconnects,
+        completed,
+        usageReconciled: budget.usageReconciled,
+        usageEstimateFallbacks: budget.usageEstimateFallbacks,
+        trackedModels: budget.trackedModels,
+      });
     }
 
     // Bare /v1 or /v1/ — the proxy forwards /v1/* paths, not the /v1
