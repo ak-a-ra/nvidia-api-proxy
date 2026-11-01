@@ -7,33 +7,30 @@
 ```yaml
 vcs:
   kind: git
-  commit: c7d1395
-  branch: feat/e04s08-stats
+  commit: 9b6d8e7
+  branch: main
   worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
   landed:
-    story: e04s07
-    commit: 97e6a80
+    story: e04s08
+    commit: 9b6d8e7
     branch: main
     ci_run: null
     ci_status: pending
 workflow_mode: solo-git
 active_flow: plan-release
 active_epic: e04
-active_story: e04s08
+active_story: e04s09
 session_start: 2026-10-16T18:02:00Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: commit-message
-  source: audit-code
+  next_skill: survey-context
+  source: release-branch
   note: >-
-    e04s07 landed on main via merge --no-ff (97e6a80): observer.js JSON observer +
-    shared usageTotalFromUsage, non-streaming reconciliation and terminal fallbacks,
-    237 tests green, security review clean. Execution status synced e04s07 passing.
-    e04s08 (issue #21, authenticated aggregate stats) capsule landed on branch
-    feat/e04s08-stats: spec/tasks filenames set, all seven tasks passing, execution
-    status e04s08 passing, e04s09 stays blocked by e04s08. Suite 237 tests green
-    (21-key /stats allowlist), count gate green, e04s08-verify.yaml evidence added.
-    Next: verify-work / release pass.
+    e04s08 (issue #21, authenticated aggregate /stats) landed on main via
+    merge --no-ff (9b6d8e7): verify-work rerun green (237 tests, npm run check rc 0,
+    UAT pass, task verifies 1-7 OK), audit-code PASS, request-review APPROVE with no
+    must-change findings, security review PASS recorded in specs/security/REVIEW.md.
+    e04s09 unblocked. Next: plan/execute e04s09.
 
 decisions:
   - decision: Per-model window pairs are built at construction time, and the story's "lazily" sentence is corrected
