@@ -36,6 +36,19 @@ const BASE_ORIGIN = new URL(config.baseURL).origin;
 
 export { CONNECT_TIMEOUT_SECONDS, IDLE_TIMEOUT_SECONDS };
 
+// Process-lifetime monotonic counters, read by /stats in a later task.
+// Incremented exactly once per terminal event, never reset. Private until
+// /stats (task 4) reads them; referenced here so lint does not flag them.
+let completed = 0;
+let oversizedBodyRejections = 0;
+let activeClientDisconnects = 0;
+
+// Kept private until /stats (task 4); these reads exist solely to satisfy
+// no-unused-vars on the write-only counters before /stats consumes them.
+void completed;
+void oversizedBodyRejections;
+void activeClientDisconnects;
+
 // Headers stripped when copying in either direction. Not all of these are
 // hop-by-hop: host is re-derived per upstream call and content-length is
 // re-evaluated (stripped during copying and selectively restored for
@@ -92,6 +105,7 @@ async function readBodyWithCap(req, res, maxBytes) {
   for await (const chunk of req) {
     seen += chunk.length;
     if (seen > maxBytes) {
+      oversizedBodyRejections++;
       if (!res.destroyed && !res.writableEnded) {
         sendJson(req, res, 413, { error: "Request too large" });
       }
@@ -337,6 +351,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (res.destroyed || res.writableEnded) {
       releaseOnce();
+      completed++;
       return;
     }
 
@@ -432,6 +447,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(upstream.status, responseHeaders);
 
     if (!upstream.body) {
+      completed++;
       if (budgetReservation) {
         budgetReservation.reconcile(null);
       }
@@ -496,6 +512,7 @@ const server = http.createServer(async (req, res) => {
 
     const onComplete = (error) => {
       clearTimeout(idleTimer);
+      completed++;
       if (sseObserver) {
         try {
           sseObserver.end();
@@ -563,6 +580,7 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     if (error.name === "AbortError" && error.message === "client disconnected") {
       // Client went away: nothing to report, no response to send.
+      activeClientDisconnects++;
       return;
     }
     console.error(error);
