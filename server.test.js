@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import zlib from "node:zlib";
 import { createBudget, estimateCost } from "./budget.js";
+import { createAdmission } from "./admission.js";
 import {
   createJsonObserver,
   JSON_OBSERVATION_BYTE_BOUND,
@@ -5560,5 +5561,165 @@ describe("e04s07 non-streaming usage reconciliation", () => {
     assert.equal(three, false, "a later reconcile adds no outcome");
     assert.equal(budget.fallbackCount, 1, "fallbackCount unchanged");
     assert.equal(budget.reconciledCount, 0, "reconciledCount unchanged");
+  });
+});
+
+describe("e04s08 admission counters", () => {
+  const baseLimits = { maxQueueSize: 4, queueTimeoutSeconds: 30 };
+
+  test("disabled path exposes zero-valued read-only getters", async (t) => {
+    const disabled = createAdmission({
+      maxConcurrentRequests: null,
+      ...baseLimits,
+    });
+    assert.equal(disabled.active, 0);
+    assert.equal(disabled.queued, 0);
+    assert.equal(disabled.admitted, 0);
+    assert.equal(disabled.waits, 0);
+    assert.equal(disabled.queueFullRejections, 0);
+    assert.equal(disabled.queueTimeoutRejections, 0);
+    assert.equal(disabled.queuedClientDisconnects, 0);
+    // Read-only: assignment must not land.
+    assert.throws(() => {
+      disabled.active = 9;
+    });
+    assert.equal(disabled.active, 0);
+    // Counter stays zero after a real admission on the disabled path.
+    const a = await disabled.acquire(null);
+    assert.equal(a.admitted, true);
+    await Promise.resolve();
+    assert.equal(disabled.active, 0);
+    assert.equal(disabled.admitted, 0);
+    a.release?.();
+  });
+
+  test("enabled path: immediate admission increments admitted once", async (t) => {
+    const admission = createAdmission({
+      maxConcurrentRequests: 2,
+      ...baseLimits,
+    });
+    assert.equal(admission.active, 0);
+    assert.equal(admission.admitted, 0);
+    const a1 = await admission.acquire(null);
+    assert.equal(a1.admitted, true);
+    assert.equal(admission.active, 1);
+    assert.equal(admission.admitted, 1);
+    assert.equal(admission.waits, 0);
+    const a2 = await admission.acquire(null);
+    assert.equal(a2.admitted, true);
+    assert.equal(admission.active, 2);
+    assert.equal(admission.admitted, 2);
+    a1.release?.();
+    a2.release?.();
+    // Release frees capacity but does not re-count admission.
+    assert.equal(admission.active, 0);
+    assert.equal(admission.admitted, 2);
+  });
+
+  test("enabled path: waits increments once per ticket that enters the queue", async (t) => {
+    const admission = createAdmission({
+      maxConcurrentRequests: 1,
+      ...baseLimits,
+    });
+    const holder = await admission.acquire(null);
+    assert.equal(admission.active, 1);
+    assert.equal(admission.waits, 0);
+    const queuedPromise = admission.acquire(null);
+    assert.equal(admission.waits, 1, "queuing a ticket increments waits once");
+    assert.equal(admission.queued, 1);
+    // Settle the waiter without releasing yet: time out instead so the slot
+    // frees and the ticket leaves the queue cleanly.
+    await new Promise((r) => setTimeout(r, 50));
+    holder.release?.();
+    const queued = await queuedPromise;
+    assert.equal(queued.admitted, false);
+    assert.equal(admission.queueTimeoutRejections, 1);
+    assert.equal(admission.queued, 0);
+  });
+
+  test("enabled path: queue-full rejection increments once and admits nothing", async (t) => {
+    const admission = createAdmission({
+      maxConcurrentRequests: 1,
+      maxQueueSize: 0,
+      queueTimeoutSeconds: 30,
+    });
+    const a1 = await admission.acquire(null);
+    assert.equal(a1.admitted, true);
+    assert.equal(admission.queueFullRejections, 0);
+    const full = await admission.acquire(null);
+    assert.equal(full.admitted, false);
+    assert.equal(admission.queueFullRejections, 1);
+    assert.equal(admission.active, 1);
+    assert.equal(admission.queued, 0);
+    a1.release?.();
+  });
+
+  test("enabled path: queue-timeout rejection increments once and ticket never admits", async (t) => {
+    const admission = createAdmission({
+      maxConcurrentRequests: 1,
+      maxQueueSize: 1,
+      queueTimeoutSeconds: 1,
+    });
+    const u1 = await admission.acquire(null);
+    assert.equal(u1.admitted, true);
+    const u2promise = admission.acquire(null);
+    assert.equal(admission.waits, 1);
+    await new Promise((r) => setTimeout(r, 1200));
+    const u2 = await u2promise;
+    assert.equal(u1.admitted, true);
+    assert.equal(u2.admitted, false);
+    assert.equal(admission.queueTimeoutRejections, 1);
+    assert.equal(admission.queued, 0);
+    assert.equal(typeof admission.active, "number");
+    assert.equal(typeof admission.queued, "number");
+    assert.equal(typeof admission.admitted, "number");
+    assert.equal(typeof admission.queuedClientDisconnects, "number");
+    u1.release?.();
+  });
+
+  test("enabled path: queued client disconnect increments queuedClientDisconnects once", async (t) => {
+    const admission = createAdmission({
+      maxConcurrentRequests: 1,
+      maxQueueSize: 1,
+      queueTimeoutSeconds: 30,
+    });
+    const holder = await admission.acquire(null);
+    const controller = new AbortController();
+    const queuedPromise = admission.acquire(controller.signal);
+    assert.equal(admission.waits, 1);
+    assert.equal(admission.queuedClientDisconnects, 0);
+    controller.abort();
+    const queued = await queuedPromise;
+    assert.equal(queued.admitted, false);
+    assert.equal(admission.queuedClientDisconnects, 1);
+    assert.equal(admission.queued, 0);
+    // Slot still held by the holder; next acquire must queue, not ride the
+    // cancelled ticket's ghost capacity.
+    const next = admission.acquire(null);
+    assert.equal(admission.waits, 2);
+    holder.release?.();
+    const nextRes = await next;
+    assert.equal(nextRes.admitted, true);
+    nextRes.release?.();
+  });
+
+  test("counters settle once per terminal outcome", async (t) => {
+    const admission = createAdmission({
+      maxConcurrentRequests: 1,
+      maxQueueSize: 1,
+      queueTimeoutSeconds: 1,
+    });
+    const holder = await admission.acquire(null);
+    const timeoutPromise = admission.acquire(null);
+    await new Promise((r) => setTimeout(r, 1200));
+    const timedOut = await timeoutPromise;
+    // Duplicate settle attempt through a second acquire on the same queue
+    // position is not possible (single ticket), so verify count is exactly 1
+    // and the released holder still frees capacity.
+    assert.equal(admission.queueTimeoutRejections, 1);
+    holder.release?.();
+    const next = await admission.acquire(null);
+    assert.equal(next.admitted, true, "capacity restored after timeout settles once");
+    next.release?.();
   });
 });
