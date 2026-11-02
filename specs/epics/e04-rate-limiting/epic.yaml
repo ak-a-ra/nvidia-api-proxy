@@ -84,9 +84,9 @@ stories:
 
   - id: e04s09
     title: Integrate, document, and verify rate limiting
-    bcps: 0
-    status: blocked
+    bcps: 7
+    status: todo
     issue: 22
     blocked_by: [e04s08]
-    spec: null
-    tasks: null
+    spec: e04s09-integrate-document-and-verify-rate-limiting.md
+    tasks: e04s09-tasks.yaml

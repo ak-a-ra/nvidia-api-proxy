@@ -23,8 +23,8 @@ active_story: e04s09
 session_start: 2026-10-16T18:02:00Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: survey-context
-  source: release-branch
+  next_skill: kickoff-branch
+  source: plan-work
   note: >-
     e04s08 (issue #21, authenticated aggregate /stats) landed on main via
     merge --no-ff (9b6d8e7): verify-work rerun green (237 tests, npm run check rc 0,
