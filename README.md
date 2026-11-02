@@ -53,22 +53,27 @@ flowchart LR
 
 ## How it works
 
-Three modules, one responsibility each:
+Five modules, one responsibility each:
 
 | Module | Owns |
 | ------ | ---- |
 | `config.js` | Every environment variable: parsing, validation, fatal-vs-degrade rules. Read once at startup |
-| `admission.js` | The active count, the FIFO wait queue, and release handles — the only reader of `config.limits` at request time |
-| `server.js` | HTTP handling: auth, path mapping, upstream fetch and streaming, timeouts, logging, shutdown |
+| `admission.js` | The active count, the FIFO wait queue, and release handles — bounded concurrency ceiling |
+| `budget.js` | Rolling 60-second rate windows (global + per-model), token-cost estimate, atomic reserve-or-reject |
+| `observer.js` | SSE and JSON usage parsed from copied streams; never touches forwarded bytes |
+| `server.js` | HTTP handling: auth, path mapping, body cap, budget gate, admission queue, upstream fetch and streaming, timeouts, logging, shutdown |
 
 A request's path through the proxy:
 
-1. `/health` — answered locally, before the gate, never queued
-2. `/v1` or `/v1/` alone, and non-`/v1` paths — `404`
-3. `Authorization: Bearer <PROXY_AUTH_TOKEN>` — `401` before anything else, so an unauthenticated caller never consumes capacity
-4. Unconfigured check (missing key or token) — `503`
-5. **Admission gate** — admitted at once, queued behind older waiters, or rejected `429` (see [Configuration](#configuration))
-6. Proxied upstream — client's path and query verbatim, token swapped for `NVIDIA_API_KEY`, body streamed, hop-by-hop headers stripped, `set-cookie` preserved
+1. `/health` — answered locally, before any gate, never queued
+2. `/stats` — authenticated aggregate snapshot; bypasses admission, budgets, and upstream; increments no counter
+3. `/v1` or `/v1/` alone, and non-`/v1` paths — `404`
+4. `Authorization: Bearer <PROXY_AUTH_TOKEN>` — `401` before anything else, so an unauthenticated caller never consumes capacity
+5. Unconfigured check (missing key or token) — `503`
+6. Body cap — buffered up to `maxBufferedBodyBytes` bytes; over the cap → `413`
+7. Budget gate — rolling-window rpm/tpm, global and per-model; over budget → `429` with `Retry-After` (immediate rejection, never waits)
+8. **Admission gate** — admitted at once, queued behind older waiters in a bounded FIFO, or rejected `429` when the queue is full or the wait expires
+9. Proxied upstream — client's path and query verbatim, token swapped for `NVIDIA_API_KEY`, body streamed, hop-by-hop headers stripped, `set-cookie` preserved via `getSetCookie()`
 
 Tests are black-box: each test spawns `server.js` as a child process with its own environment and a
 stub upstream, so every claim above is asserted over real HTTP rather than against internals.
@@ -176,7 +181,7 @@ export PROXY_AUTH_TOKEN="FIXME"  # token your clients will send
 # export PROXY_MAX_CONCURRENT_REQUESTS="16"  # absent, blank, or 0 disables the ceiling
 # export PROXY_MAX_QUEUE_SIZE="32"         # requests that may wait for capacity
 # export PROXY_QUEUE_TIMEOUT_SECONDS="30"  # how long a request may wait
-# ---- budgets (global pair enforced since e04s04; non-streaming reconciliation since e04s07; only #21/#22 remain; PROXY_RPM and PROXY_TPM are a mandatory pair) ----
+# ---- budgets (global pair enforced since e04s04; per-model map enforced since e04s05; usage reconciliation since e04s07; all rate-limiting stories #14-#22 landed) ----
 # export PROXY_RPM="60"                   # requests per minute (rolling 60s window, enforced)
 # export PROXY_TPM="200000"                # tokens per minute (rolling 60s window, enforced)
 # export PROXY_SAFETY_MARGIN_PCT="5"       # headroom reserved against both budgets, 0-50; effective limit is max(1, floor(limit * (1 - margin / 100)))
