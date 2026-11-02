@@ -400,7 +400,7 @@ otherwise normalized — and case sensitivity is load-bearing: `Gpt` and `gpt` a
 * One guard, one config owner. Adding a variable means picking its regime and its rule explicitly,
   and the later slices that need it inherit both instead of writing a ninth parsing dialect.
 * The validated-but-unenforced state is cheap to reverse: the values are already parsed, validated,
-  and shaped for the fields the later slices read, so #15–#22 add enforcement without revisiting
+  and shaped for the fields the later slices read, so #15–#18 add enforcement without revisiting
   parsing. e04s02 is the proof — the ceiling went live with no parsing change at all, and the first
   slice to enforce a budget (#17) inherits the same property.
 * The request log line's field set is closed *by construction*, not by filtering: the object

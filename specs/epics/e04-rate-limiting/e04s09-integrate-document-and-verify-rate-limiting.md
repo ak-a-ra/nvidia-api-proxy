@@ -4,7 +4,7 @@
 * Epic: `e04` — Rate limiting and admission control
 * Issue: [#22](https://github.com/ak-a-ra/nvidia-api-proxy/issues/22) (slice 9 of 9)
 * Parent issue: [#13](https://github.com/ak-a-ra/nvidia-api-proxy/issues/13)
-* Status: failing
+* Status: passing
 * BCPs: 7
 * Type: feat | Risk: P1 | Context: infra
 * Maturity: 3 (Countable)
