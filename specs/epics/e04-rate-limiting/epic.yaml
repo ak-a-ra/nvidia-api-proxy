@@ -85,7 +85,7 @@ stories:
   - id: e04s09
     title: Integrate, document, and verify rate limiting
     bcps: 7
-    status: todo
+    status: passing
     issue: 22
     blocked_by: [e04s08]
     spec: e04s09-integrate-document-and-verify-rate-limiting.md
