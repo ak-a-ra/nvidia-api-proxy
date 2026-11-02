@@ -24,7 +24,7 @@ exist in `server.js`.
 
 - **Timeout** — implemented: `UPSTREAM_CONNECT_TIMEOUT_SECONDS` (30), `UPSTREAM_IDLE_TIMEOUT_SECONDS` (120)
 - **Graceful degradation** — implemented: missing key/token yields 503, not a crash
-- Rate limit — the admission half (`PROXY_MAX_CONCURRENT_REQUESTS`, `PROXY_MAX_QUEUE_SIZE`, `PROXY_QUEUE_TIMEOUT_SECONDS`) is enforced through `admission.js`; the global budget half (`PROXY_RPM`, `PROXY_TPM`, `PROXY_SAFETY_MARGIN_PCT`, `PROXY_MAX_BUFFERED_BODY_BYTES`) is enforced through `budget.js` — issue #17 is done. `PROXY_MODEL_LIMITS_JSON` is enforced atomically with the global budget through `budget.js` — issue #18 is done. SSE usage reconciliation (`observer.js`) is implemented — issue #19 is done; non-streaming reconciliation is implemented — issue #20 is done; issues #21–#22 remain
+- Rate limit — the admission half (`PROXY_MAX_CONCURRENT_REQUESTS`, `PROXY_MAX_QUEUE_SIZE`, `PROXY_QUEUE_TIMEOUT_SECONDS`) is enforced through `admission.js`; the global budget half (`PROXY_RPM`, `PROXY_TPM`, `PROXY_SAFETY_MARGIN_PCT`, `PROXY_MAX_BUFFERED_BODY_BYTES`) is enforced through `budget.js` — issue #17 is done. `PROXY_MODEL_LIMITS_JSON` is enforced atomically with the global budget through `budget.js` — issue #18 is done. SSE usage reconciliation (`observer.js`) is implemented — issue #19 is done; non-streaming reconciliation is implemented — issue #20 is done; issue #22 remains
 - Retry — not implemented. Deliberately rejected: replaying a non-idempotent request is unsafe
 - Circuit breaker — not implemented
 
