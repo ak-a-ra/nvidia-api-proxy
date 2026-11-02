@@ -7,12 +7,12 @@
 ```yaml
 vcs:
   kind: git
-  commit: 5f283be
+  commit: f830dfe
   branch: main
   worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
   landed:
     story: e04s09
-    commit: c565910
+    commit: f830dfe
     branch: main
     ci_run: 41373631594
     ci_status: green
