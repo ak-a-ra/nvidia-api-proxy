@@ -94,7 +94,7 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `s
 - `npm run format` / `npm run format:check` — Prettier 3, `printWidth: 100`
 - `npm start` — requires `NVIDIA_BASE_URL` (exits code 1 if missing) plus `NVIDIA_API_KEY` and `PROXY_AUTH_TOKEN` (missing ones → 503 responses, not a crash)
 - First-time setup on a fresh clone: `npm install` (dev tooling only; the proxy itself still runs with zero install)
-- CI: GitHub Actions runs `npm test` on Node 20/22/24 and a separate `quality` job (lint/typecheck/format) on Node 24 for every push/PR — see `.github/workflows/ci.yml`. Run `npm test` and `npm run check` locally before pushing anyway.
+- CI: GitHub Actions runs `npm test` on Node 20/22/24, a `quality` job (lint/typecheck/format) on Node 24, and a `release` job that tags and publishes source code as a GitHub release asset — see `.github/workflows/release.yml`. Run `npm test` and `npm run check` locally before pushing anyway.
 
 ### Hard constraints
 
