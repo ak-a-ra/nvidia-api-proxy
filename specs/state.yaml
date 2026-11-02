@@ -14,8 +14,8 @@ vcs:
     story: e04s09
     commit: c565910
     branch: main
-    ci_run: null
-    ci_status: pending
+    ci_run: 41373631594
+    ci_status: green
 workflow_mode: solo-git
 active_flow: sustain
 active_epic: null
