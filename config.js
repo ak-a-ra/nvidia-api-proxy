@@ -29,9 +29,16 @@ export function parseConfig(env) {
   // ?.trim() convention as the credentials); anything else is passed through
   // verbatim, untrimmed, so no value is silently rewritten.
   const rawHost = env.PROXY_HOST;
+  const rawPort = env.PORT;
+  // PORT is optional (default 10000) but, when set, must be a valid TCP port:
+  // 1-65535. parseConfig owns every env parse so server.js has no raw env reads.
+  const port = rawPort?.trim()
+    ? readPositiveInteger("PORT", rawPort, { min: 0, max: 65535 })
+    : 10000;
   return {
     baseURL: rawBase,
     host: rawHost?.trim() ? rawHost : "0.0.0.0",
+    port,
     rateLimit: readRateLimit(env),
     limits: readLimits(env),
     // Its own field, parallel to rateLimit: limits holds scalar ceilings, this
@@ -39,8 +46,11 @@ export function parseConfig(env) {
     // budget map beside a half-configured global rate pair.
     modelLimits: readModelLimits(env),
     logRequests: readLogRequests(env),
-    apiKey: env.NVIDIA_API_KEY,
-    proxyToken: env.PROXY_AUTH_TOKEN,
+    // Credentials are stored trimmed so the digest computed later matches the
+    // value the client actually sends; the unconfigured check already used
+    // ?.trim(), so stored and checked values stay in sync.
+    apiKey: env.NVIDIA_API_KEY?.trim() ?? "",
+    proxyToken: env.PROXY_AUTH_TOKEN?.trim() ?? "",
     unconfigured: !env.NVIDIA_API_KEY?.trim() || !env.PROXY_AUTH_TOKEN?.trim(),
   };
 }

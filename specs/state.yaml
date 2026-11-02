@@ -27,7 +27,7 @@ handoff:
   source: release-branch
   note: >-
     e04s09 (issue #22, integrate/document/verify rate limiting) landed on main via
-    merge --no-ff (c565910): all 7 task verifies green (237 tests, npm run check rc 0,
+    merge --no-ff (c565910): all 7 task verifies green (243 tests, npm run check rc 0,
     smoke incl. SSE + saturated-queue 429 + /stats), reviewer APPROVE after glossary +
     README /stats doc fixes (c2f1eb2). Epic e04 complete: capsule archived
     (5f283be). No open epic; next work per survey-context / open issues.

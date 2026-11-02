@@ -493,6 +493,54 @@ function runProxyOnce(envOverrides) {
   });
 }
 
+// Same as runProxyOnce but leaves PORT to the caller: the tests need to bind
+// the proxy to the port under test (or none at all) and read the bound port
+// back over IPC instead of forcing the ephemeral PORT: "0". keep true leaves
+// the child running after the port is reported, for collision tests that need
+// a holder alive. When the child fails to listen, the reject message is the
+// child's stderr: the fail-fast tests assert on it.
+function listenProxyOnPort(envOverrides, { keep = false } = {}) {
+  return new Promise((resolve, reject) => {
+    const init = `
+      import server from ${JSON.stringify(SERVER_PATH)};
+      server.on("listening", () => {
+        const bound = server.address();
+        process.send({ port: bound.port });
+        ${keep ? "" : "process.exit(0);"}
+      });
+      server.on("error", (e) => process.send({ error: e.message }));
+    `;
+    const child = spawn(process.execPath, ["--input-type=module", "-e", init], {
+      env: childEnv(envOverrides),
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+    });
+    let settled = false;
+    let stderr = "";
+    child.stderr.on("data", (d) => (stderr += d));
+    const timer = setTimeout(() => {
+      settled = true;
+      child.kill();
+      reject(new Error("proxy did not listen"));
+    }, 5000);
+    timer.unref();
+    child.on("message", (msg) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (msg.error) reject(new Error(stderr.trim() || msg.error));
+      else resolve(keep ? { port: msg.port, child } : msg.port);
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        reject(new Error(stderr.trim() || `proxy exited ${code} before listening`));
+      }
+    });
+  });
+}
+
 describe("startup", () => {
   test("exits 1 when NVIDIA_BASE_URL is missing", async () => {
     const { code, stderr } = await runProxyOnce({
@@ -522,6 +570,88 @@ describe("startup", () => {
     });
     assert.equal(code, 1);
     assert.ok(stderr.includes("must use http or https"));
+  });
+});
+
+describe("PORT validation", () => {
+  const BASE_ENV = {
+    NVIDIA_BASE_URL: "https://example.com/v1",
+    NVIDIA_API_KEY: "k",
+    PROXY_AUTH_TOKEN: "t",
+  };
+
+  // Plain decimal digits 0..65535 is the only accepted shape. Each entry is
+  // a value an operator would plausibly type, and every one must exit 1
+  // naming PORT rather than crash with a raw parse error.
+  const INVALID_PORTS = [
+    ["non-numeric", "abc"],
+    ["negative", "-1"],
+    ["above 65535", "65536"],
+    ["exponential", "1e3"],
+    ["hex", "0x10"],
+    ["fraction", "8080.5"],
+  ];
+
+  test("exits 1 for an invalid PORT value, naming the variable", async () => {
+    for (const [label, value] of INVALID_PORTS) {
+      await assert.rejects(
+        listenProxyOnPort({ ...BASE_ENV, PORT: value }),
+        (err) => {
+          assert.match(
+            err.message,
+            /PORT must be an integer between 0 and 65535/,
+            `${label} PORT ${JSON.stringify(value)} must fail naming PORT: ${err.message}`
+          );
+          return true;
+        },
+        `${label} PORT ${JSON.stringify(value)} must exit 1 before listening`
+      );
+    }
+  });
+
+  test("PORT 0 binds an ephemeral port", async () => {
+    const port = await listenProxyOnPort({ ...BASE_ENV, PORT: "0" });
+    assert.ok(
+      Number.isInteger(port) && port > 0 && port <= 65535,
+      `expected an ephemeral port, got ${port}`
+    );
+  });
+
+  test("PORT unset uses the 10000 default", async () => {
+    const port = await listenProxyOnPort({ ...BASE_ENV });
+    assert.equal(port, 10000);
+  });
+});
+
+describe("listen failure", () => {
+  const BASE_ENV = {
+    NVIDIA_BASE_URL: "https://example.com/v1",
+    NVIDIA_API_KEY: "k",
+    PROXY_AUTH_TOKEN: "t",
+  };
+
+  // EADDRINUSE is the natural listen failure: hold a port, then ask a second
+  // child for the same one. server.on("error") must fail fast with a named
+  // message and exit 1, not let the uncaught error take down the process.
+  test("EADDRINUSE fails fast naming the port", async () => {
+    const holder = await listenProxyOnPort({ ...BASE_ENV, PORT: "48001" }, { keep: true });
+    assert.equal(holder.port, 48001);
+
+    let message;
+    try {
+      await listenProxyOnPort({ ...BASE_ENV, PORT: "48001" });
+    } catch (err) {
+      message = err.message;
+    } finally {
+      holder.child.kill();
+    }
+    assert.ok(message, "the second listen must fail");
+    assert.ok(message.includes("48001"), `message should name the port: ${message}`);
+    assert.ok(message.includes("EADDRINUSE"), `message should name the listen error: ${message}`);
+    assert.ok(
+      message.includes("failed to listen"),
+      `the named fail-fast message is missing: ${message}`
+    );
   });
 });
 
@@ -650,6 +780,38 @@ describe("proxy", () => {
     const { proxy } = await withProxy(t, { token: "pt-secret" });
     const res = await proxiedFetch(proxy.port, "/v1/models");
     assert.equal(res.status, 401);
+  });
+
+  // Credentials are stored trimmed, so the auth digest is computed from the
+  // trimmed value. A padded PROXY_AUTH_TOKEN must authenticate a client that
+  // sends the un-padded token: the stored digest matches the client's.
+  test("padded PROXY_AUTH_TOKEN authenticates the un-padded client token", async (t) => {
+    const { proxy } = await withProxy(t, { token: " pt " });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200, "the trimmed credential must match the client's un-padded token");
+    const health = await proxiedFetch(proxy.port, "/health");
+    assert.equal(health.status, 200, "a padded credential counts as configured, not missing");
+  });
+
+  // The API-key side is trimmed before it is forwarded upstream: a padded
+  // NVIDIA_API_KEY must reach the upstream without the padding.
+  test("padded NVIDIA_API_KEY is trimmed before forwarding upstream", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      key: " sk ",
+      token: "pt",
+      body: "{}",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/models", {
+      headers: { authorization: "Bearer pt" },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(
+      receivedRequests[0].authorization,
+      "Bearer sk",
+      "the upstream sees the trimmed key"
+    );
   });
 
   test("404 for non-/v1 paths", async (t) => {

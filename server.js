@@ -6,14 +6,13 @@ import { createAdmission, REJECTION_REASONS } from "./admission.js";
 import { createBudget, estimateCost } from "./budget.js";
 import { createSseObserver, createJsonObserver } from "./observer.js";
 
-const PORT = Number(process.env.PORT || 10000);
-
 // What a caller is told to retry after when the queue — not the configured
 // wait — turned it away. A slot frees on its own, so the honest advice is
 // "very soon"; the configured wait is the answer to a different question.
 const FULL_QUEUE_RETRY_AFTER_SECONDS = 1;
 
 const config = parseConfig(process.env);
+const PORT = config.port;
 const admission = createAdmission(config.limits);
 // The budget gate is built once from the same validated config: a null rate
 // pair yields a disabled gate that fails open, so a deployment without
@@ -619,6 +618,10 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, config.host, () => {
   console.log(`NVIDIA API proxy listening on port ${PORT}`);
+});
+server.on("error", (err) => {
+  console.error(`Proxy failed to listen on port ${PORT}: ${err.message}`);
+  process.exit(1);
 });
 
 // Render sends SIGTERM on deploys: stop accepting, drop idle keep-alive
