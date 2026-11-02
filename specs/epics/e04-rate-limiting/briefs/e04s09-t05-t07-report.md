@@ -50,3 +50,11 @@ passing
 ## Concerns
 
 None. No production source modified (`server.js`, `config.js`, `admission.js`, `budget.js`, `observer.js`, `server.test.js` untouched). GitHub issues not opened/closed/edited.
+
+## Addendum — reviewer findings (CHANGES REQUESTED → fixed)
+
+Finding 1: `specs/product/GLOSSARY_LATEST.yaml` missing six domain terms required by issue #22 and e04s09 §7/§17 — "Admission control", "Queue", "Rate budget", "Per-model budget", "Safety margin", "Usage reconciliation". Fix: added all six terms in existing YAML style with concise definitions matching how code/docs use them (admission.js = admission control + queue; budget.js = rate budget, per-model budget, safety margin; observer.js = usage reconciliation). YAML parses cleanly via `python3 -c yaml.safe_load`.
+
+Finding 2: `README.md` has no documentation for authenticated `GET /stats` endpoint. Fix: added an Endpoints-table row stating `GET /stats` requires the proxy token (401 `{"error":"Unauthorized"}` without/invalid token, auth checked before unconfigured 503), non-GET → 404, bypasses admission/queue/rate budgets/upstream, increments no counter (self-exclusion), returns `200` with exact 21-key aggregate JSON `application/json; charset=utf-8`.
+
+Both findings are docs-only; no production code touched. `npm run check` remains rc 0.

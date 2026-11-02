@@ -59,4 +59,28 @@ terms:
   Client Disconnect:
     definition: "When the downstream `res` closes (client aborted/disconnected), the per-request `AbortController` aborts the upstream fetch; a client-disconnect `AbortError` is swallowed in the catch block without sending a 502."
     related: [Response Stream]
+
+  Admission control:
+    definition: "Gate that bounds how many requests reach the upstream at once; excess requests wait in a bounded FIFO queue and a full queue or an expired wait gets a 429."
+    related: [Queue, Concurrency ceiling]
+
+  Queue:
+    definition: "Bounded first-in-first-out wait line for requests that arrive when all concurrency slots are held; sized by PROXY_MAX_QUEUE_SIZE and timed by PROXY_QUEUE_TIMEOUT_SECONDS."
+    related: [Admission control, 429]
+
+  Rate budget:
+    definition: "Rolling 60-second cap on requests and tokens for the shared upstream credential, enforced per window with a Retry-After; applies when PROXY_RPM and PROXY_TPM are both set."
+    related: [Per-model budget, Safety margin]
+
+  Per-model budget:
+    definition: "Per-model rolling cap keyed by exact model ID from PROXY_MODEL_LIMITS_JSON, enforced atomically with the global rate budget and inert without it."
+    related: [Rate budget]
+
+  Safety margin:
+    definition: "PROXY_SAFETY_MARGIN_PCT (0-50, default 5) shaved off each advertised effective limit, floored at one, so a configured budget never dies at zero."
+    related: [Rate budget, Per-model budget]
+
+  Usage reconciliation:
+    definition: "Replacing an estimated token cost with actual usage parsed from a completed response (SSE via createSseObserver, non-streaming via createJsonObserver); usageReconciled increments on success, usageEstimateFallbacks on failure."
+    related: [Rate budget, SSE]
 ```

@@ -268,6 +268,7 @@ no level setting, no format setting, and no rotation — the platform log owns t
 | saturated `/v1/*` | `429 { error: "Too many requests" }` with `Retry-After` when the ceiling's queue is full or a wait expires — never contacts the upstream |
 | bare `/v1` or `/v1/` | `404 { error: "Not found" }` — the proxy forwards `/v1/*` paths, not the `/v1` prefix itself |
 | anything else | `404 { error: "Not found" }`                                                          |
+| `GET /stats` | Authenticated aggregate: `401 {"error":"Unauthorized"}` without/invalid token (auth checked before unconfigured 503), non-GET → `404`, bypasses admission/queue/rate budgets/upstream, increments no counter (self-exclusion), `200` with exact 21-key aggregate JSON `application/json; charset=utf-8` |
 
 ### Path mapping
 
