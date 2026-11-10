@@ -1,0 +1,41 @@
+story_id: e06s02
+title: PORT validation min 1 to match comment
+status: todo
+bcps: 2
+tasks:
+  - id: 1
+    description: >
+      Decide intent: min 1 to match comment, or keep 0 and update comment/README.
+    verify: "grep -n 'PORT\\|min\\|max' config.js | head -20"
+    risk: P2
+    status: todo
+    allure:
+      severity: normal
+      categories: ["Investigation"]
+  - id: 2
+    description: >
+      Apply the decision in parseConfig PORT validation.
+    verify: "node --check config.js"
+    risk: P2
+    status: todo
+    allure:
+      severity: normal
+      categories: ["Implementation"]
+  - id: 3
+    description: >
+      Add tests: PORT=0, 1, 65535, 65536, invalid.
+    verify: "node --test --test-name-pattern 'PORT'"
+    risk: P2
+    status: todo
+    allure:
+      severity: normal
+      categories: ["Tests"]
+  - id: 4
+    description: >
+      Run full suite, lint, format:check.
+    verify: "npm test && npm run lint && npm run format:check"
+    risk: P2
+    status: todo
+    allure:
+      severity: normal
+      categories: ["Regression"]

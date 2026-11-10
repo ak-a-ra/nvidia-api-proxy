@@ -1,0 +1,24 @@
+id: e07
+title: Rate-limit correctness
+wsjf: 4.2
+status: todo
+issues: [29, 32, 27]
+stories:
+  - id: e07s01
+    title: Non-retryable 413/400 for request cost exceeding whole TPM
+    issue: 29
+    status: todo
+    spec: e07s01-over-budget-rejection.md
+    tasks: e07s01-tasks.yaml
+  - id: e07s02
+    title: Rename/split costOverLimitRejectionsCount by reason
+    issue: 32
+    status: todo
+    spec: e07s02-stats-counter-naming.md
+    tasks: e07s02-tasks.yaml
+  - id: e07s03
+    title: Conservative token estimation for large outputs and nested inputs
+    issue: 27
+    status: todo
+    spec: e07s03-token-estimation.md
+    tasks: e07s03-tasks.yaml

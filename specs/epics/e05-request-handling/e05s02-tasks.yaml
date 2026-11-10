@@ -1,0 +1,44 @@
+story_id: e05s02
+title: Log pathname only, redact query string
+status: todo
+bcps: 2
+tasks:
+  - id: 1
+    description: >
+      Locate logRequestOnClose in server.js. Confirm the path field includes
+      search/query string and the comment claims no credentials logged.
+    verify: "grep -n 'logRequestOnClose\\|path\\|query' server.js | head -40"
+    risk: P1
+    status: todo
+    allure:
+      severity: high
+      categories: ["Investigation"]
+  - id: 2
+    description: >
+      Change logRequestOnClose to log pathname only (or redact query string).
+      Update the comment to accurately state logged fields.
+    verify: "node --check server.js"
+    risk: P1
+    status: todo
+    allure:
+      severity: high
+      categories: ["Implementation"]
+  - id: 3
+    description: >
+      Add a black-box HTTP test that a query-string secret is not logged, and
+      that the log line keeps the closed field set.
+    verify: "node --test --test-name-pattern 'query string\\|secret\\|log'"
+    risk: P1
+    status: todo
+    allure:
+      severity: high
+      categories: ["Tests"]
+  - id: 4
+    description: >
+      Run full suite, lint, format:check.
+    verify: "npm test && npm run lint && npm run format:check"
+    risk: P1
+    status: todo
+    allure:
+      severity: high
+      categories: ["Regression"]

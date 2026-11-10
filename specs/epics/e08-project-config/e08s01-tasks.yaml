@@ -1,0 +1,44 @@
+story_id: e08s01
+title: Safe traffic-protection defaults in Render blueprint
+status: todo
+bcps: 2
+tasks:
+  - id: 1
+    description: >
+      Review render.yaml and README Render deployment section. Confirm which
+      guard vars are missing.
+    verify: "cat render.yaml; grep -n 'Render\\|PROXY_RPM\\|PROXY_TPM\\|CONCURRENT' README.md"
+    risk: P2
+    status: todo
+    allure:
+      severity: normal
+      categories: ["Investigation"]
+  - id: 2
+    description: >
+      Document conservative default concurrency ceiling, queue size, queue
+      timeout for the Render blueprint, or an explicit setup profile.
+      Document RPM/TPM as operator-supplied.
+    verify: "test -f render.yaml && grep -q 'PROXY' render.yaml"
+    risk: P2
+    status: todo
+    allure:
+      severity: normal
+      categories: ["Implementation"]
+  - id: 3
+    description: >
+      Update README Render instructions to show the complete guard set.
+    verify: "grep -q 'PROXY_RPM\\|PROXY_TPM\\|CONCURRENT' README.md"
+    risk: P2
+    status: todo
+    allure:
+      severity: normal
+      categories: ["Tests"]
+  - id: 4
+    description: >
+      npm test still green (docs-only change).
+    verify: "npm test"
+    risk: P2
+    status: todo
+    allure:
+      severity: normal
+      categories: ["Regression"]

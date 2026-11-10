@@ -1,0 +1,24 @@
+id: e08
+title: Project configuration
+wsjf: 3.5
+status: todo
+issues: [25, 26, 31]
+stories:
+  - id: e08s01
+    title: Safe traffic-protection defaults in Render blueprint
+    issue: 25
+    status: todo
+    spec: e08s01-render-defaults.md
+    tasks: e08s01-tasks.yaml
+  - id: e08s02
+    title: Align Node.js engine requirement with supported runtime
+    issue: 26
+    status: todo
+    spec: e08s02-node-engine.md
+    tasks: e08s02-tasks.yaml
+  - id: e08s03
+    title: lint and format include admission.js and observer.js
+    issue: 31
+    status: todo
+    spec: e08s03-lint-format-files.md
+    tasks: e08s03-tasks.yaml

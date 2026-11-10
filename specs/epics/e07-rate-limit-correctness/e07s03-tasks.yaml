@@ -1,0 +1,45 @@
+story_id: e07s03
+title: Conservative token estimation for large outputs and nested inputs
+status: todo
+bcps: 3
+tasks:
+  - id: 1
+    description: >
+      Locate estimateCost, MAX_REQUESTED_OUTPUT_TOKENS, countTextChars in
+      budget.js. Confirm output cap and shallow-text behavior.
+    verify: "grep -n 'MAX_REQUESTED_OUTPUT_TOKENS\\|countTextChars\\|estimateCost' budget.js"
+    risk: P1
+    status: todo
+    allure:
+      severity: high
+      categories: ["Investigation"]
+  - id: 2
+    description: >
+      Remove silent 4096 output cap (reserve requested amount or reject). Walk
+      nested text/tool structures recursively. Add conservative fallback for
+      multimodal/unsupported payloads.
+    verify: "node --check budget.js"
+    risk: P1
+    status: todo
+    allure:
+      severity: high
+      categories: ["Implementation"]
+  - id: 3
+    description: >
+      Add tests: nested content, image/audio payloads, unknown shapes,
+      max_tokens above 4096.
+    verify: "node --test --test-name-pattern 'estimate\\|token\\|nested\\|multimodal'"
+    risk: P1
+    status: todo
+    allure:
+      severity: high
+      categories: ["Tests"]
+  - id: 4
+    description: >
+      Run full suite, lint, format:check.
+    verify: "npm test && npm run lint && npm run format:check"
+    risk: P1
+    status: todo
+    allure:
+      severity: high
+      categories: ["Regression"]

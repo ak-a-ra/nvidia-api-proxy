@@ -2,8 +2,6 @@
 
 # SPDX-License-Identifier: MIT
 
-# Execution Status
-
 # Flat key-value store. eNNsYY: todo | in_progress | passing | failing | blocked
 # Synced by hand from specs/epics/*/epic.yaml (scripts/sync-status-from-epics.sh
 # does not exist in this repository).
@@ -21,4 +19,14 @@ e04s06: passing
 e04s07: passing
 e04s08: passing
 e04s09: passing
+e05s01: todo
+e05s02: todo
+e06s01: todo
+e06s02: todo
+e07s01: todo
+e07s02: todo
+e07s03: todo
+e08s01: todo
+e08s02: todo
+e08s03: todo
 ```

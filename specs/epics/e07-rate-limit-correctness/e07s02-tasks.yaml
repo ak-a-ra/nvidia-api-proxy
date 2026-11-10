@@ -1,0 +1,43 @@
+story_id: e07s02
+title: Rename/split costOverLimitRejectionsCount by reason
+status: todo
+bcps: 2
+tasks:
+  - id: 1
+    description: >
+      Locate costOverLimitRejectionsCount in budget.js reserve() and its use in
+      /stats. Confirm which rejections increment it.
+    verify: "grep -n 'costOverLimitRejections\\|rejections' budget.js server.js"
+    risk: P2
+    status: todo
+    allure:
+      severity: normal
+      categories: ["Investigation"]
+  - id: 2
+    description: >
+      Rename to budgetRejectionsCount or split into per-reason counters
+      (rpm, tpm, model_rpm, model_tpm).
+    verify: "node --check budget.js"
+    risk: P2
+    status: todo
+    allure:
+      severity: normal
+      categories: ["Implementation"]
+  - id: 3
+    description: >
+      Update README /stats contract and tests.
+    verify: "node --test --test-name-pattern 'stats\\|rejection\\|budgetRejections'"
+    risk: P2
+    status: todo
+    allure:
+      severity: normal
+      categories: ["Tests"]
+  - id: 4
+    description: >
+      Run full suite, lint, format:check.
+    verify: "npm test && npm run lint && npm run format:check"
+    risk: P2
+    status: todo
+    allure:
+      severity: normal
+      categories: ["Regression"]

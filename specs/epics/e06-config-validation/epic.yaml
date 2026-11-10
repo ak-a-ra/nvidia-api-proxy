@@ -1,0 +1,18 @@
+id: e06
+title: Config validation
+wsjf: 4.0
+status: todo
+issues: [33, 35]
+stories:
+  - id: e06s01
+    title: Move upstream timeout env vars into parseConfig
+    issue: 33
+    status: todo
+    spec: e06s01-timeout-validation.md
+    tasks: e06s01-tasks.yaml
+  - id: e06s02
+    title: PORT validation min 1 to match comment
+    issue: 35
+    status: todo
+    spec: e06s02-port-validation.md
+    tasks: e06s02-tasks.yaml

@@ -1,0 +1,48 @@
+story_id: e05s01
+title: Bound request-body buffering before admission control
+status: todo
+bcps: 3
+tasks:
+  - id: 1
+    description: >
+      Investigate server.js body-read path (readBodyWithCap around line 303) and
+      admission.acquire call (~line 346). Confirm where body buffering happens
+      relative to admission and where a semaphore/budget slot would be acquired
+      and released.
+    verify: "grep -n 'readBodyWithCap\|admission.acquire\|PROXY_MAX_BUFFERED_BODY_BYTES' server.js"
+    risk: P1
+    status: todo
+    allure:
+      severity: high
+      categories: ["Investigation"]
+  - id: 2
+    description: >
+      Implement an aggregate buffered-byte budget (or body-read semaphore) in
+      server.js or a new root module. Acquire before reading body, release on
+      response close/error. Reject excess uploads before accumulating full bodies.
+    verify: "node --check server.js"
+    risk: P1
+    status: todo
+    allure:
+      severity: high
+      categories: ["Implementation"]
+  - id: 3
+    description: >
+      Add black-box HTTP tests: many simultaneous uploads, slow uploads,
+      disconnects during upload, recovery after a reader slot is released.
+    verify: "node --test --test-name-pattern 'body buffering'"
+    risk: P1
+    status: todo
+    allure:
+      severity: high
+      categories: ["Tests"]
+  - id: 4
+    description: >
+      Run full suite and confirm test count sync across living docs if count
+      changed.
+    verify: "npm test && npm run format:check && npm run lint"
+    risk: P1
+    status: todo
+    allure:
+      severity: high
+      categories: ["Regression"]

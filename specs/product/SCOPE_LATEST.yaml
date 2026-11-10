@@ -1,43 +1,144 @@
+# scope
+
 # SPDX-License-Identifier: MIT
 
-# SCOPE_LATEST
+# Scope for 10 open issues #24-#35 on ak-a-ra/nvidia-api-proxy
+# Planned as 4 epics: e05 (request handling), e06 (config validation),
+# e07 (rate-limit correctness), e08 (project configuration).
 
-```yaml
-vision: "Zero-dependency Node.js reverse proxy for NVIDIA NIM API that authenticates with a client-controlled token while keeping the real API key server-side."
-scope:
-  include:
-    - Reverse proxy functionality for NVIDIA NIM API
-    - Authentication via PROXY_AUTH_TOKEN
-    - Transparent drop-in replacement for OpenAI-compatible clients
-    - Streaming support (SSE responses)
-    - Header fidelity preservation
-    - Constant-time authentication
-    - Graceful SIGTERM shutdown for zero-downtime deploys
-    - Configurable listen address via PROXY_HOST, default 0.0.0.0; 127.0.0.1 restricts a deployment to loopback
-  exclude:
-    - Web UI or dashboard features
-    - Database storage
-    - Caching mechanisms
-    - Load balancing
-    - Monitoring beyond health endpoint
-    - API key rotation features
-    - Multi-region deployment
+release:
+  version: "1.1.0"
+  codename: "Admission Control"
+  status: planning
 
-defensive_categories:
-  - Rate limit
-  - Retry
-  - Circuit breaker
-  - Timeout
-  - Graceful degradation
+in_scope:
+  - id: issue-24
+    title: Bound request-body buffering before admission control
+    source: "https://github.com/ak-a-ra/nvidia-api-proxy/issues/24"
+    priority: P1
+    what: >-
+      Add a separately bounded body-read semaphore or aggregate buffered-byte
+      budget so concurrent slow uploads cannot grow memory without a configured
+      bound. Keep the existing per-request byte cap and byte-identical
+      forwarding behavior.
+    out_of_scope:
+      - Changing NVIDIA API endpoint
+      - Adding server-side request replay
 
-accepted_tradeoffs:
-  - "In rate-limit mode the proxy buffers a bounded copy of each request body, up to PROXY_MAX_BUFFERED_BODY_BYTES (default 8 MiB), to read the exact model ID and estimate token cost. The accepted cost is memory spent on metering; the original bytes are still forwarded without transformation, and a body over the cap is rejected locally."
-  - "With rate limiting disabled, request bodies stay fully streaming, with no buffering and no added latency. The buffer exists to meter, never to inspect."
-  - "Both are commitments of issue #13. The concurrency-ceiling trio (PROXY_MAX_CONCURRENT_REQUESTS, PROXY_MAX_QUEUE_SIZE, PROXY_QUEUE_TIMEOUT_SECONDS) has been read at request time since e04s02, the four global budgets since e04s04, and the per-model map since e04s05, so the current build buffers in rate-limit mode."
+  - id: issue-25
+    title: Provide safe traffic-protection defaults in the Render blueprint
+    source: "https://github.com/ak-a-ra/nvidia-api-proxy/issues/25"
+    priority: P2
+    what: >-
+      Document (or enable) a conservative default concurrency ceiling, queue
+      size, and queue timeout for the Render blueprint. RPM/TPM remain
+      operator-supplied because they depend on NVIDIA account quota. Make README
+      Render instructions show how to configure the complete guard set.
+    out_of_scope:
+      - Hardcoding RPM/TPM values
 
-tech_stack:
-  language: JavaScript (ESM)
-  runtime: Node.js >= 18.14
-  test_runner: Node built-in `node --test`
-  dependencies: 0
-```
+  - id: issue-26
+    title: Align Node.js engine requirement with the supported runtime
+    source: "https://github.com/ak-a-ra/nvidia-api-proxy/issues/26"
+    priority: P2
+    what: >-
+      Raise package.json engines.node minimum to the lowest tested/supported
+      version, or add a compatibility implementation for multiple Set-Cookie
+      headers and test Node 18.14.
+    out_of_scope:
+      - Dropping Node 18 support without a fix
+
+  - id: issue-27
+    title: Make token estimation conservative for large outputs and nested inputs
+    source: "https://github.com/ak-a-ra/nvidia-api-proxy/issues/27"
+    priority: P1
+    what: >-
+      Do not silently cap requested output at 4096 for budget admission. Walk
+      supported nested text/tool structures recursively. Add conservative
+      accounting or explicit safe fallback for multimodal/unsupported payloads.
+      Keep reconciliation as a correction, not the only protection.
+    out_of_scope:
+      - Removing reconciliation
+      - Exact tokenization matching NVIDIA's counter
+
+  - id: issue-29
+    title: Request whose cost exceeds the whole TPM gets 429 forever with Retry-After: 1
+    source: "https://github.com/ak-a-ra/nvidia-api-proxy/issues/29"
+    priority: P1
+    what: >-
+      When cost.totalTokens > tpmLimit on its own, return a non-retryable 413
+      or 400 instead of 429 with Retry-After: 1. Add a test.
+    out_of_scope:
+      - Changing the generic 429 body for retryable cases
+
+  - id: issue-31
+    title: lint and format scripts skip admission.js and observer.js
+    source: "https://github.com/ak-a-ra/nvidia-api-proxy/issues/31"
+    priority: P2
+    what: >-
+      Include admission.js and observer.js in lint, lint:fix, format, format:
+      check scripts (whole-project or explicit file list), then fix any findings.
+    out_of_scope:
+      - Adding new runtime dependencies
+
+  - id: issue-32
+    title: /stats costOverLimitRejections counts every budget rejection, including RPM
+    source: "https://github.com/ak-a-ra/nvidia-api-proxy/issues/32"
+    priority: P2
+    what: >-
+      Rename costOverLimitRejectionsCount (e.g. budgetRejectionsCount) or split
+      into per-reason counters (rpm, tpm, model_rpm, model_tpm). Update README
+      /stats contract and tests.
+    out_of_scope:
+      - Exposing internal rejection reasons to clients
+
+  - id: issue-33
+    title: Upstream timeout env vars bypass parseConfig and silently fall back on invalid values
+    source: "https://github.com/ak-a-ra/nvidia-api-proxy/issues/33"
+    priority: P1
+    what: >-
+      Move UPSTREAM_CONNECT_TIMEOUT_SECONDS and UPSTREAM_IDLE_TIMEOUT_SECONDS
+      into parseConfig with digits-only validation (0 allowed to disable), fail
+      fast on invalid input. Add tests.
+    out_of_scope:
+      - Changing default timeout values
+
+  - id: issue-34
+    title: Request logging includes the query string, which can carry credentials
+    source: "https://github.com/ak-a-ra/nvidia-api-proxy/issues/34"
+    priority: P1
+    what: >-
+      Log pathname only (or redact query string) in logRequestOnClose. Add a
+      test that a query-string secret is not logged.
+    out_of_scope:
+      - Removing request logging entirely
+
+  - id: issue-35
+    title: PORT comment says 1-65535 but code accepts 0
+    source: "https://github.com/ak-a-ra/nvidia-api-proxy/issues/35"
+    priority: P2
+    what: >-
+      Decide intent: min 1 to match the comment, or keep 0 and update comment
+      and README. Tests for both paths.
+    out_of_scope:
+      - Changing server listen behavior beyond PORT validation
+
+out_of_scope:
+  - Creating GitHub issues from this scope (issues already exist on GitHub)
+  - Closing issues (maintainer action)
+  - Work beyond the 10 open issues
+  - New runtime dependencies
+  - Changing NVIDIA API endpoint or exposing API key
+
+notes:
+  - e04 rate-limiting epic is complete (e04s01-e04s09 passing).
+  - All 10 issues have no labels yet.
+  - Test count (243) must be synced into every living doc if a story changes
+    the suite size.
+  - Issues #24, #29, #33, #34 are P1 (direct user-facing behavior or security).
+  - Issues #25, #26, #31, #32, #35 are P2 (documentation / hygiene).
+  - Epic grouping: e05 = #24 + #34 (request handling), e06 = #33 + #35
+    (config validation), e07 = #29 + #32 + #27 (rate-limit correctness),
+    e08 = #25 + #26 + #31 (project configuration).
+
+next: slice-tasks into epics e05-e08, then plan-work.

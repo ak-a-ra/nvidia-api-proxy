@@ -1,0 +1,18 @@
+id: e05
+title: Request handling
+wsjf: 4.5
+status: todo
+issues: [24, 34]
+stories:
+  - id: e05s01
+    title: Bound request-body buffering before admission control
+    issue: 24
+    status: todo
+    spec: e05s01-body-buffering.md
+    tasks: e05s01-tasks.yaml
+  - id: e05s02
+    title: Log pathname only, redact query string
+    issue: 34
+    status: todo
+    spec: e05s02-query-redaction.md
+    tasks: e05s02-tasks.yaml
