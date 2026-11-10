@@ -94,7 +94,7 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `s
 - `npm run format` / `npm run format:check` — Prettier 3, `printWidth: 100`
 - `npm start` — requires `NVIDIA_BASE_URL` (exits code 1 if missing) plus `NVIDIA_API_KEY` and `PROXY_AUTH_TOKEN` (missing ones → 503 responses, not a crash)
 - First-time setup on a fresh clone: `npm install` (dev tooling only; the proxy itself still runs with zero install)
-- CI: GitHub Actions runs `npm test` on Node 20/22/24, a `quality` job (lint/typecheck/format) on Node 24, and a `release` job that tags and publishes source code as a GitHub release asset — see `.github/workflows/release.yml`. Run `npm test` and `npm run check` locally before pushing anyway.
+- CI: GitHub Actions (`.github/workflows/ci.yml`) runs `npm test` on Node 20/22/24 and a `quality` job (lint/typecheck/format) on Node 24, on pushes to `main` and on pull requests. Run `npm test` and `npm run check` locally before pushing anyway.
 
 ### Hard constraints
 
@@ -137,13 +137,11 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `s
 
 - `render.yaml` = deploy config (free plan, health check `/health`) and pins `NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1`
 - Timeout defaults: `UPSTREAM_CONNECT_TIMEOUT_SECONDS` 30, `UPSTREAM_IDLE_TIMEOUT_SECONDS` 120 (reset per chunk, so active SSE streams never cut)
-- Known limitations are tracked as GitHub issues on `ak-a-ra/nvidia-api-proxy`. Run `gh issue list` before treating current behavior as intentional or final. Do not record issue numbers or open-issue counts in this file; they go stale..
-  - Audit plans (2026-09-20): only #9 opt-in request logging (`plans/05`) is still open. #10 token-side config guards (`plans/03`) and #12 CI workflow (`plans/01`) are closed — landed by `2b13861` and `1bc34cd`. Order per `plans/README.md`: 03 → 01 → 05, sequential because 03 and 05 both add tests and touch the same count-sync sites.
-  - Rate-limiting epic (2026-09-25, parent #13): #14 → #15 → #16 → #17 → #18 → #19 → #20 → #21 → #22 is a strict linear `Blocked by` chain. #14 (validated operational config owner + configurable bind host) is the only unblocked slice; nothing in it is implemented yet — no `/stats` route, no `PROXY_RPM`/`PROXY_TPM` parsing, no admission path. No plan files exist for the epic. #13's body supersedes its own earlier scope.
-  - Closed: #10 (token-side config guards) by `2b13861`, #11 (request-header array flattening) by `dfab41e`, #12 (CI workflow) by `1bc34cd`; #2–#8 all closed.
+- Known limitations are tracked as GitHub issues on `ak-a-ra/nvidia-api-proxy`. Run `gh issue list` before treating current behavior as intentional or final. Do not record issue numbers or open-issue counts in this file; they go stale.
 - Epic work will add env vars and change configuration failure modes. When landing any slice, extend the startup-config table in `specs/tech-architecture/tech-stack.md` and record the fail-fast-vs-degrade decision in `docs/adr/`.
+- When a change adds an env var or changes a configuration failure mode, extend the startup-config table in `specs/tech-architecture/tech-stack.md` and record the fail-fast-vs-degrade decision in `docs/adr/`.
 - Node ≥ 20 required (`engines`; CI tests 20, 22 and 24); dev machine runs Node 24.
-
+  
 ---
 
 ## Agent skills
