@@ -58,9 +58,7 @@ jobs:
           gh release create "${{ steps.version.outputs.version }}" \
             --repo ${{ github.repository }} \
             --title "${{ steps.version.outputs.version }}" \
-            --notes "Auto-generated release from commit ${{ github.sha }}.
-
-Zero-dependency Node.js ESM reverse proxy for NVIDIA NIM API. See README.md for setup and usage." \
+            --notes "Auto-generated release from commit ${{ github.sha }}. Zero-dependency Node.js ESM reverse proxy for NVIDIA NIM API. See README.md for setup and usage." \
             --generate-notes
       - name: Archive source code
         run: |
