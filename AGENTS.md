@@ -137,12 +137,12 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `s
 
 - `render.yaml` = deploy config (free plan, health check `/health`) and pins `NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1`
 - Timeout defaults: `UPSTREAM_CONNECT_TIMEOUT_SECONDS` 30, `UPSTREAM_IDLE_TIMEOUT_SECONDS` 120 (reset per chunk, so active SSE streams never cut)
-- Known limitations tracked as GitHub issues — check `gh issue list` before treating current behavior as intentional or final. As of 2026-10-01: 11 open — #9, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22 — each labeled `enhancement` + `ready-for-agent`.
+- Known limitations are tracked as GitHub issues on `ak-a-ra/nvidia-api-proxy`. Run `gh issue list` before treating current behavior as intentional or final. Do not record issue numbers or open-issue counts in this file; they go stale..
   - Audit plans (2026-09-20): only #9 opt-in request logging (`plans/05`) is still open. #10 token-side config guards (`plans/03`) and #12 CI workflow (`plans/01`) are closed — landed by `2b13861` and `1bc34cd`. Order per `plans/README.md`: 03 → 01 → 05, sequential because 03 and 05 both add tests and touch the same count-sync sites.
   - Rate-limiting epic (2026-09-25, parent #13): #14 → #15 → #16 → #17 → #18 → #19 → #20 → #21 → #22 is a strict linear `Blocked by` chain. #14 (validated operational config owner + configurable bind host) is the only unblocked slice; nothing in it is implemented yet — no `/stats` route, no `PROXY_RPM`/`PROXY_TPM` parsing, no admission path. No plan files exist for the epic. #13's body supersedes its own earlier scope.
   - Closed: #10 (token-side config guards) by `2b13861`, #11 (request-header array flattening) by `dfab41e`, #12 (CI workflow) by `1bc34cd`; #2–#8 all closed.
 - Epic work will add env vars and change configuration failure modes. When landing any slice, extend the startup-config table in `specs/tech-architecture/tech-stack.md` and record the fail-fast-vs-degrade decision in `docs/adr/`.
-- Node ≥ 18.14 required (engines); dev machine runs Node 24
+- Node ≥ 20 required (`engines`; CI tests 20, 22 and 24); dev machine runs Node 24.
 
 ---
 
@@ -166,7 +166,7 @@ The orchestrator never writes implementation code itself. It never runs review l
 
 **Small tasks and blocked tasks:** The orchestrator may do trivial, reversible, non-behavioral work inline when a subagent would be heavier than the work itself (one-line fixes, doc tweaks, config touch-ups) — but never implementation that changes behavior, adds tests, or touches production logic. A task is "blocked" only when the orchestrator cannot proceed without a human decision (irreversible ops, security-sensitive actions, side effects outside the worktree); in that case the orchestrator stops and asks, rather than inlining.
 
-See the subagent-driven-development skill at `.agents/skills/subagent-driven-development/SKILL.md`.
+The subagent-driven-development skill lives in each developer's local agent skills directory. `.agents/` is gitignored, so it is not part of this repo.
 
 ### Issue tracker
 
