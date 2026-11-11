@@ -41,6 +41,7 @@ export function parseConfig(env) {
     port,
     rateLimit: readRateLimit(env),
     limits: readLimits(env),
+    timeouts: readTimeouts(env),
     // Its own field, parallel to rateLimit: limits holds scalar ceilings, this
     // holds a map of budgets. A caller must not be able to read a per-model
     // budget map beside a half-configured global rate pair.
@@ -293,6 +294,10 @@ function boundText(text) {
   return text.length > 60 ? `${text.slice(0, 60)}…` : text;
 }
 
+// Upstream timeout windows (seconds). CONNECT bounds the pre-response phase:
+// how long the upstream may take to deliver response headers. IDLE bounds the
+// streaming phase: how long the pass-through may go without receiving a byte
+
 // A key as it may be printed. JSON.stringify escapes the C0 range but leaves
 // DEL raw, so escape that too: the message names the key so the operator can
 // find it in the document, and never carries a byte that could garble a
@@ -351,12 +356,32 @@ function integerRule(min, max, zeroDisables) {
 // streaming phase: how long the pass-through may go without receiving a byte
 // (the timer resets on every chunk, so long-lived SSE streams are never cut
 // off while they keep producing). Both are env-tunable; 0 disables.
-function readSeconds(name, fallback) {
-  const val = process.env[name];
-  if (!val?.trim()) return fallback;
-  const raw = Number(val);
-  return Number.isFinite(raw) && raw >= 0 ? raw : fallback;
+// Blank → default. Plain decimal digits only; anything else is fatal at
+// startup, naming the variable.
+function readTimeoutSeconds(name, raw, fallback) {
+  if (!raw?.trim()) return fallback;
+  const trimmed = raw.trim();
+  const value = Number(trimmed);
+  if (!/^[0-9]+$/.test(trimmed) || !Number.isSafeInteger(value)) {
+    console.error(
+      `${name} must be a non-negative integer (0 disables), got: ${boundText(trimmed)}`
+    );
+    process.exit(1);
+  }
+  return value;
 }
 
-export const CONNECT_TIMEOUT_SECONDS = readSeconds("UPSTREAM_CONNECT_TIMEOUT_SECONDS", 30);
-export const IDLE_TIMEOUT_SECONDS = readSeconds("UPSTREAM_IDLE_TIMEOUT_SECONDS", 120);
+function readTimeouts(env) {
+  return {
+    connectTimeoutSeconds: readTimeoutSeconds(
+      "UPSTREAM_CONNECT_TIMEOUT_SECONDS",
+      env.UPSTREAM_CONNECT_TIMEOUT_SECONDS,
+      30
+    ),
+    idleTimeoutSeconds: readTimeoutSeconds(
+      "UPSTREAM_IDLE_TIMEOUT_SECONDS",
+      env.UPSTREAM_IDLE_TIMEOUT_SECONDS,
+      120
+    ),
+  };
+}

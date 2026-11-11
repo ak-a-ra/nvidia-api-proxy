@@ -30,7 +30,7 @@ handoff:
     logs incoming.pathname only (query string redacted), comment updated;
     upstream forwarding unchanged (pathname + search verbatim); black-box HTTP
     test added that query-string secret is not logged and closed field set
-    [method,ms,path,status,ts] kept; npm test green (249 pass, 0 fail);
+    [method,ms,path,status,ts] kept; npm test green (255 pass, 0 fail);
     npm run check clean (lint, typecheck, format:check); e05s02-tasks.yaml all
     marked done; living docs synced 248→249. Ready for reviewer-e05s02.
     Order: e05 -> e06 -> e07 -> e08, P1 stories first within each epic.

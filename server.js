@@ -1,7 +1,7 @@
 import http from "node:http";
 import { pipeline, Readable, Transform } from "node:stream";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { parseConfig, CONNECT_TIMEOUT_SECONDS, IDLE_TIMEOUT_SECONDS } from "./config.js";
+import { parseConfig } from "./config.js";
 import { createAdmission, REJECTION_REASONS } from "./admission.js";
 import { createBudget, estimateCost } from "./budget.js";
 import { createSseObserver, createJsonObserver } from "./observer.js";
@@ -32,8 +32,6 @@ const TOKEN_DIGEST = config.proxyToken
 // config.baseURL never changes after startup, so its origin is resolved once
 // here instead of re-parsing the same string on every request.
 const BASE_ORIGIN = new URL(config.baseURL).origin;
-
-export { CONNECT_TIMEOUT_SECONDS, IDLE_TIMEOUT_SECONDS };
 
 // Process-lifetime monotonic counters, read by /stats. Incremented exactly
 // once per terminal event, never reset.
@@ -505,10 +503,10 @@ const server = http.createServer(async (req, res) => {
     // the same signal cancels a queued request. It also owns the connect
     // window and downstream lifecycle here: remove its listener on normal
     // completion so completed requests retain no lifecycle handlers.
-    const connectTimer = CONNECT_TIMEOUT_SECONDS
+    const connectTimer = config.timeouts.connectTimeoutSeconds
       ? setTimeout(
           () => ac.abort(new Error("upstream connect timeout")),
-          CONNECT_TIMEOUT_SECONDS * 1000
+          config.timeouts.connectTimeoutSeconds * 1000
         )
       : null;
     let upstream;
@@ -577,11 +575,11 @@ const server = http.createServer(async (req, res) => {
     const src = Readable.fromWeb(upstream.body);
     let idleTimer = null;
     const armIdle = () => {
-      if (!IDLE_TIMEOUT_SECONDS) return;
+      if (!config.timeouts.idleTimeoutSeconds) return;
       clearTimeout(idleTimer);
       idleTimer = setTimeout(
         () => src.destroy(new Error("upstream idle timeout")),
-        IDLE_TIMEOUT_SECONDS * 1000
+        config.timeouts.idleTimeoutSeconds * 1000
       );
       idleTimer.unref();
     };

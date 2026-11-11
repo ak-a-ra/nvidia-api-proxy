@@ -1,6 +1,6 @@
 story_id: e06s01
 title: Move upstream timeout env vars into parseConfig
-status: todo
+status: done
 bcps: 3
 tasks:
   - id: 1
@@ -9,7 +9,7 @@ tasks:
       UPSTREAM_IDLE_TIMEOUT_SECONDS are read in config.js outside parseConfig.
     verify: "grep -n 'UPSTREAM_CONNECT_TIMEOUT_SECONDS\\|UPSTREAM_IDLE_TIMEOUT_SECONDS\\|readSeconds' config.js"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Investigation"]
@@ -19,7 +19,7 @@ tasks:
       disable). Fail fast on invalid input.
     verify: "node --check config.js"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Implementation"]
@@ -28,7 +28,7 @@ tasks:
       Add tests: valid, invalid, zero, missing values for both timeouts.
     verify: "node --test --test-name-pattern 'timeout'"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Tests"]
@@ -37,7 +37,7 @@ tasks:
       Run full suite, lint, format:check.
     verify: "npm test && npm run lint && npm run format:check"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Regression"]

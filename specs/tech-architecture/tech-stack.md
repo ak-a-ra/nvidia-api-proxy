@@ -51,8 +51,8 @@ Client → server.js/http.createServer
 | `NVIDIA_API_KEY` | Yes | — | Degrades, never fatal | Absent or whitespace-only → `unconfigured` → runtime 503 |
 | `PROXY_AUTH_TOKEN` | Yes | — | Degrades, never fatal | Absent or whitespace-only → `unconfigured` → runtime 503 |
 | `PORT` | No | `10000` | Not validated | Only `Number()` coercion; a non-numeric value becomes `NaN` and `listen()` throws |
-| `UPSTREAM_CONNECT_TIMEOUT_SECONDS` | No | `30` (`0` disables) | Falls back to default | Empty, whitespace, non-finite, or negative → fallback |
-| `UPSTREAM_IDLE_TIMEOUT_SECONDS` | No | `120` (resets per chunk, `0` disables) | Falls back to default | Same lenient `readSeconds` rule — the named exception to strict validation |
+| `UPSTREAM_CONNECT_TIMEOUT_SECONDS` | No | `30` (`0` disables) | Fatal, exit 1 | Blank → default `30`; otherwise decimal digits only (0 disables); non-digits name the variable and fail fast |
+| `UPSTREAM_IDLE_TIMEOUT_SECONDS` | No | `120` (resets per chunk, `0` disables) | Fatal, exit 1 | Blank → default `120`; otherwise decimal digits only (0 disables); non-digits name the variable and fail fast |
 | `PROXY_HOST` | No | `0.0.0.0` | Not parsed | Absent, empty, or whitespace-only → default; any other value reaches `listen()` verbatim, untrimmed. An unbindable address fails as a `listen()` error event, not as a named-variable message |
 | `PROXY_RPM` | No | unset | Fatal, exit 1 | Mandatory pair with `PROXY_TPM`. Non-blank must be a positive integer, decimal digits only. Both absent or blank → rate limiting disabled. Read at request time since e04s04: the RPM ceiling of the rolling 60-second window |
 | `PROXY_TPM` | No | unset | Fatal, exit 1 | Same pair rule, applied symmetrically. Read at request time since e04s04: the TPM ceiling of the rolling 60-second window; an estimated cost above it is answered 429 with a positive Retry-After and never reaches the upstream |
@@ -169,7 +169,7 @@ SIGTERM handler:
 
 ## Testing
 
-- **Test Count**: 249 tests
+- **Test Count**: 255 tests
 - **Location**: `server.test.js`
 - **Runner**: `node --test` (integration tests, no coverage instrumentation/thresholds)
 - **Pattern**: Process-level integration tests with local HTTP stubs
