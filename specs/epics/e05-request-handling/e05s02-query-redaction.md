@@ -1,7 +1,7 @@
 * Story: e05s02
 * Epic: e05 — Request handling
 * Issue: [#34](https://github.com/ak-a-ra/nvidia-api-proxy/issues/34)
-* Status: todo
+* Status: done
 * BCPs: 2
 * Type: feat | Context: request-handling / logging / privacy
 
