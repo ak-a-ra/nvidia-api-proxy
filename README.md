@@ -304,6 +304,13 @@ render blueprint launch
 
 Set `NVIDIA_API_KEY` and `PROXY_AUTH_TOKEN` as secret environment variables when prompted.
 
+> [!NOTE]
+> Traffic guards are off by default until you set them. The render.yaml blueprint ships with
+> conservative defaults for the concurrency ceiling, queue, timeout, safety margin, and body cap.
+> `PROXY_RPM` and `PROXY_TPM` are intentionally NOT hardcoded — they depend on your NVIDIA account
+> quota and must be supplied as secret environment variables. Without that pair, rate limiting
+> stays disabled; see Configuration for the full guard set.
+
 > [!WARNING]
 > Anyone holding `PROXY_AUTH_TOKEN` can spend your NVIDIA quota. Use a long random token and share
 > it only with clients you trust.

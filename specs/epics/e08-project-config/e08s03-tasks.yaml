@@ -1,6 +1,6 @@
 story_id: e08s03
 title: lint and format include admission.js and observer.js
-status: todo
+status: done
 bcps: 2
 tasks:
   - id: 1
@@ -9,7 +9,7 @@ tasks:
       observer.js.
     verify: "grep -n 'lint\\|format\\|prettier\\|eslint' package.json"
     risk: P2
-    status: todo
+    status: done
     allure:
       severity: normal
       categories: ["Investigation"]
@@ -19,7 +19,7 @@ tasks:
       scripts (whole-project or explicit file list).
     verify: "grep -q 'admission.js\\|observer.js' package.json"
     risk: P2
-    status: todo
+    status: done
     allure:
       severity: normal
       categories: ["Implementation"]
@@ -28,7 +28,7 @@ tasks:
       Fix any lint/format findings in admission.js and observer.js.
     verify: "npm run check"
     risk: P2
-    status: todo
+    status: done
     allure:
       severity: normal
       categories: ["Tests"]

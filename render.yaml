@@ -27,3 +27,16 @@ services:
         value: "30"
       - key: UPSTREAM_IDLE_TIMEOUT_SECONDS
         value: "120"
+      # Traffic guards — conservative defaults for a fresh Render blueprint.
+      # PROXY_RPM / PROXY_TPM are deliberately NOT set here: they depend on the
+      # operator's NVIDIA account quota and must be supplied by the operator.
+      - key: PROXY_MAX_CONCURRENT_REQUESTS
+        value: "16"
+      - key: PROXY_MAX_QUEUE_SIZE
+        value: "32"
+      - key: PROXY_QUEUE_TIMEOUT_SECONDS
+        value: "30"
+      - key: PROXY_SAFETY_MARGIN_PCT
+        value: "5"
+      - key: PROXY_MAX_BUFFERED_BODY_BYTES
+        value: "8388608"

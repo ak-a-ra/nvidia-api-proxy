@@ -18,22 +18,22 @@ vcs:
     ci_status: green
 workflow_mode: solo-git
 active_flow: execute
-active_epic: e05
-active_story: e05s02
+active_epic: e08
+active_story: e08s03
 session_start: 2026-10-16T18:02:00Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: request-review
-  source: implementer-e05s02
+  next_skill: none
+  source: lead
   note: >-
-    e05s02 complete (issue #34 P1 query redaction): server.js logRequestOnClose
-    logs incoming.pathname only (query string redacted), comment updated;
-    upstream forwarding unchanged (pathname + search verbatim); black-box HTTP
-    test added that query-string secret is not logged and closed field set
-    [method,ms,path,status,ts] kept; npm test green (255 pass, 0 fail);
-    npm run check clean (lint, typecheck, format:check); e05s02-tasks.yaml all
-    marked done; living docs synced 248→249. Ready for reviewer-e05s02.
-    Order: e05 -> e06 -> e07 -> e08, P1 stories first within each epic.
+    All 10 open issues resolved across epics e05-e08:
+    e05s01 body buffering (#24 P1), e05s02 query redaction (#34 P1),
+    e06s01 timeout validation (#33 P1), e06s02 PORT validation (#35 P2),
+    e07s01 over-budget rejection (#29 P1), e07s02 stats counter rename (#32 P2),
+    e07s03 token estimation (#27 P1), e08s01 Render defaults (#25 P2),
+    e08s02 Node engine >=20 (#26 P2), e08s03 lint/format files (#31 P2).
+    Count 264. package.json engines.node >=20; lint/format scripts
+    include admission.js observer.js. Pending: final review/merge + commit.
 
 decisions:
   - decision: Per-model window pairs are built at construction time, and the story's "lazily" sentence is corrected

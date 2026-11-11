@@ -3,7 +3,7 @@
 * Story: e08s02
 * Epic: e08 — Project configuration
 * Issue: [#26](https://github.com/ak-a-ra/nvidia-api-proxy/issues/26)
-* Status: todo
+* Status: done
 * BCPs: 2
 * Type: fix | Context: package.json / Node engine
 

@@ -296,7 +296,7 @@ const server = http.createServer(async (req, res) => {
         queueFullRejections: admission.queueFullRejections,
         queueTimeoutRejections: admission.queueTimeoutRejections,
         oversizedBodyRejections,
-        costOverLimitRejections: budget.costOverLimitRejections,
+        budgetRejections: budget.budgetRejections,
         queuedClientDisconnects: admission.queuedClientDisconnects,
         activeClientDisconnects,
         completed,

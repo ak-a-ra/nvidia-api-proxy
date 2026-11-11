@@ -3,7 +3,7 @@
 * Story: e08s03
 * Epic: e08 — Project configuration
 * Issue: [#31](https://github.com/ak-a-ra/nvidia-api-proxy/issues/31)
-* Status: todo
+* Status: done
 * BCPs: 2
 * Type: chore | Context: lint / format / package.json
 

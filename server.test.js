@@ -495,7 +495,11 @@ function runProxyOnce(envOverrides) {
       process.execPath,
       ["--input-type=module", "-e", `import server from ${JSON.stringify(SERVER_PATH)};`],
       {
-        env: childEnv({ ...envOverrides, PORT: String(ephemeralProxyPort()) }),
+        env: childEnv(
+          envOverrides.PORT != null
+            ? envOverrides
+            : { ...envOverrides, PORT: String(ephemeralProxyPort()) }
+        ),
         stdio: ["ignore", "ignore", "pipe", "ignore"],
       }
     );

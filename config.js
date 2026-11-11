@@ -33,7 +33,7 @@ export function parseConfig(env) {
   // PORT is optional (default 10000) but, when set, must be a valid TCP port:
   // 1-65535. parseConfig owns every env parse so server.js has no raw env reads.
   const port = rawPort?.trim()
-    ? readPositiveInteger("PORT", rawPort, { min: 0, max: 65535 })
+    ? readPositiveInteger("PORT", rawPort, { min: 1, max: 65535 })
     : 10000;
   return {
     baseURL: rawBase,

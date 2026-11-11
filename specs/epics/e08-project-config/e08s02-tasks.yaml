@@ -1,6 +1,6 @@
 story_id: e08s02
 title: Align Node.js engine requirement with supported runtime
-status: todo
+status: done
 bcps: 2
 tasks:
   - id: 1
@@ -8,7 +8,7 @@ tasks:
       Confirm getSetCookie() usage in server.js and CI matrix Node versions.
     verify: "grep -n 'getSetCookie' server.js"
     risk: P2
-    status: todo
+    status: done
     allure:
       severity: normal
       categories: ["Investigation"]
@@ -18,7 +18,7 @@ tasks:
       or add compatibility implementation and test Node 18.14.
     verify: "node -e 'const p=require(\"./package.json\"); console.log(p.engines.node)'"
     risk: P2
-    status: todo
+    status: done
     allure:
       severity: normal
       categories: ["Implementation"]
@@ -27,7 +27,7 @@ tasks:
       Confirm multiple Set-Cookie headers preserved on supported Node versions.
     verify: "npm test"
     risk: P2
-    status: todo
+    status: done
     allure:
       severity: normal
       categories: ["Tests"]
