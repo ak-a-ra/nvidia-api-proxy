@@ -314,7 +314,7 @@ function startProxyServer(baseURL, key, proxyToken, extraEnv = {}, options = {})
     if (baseURL != null) env.NVIDIA_BASE_URL = baseURL;
     if (key != null) env.NVIDIA_API_KEY = key;
     if (proxyToken != null) env.PROXY_AUTH_TOKEN = proxyToken;
-    env.PORT = String(0);
+    env.PORT = ephemeralProxyPort();
 
     const init = `
       import server from ${JSON.stringify(SERVER_PATH)};
@@ -434,8 +434,28 @@ async function assertUpstreamAborted(teardowns, timeoutMs = 2000, index = 0) {
   assert.equal(record.resFinished, false, `upstream response aborted, not completed (${flags})`);
 }
 
-function proxiedFetch(port, path, opts = {}) {
-  return fetch(`http://127.0.0.1:${port}${path}`, opts);
+async function proxiedFetch(port, path, opts = {}) {
+  const url = `http://127.0.0.1:${port}${path}`;
+  const attempts = [];
+  for (let i = 0; i < 3; i++) {
+    try {
+      return await fetch(url, opts);
+    } catch (err) {
+      attempts.push(err.message);
+      if (i < 2) await new Promise((r) => setTimeout(r, 100 * (i + 1)));
+    }
+  }
+  throw new Error(
+    `proxiedFetch: fetch failed for port=${port} path=${path}: ${attempts.join("; ")}`
+  );
+}
+
+// Ephemeral port allocator: random high port to avoid EADDRINUSE from
+// zombie proxy children that exited but haven't released the port yet.
+// Starts at 49152 (IANA ephemeral range) so low ports stay free.
+let nextProxyPort = 49152;
+function ephemeralProxyPort() {
+  return String(nextProxyPort++);
 }
 
 // Bounded sleep, shared by the admission blocks.
@@ -475,7 +495,7 @@ function runProxyOnce(envOverrides) {
       process.execPath,
       ["--input-type=module", "-e", `import server from ${JSON.stringify(SERVER_PATH)};`],
       {
-        env: childEnv({ ...envOverrides, PORT: "0" }),
+        env: childEnv({ ...envOverrides, PORT: String(ephemeralProxyPort()) }),
         stdio: ["ignore", "ignore", "pipe", "ignore"],
       }
     );
@@ -600,7 +620,7 @@ describe("PORT validation", () => {
         (err) => {
           assert.match(
             err.message,
-            /PORT must be an integer between 0 and 65535/,
+            /PORT must be an integer between 1 and 65535/,
             `${label} PORT ${JSON.stringify(value)} must fail naming PORT: ${err.message}`
           );
           return true;
@@ -610,12 +630,26 @@ describe("PORT validation", () => {
     }
   });
 
-  test("PORT 0 binds an ephemeral port", async () => {
-    const port = await listenProxyOnPort({ ...BASE_ENV, PORT: "0" });
-    assert.ok(
-      Number.isInteger(port) && port > 0 && port <= 65535,
-      `expected an ephemeral port, got ${port}`
-    );
+  test("PORT 0 exits 1", async () => {
+    const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PORT: "0" });
+    assert.equal(code, 1);
+    assert.ok(stderr.includes("PORT must be an integer between 1 and 65535"), stderr);
+  });
+
+  test("PORT 1024 starts", async () => {
+    const port = await listenProxyOnPort({ ...BASE_ENV, PORT: "1024" });
+    assert.equal(port, 1024);
+  });
+
+  test("PORT 65535 starts", async () => {
+    const port = await listenProxyOnPort({ ...BASE_ENV, PORT: "65535" });
+    assert.equal(port, 65535);
+  });
+
+  test("PORT 65536 exits 1", async () => {
+    const { code, stderr } = await runProxyOnce({ ...BASE_ENV, PORT: "65536" });
+    assert.equal(code, 1);
+    assert.ok(stderr.includes("PORT must be an integer between 1 and 65535"), stderr);
   });
 
   test("PORT unset uses the 10000 default", async () => {
@@ -943,7 +977,7 @@ describe("proxy", () => {
       "queueFullRejections",
       "queueTimeoutRejections",
       "oversizedBodyRejections",
-      "costOverLimitRejections",
+      "budgetRejections",
       "queuedClientDisconnects",
       "activeClientDisconnects",
       "completed",
@@ -979,7 +1013,7 @@ describe("proxy", () => {
     assert.equal(body.queueFullRejections, 0);
     assert.equal(body.queueTimeoutRejections, 0);
     assert.equal(body.oversizedBodyRejections, 0);
-    assert.equal(body.costOverLimitRejections, 0);
+    assert.equal(body.budgetRejections, 0);
     assert.equal(body.queuedClientDisconnects, 0);
     assert.equal(body.activeClientDisconnects, 0);
     assert.equal(body.completed, 0);
@@ -1023,7 +1057,7 @@ describe("proxy", () => {
         "active",
         "activeClientDisconnects",
         "admitted",
-        "costOverLimitRejections",
+        "budgetRejections",
         "completed",
         "effectiveGlobalRpm",
         "effectiveGlobalTpm",
@@ -5044,6 +5078,101 @@ describe("e04s05 per-model budgets", () => {
     assert.equal(nameless.fallback, true, "a body with no messages is priced by its bytes");
   });
 
+  // e07s03: large max_tokens is not silently capped at 4096.
+  test("estimateCost reserves requested max_tokens above 4096 without capping", () => {
+    const body = {
+      model: "m",
+      messages: [{ role: "user", content: "hi" }],
+      max_tokens: 8192,
+    };
+    const cost = estimateCost(body, Buffer.from(JSON.stringify(body)));
+    assert.equal(cost.outputTokens, 8192, "output reservation matches requested max_tokens");
+    assert.equal(
+      cost.totalTokens,
+      cost.inputTokens + 8192,
+      "total includes the unreserved full output"
+    );
+  });
+
+  test("estimateCost reserves max_completion_tokens above 4096 without capping", () => {
+    const body = {
+      model: "m",
+      messages: [{ role: "user", content: "hi" }],
+      max_completion_tokens: 16384,
+    };
+    const cost = estimateCost(body, Buffer.from(JSON.stringify(body)));
+    assert.equal(
+      cost.outputTokens,
+      16384,
+      "output reservation matches requested max_completion_tokens"
+    );
+  });
+
+  // e07s03: nested tool descriptions and parameter schemas affect input estimate.
+  test("estimateCost counts nested tool parameter schemas recursively", () => {
+    const body = {
+      model: "m",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "get_weather",
+            description: "Look up current weather.",
+            parameters: {
+              type: "object",
+              properties: { city: { type: "string" }, unit: { type: "string" } },
+              required: ["city"],
+            },
+          },
+        },
+      ],
+    };
+    const cost = estimateCost(body, Buffer.from(JSON.stringify(body)));
+    assert.ok(cost.inputTokens > 0, "nested tool structure contributes input tokens");
+  });
+
+  // e07s03: image/audio payload is not estimated near zero.
+  test("estimateCost charges multimodal image part a conservative fallback", () => {
+    const body = {
+      model: "m",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "What is in this image?" },
+            { type: "image_url", image_url: { url: "data:image/png;base64,abc" } },
+          ],
+        },
+      ],
+    };
+    const cost = estimateCost(body, Buffer.from(JSON.stringify(body)));
+    assert.ok(cost.inputTokens > 0, "image part is not estimated near zero");
+    assert.ok(
+      cost.inputTokens >= 192,
+      "image part carries at least one modality fallback unit (~192 tokens)"
+    );
+  });
+
+  test("estimateCost charges multimodal audio part a conservative fallback", () => {
+    const body = {
+      model: "m",
+      messages: [{ role: "user", content: [{ type: "audio", audio: { url: "s3://x.mp3" } }] }],
+    };
+    const cost = estimateCost(body, Buffer.from(JSON.stringify(body)));
+    assert.ok(cost.inputTokens > 0, "audio part is not estimated near zero");
+  });
+
+  // e07s03: unknown content shape is not estimated near zero.
+  test("estimateCost gives unknown object shape a nonzero input estimate", () => {
+    const body = {
+      model: "m",
+      messages: [{ role: "user", content: { custom_field: { nested: { deep: "value" } } } }],
+    };
+    const cost = estimateCost(body, Buffer.from(JSON.stringify(body)));
+    assert.ok(cost.inputTokens > 0, "unknown shape is not estimated near zero");
+  });
+
   // The per-model windows live inside budget.js, so they are unit-tested here
   // like the estimator: the black-box harness cannot observe a window that
   // nothing consults yet.
@@ -6218,18 +6347,18 @@ describe("e04s08 admission counters", () => {
 describe("e04s08 budget counters", () => {
   test("disabled path exposes zero-valued read-only getters", () => {
     const disabled = createBudget(null, { safetyMarginPct: 5 }, null);
-    assert.equal(disabled.costOverLimitRejections, 0);
+    assert.equal(disabled.budgetRejections, 0);
     assert.equal(disabled.trackedModels, 0);
     assert.equal(disabled.usageReconciled, 0);
     assert.equal(disabled.usageEstimateFallbacks, 0);
     // Read-only: assignment must not land.
     assert.throws(() => {
-      disabled.costOverLimitRejections = 9;
+      disabled.budgetRejections = 9;
     });
-    assert.equal(disabled.costOverLimitRejections, 0);
+    assert.equal(disabled.budgetRejections, 0);
   });
 
-  test("enabled path: admitted reserve does not increment costOverLimitRejections", () => {
+  test("enabled path: admitted reserve does not increment budgetRejections", () => {
     const b = createBudget({ rpm: 60, tpm: 2000 }, { safetyMarginPct: 0 }, null);
     const c1 = estimateCost(
       { model: "m", messages: [{ role: "user", content: "hi" }] },
@@ -6237,10 +6366,10 @@ describe("e04s08 budget counters", () => {
     );
     const r1 = b.reserve(c1);
     assert.equal(r1.admitted, true);
-    assert.equal(b.costOverLimitRejections, 0);
+    assert.equal(b.budgetRejections, 0);
   });
 
-  test("enabled path: rejected reserve increments costOverLimitRejections once", () => {
+  test("enabled path: rejected reserve increments budgetRejections once", () => {
     const b = createBudget({ rpm: 60, tpm: 2000 }, { safetyMarginPct: 0 }, null);
     const c1 = estimateCost(
       { model: "m", messages: [{ role: "user", content: "hi" }] },
@@ -6251,7 +6380,7 @@ describe("e04s08 budget counters", () => {
     const c2 = estimateCost({ model: "m" }, Buffer.from("x".repeat(200000)));
     const r2 = b.reserve(c2);
     assert.equal(r2.admitted, false);
-    assert.equal(b.costOverLimitRejections, 1);
+    assert.equal(b.budgetRejections, 1);
   });
 
   test("enabled path: same model twice -> trackedModels 1", () => {
@@ -6357,7 +6486,7 @@ describe("e04s08 counter deltas", () => {
     );
   });
 
-  test("counter delta: costOverLimitRejections +1 on over-TPM, upstream not contacted", async (t) => {
+  test("counter delta: budgetRejections +1 on over-TPM, upstream not contacted", async (t) => {
     const { proxy, receivedRequests } = await withProxy(t, {
       proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1", PROXY_SAFETY_MARGIN_PCT: "0" },
       body: "{}",
@@ -6372,9 +6501,9 @@ describe("e04s08 counter deltas", () => {
     assert.equal(receivedRequests.length, 0, "over-budget request never reached upstream");
     const after = await readStats(proxy);
     assert.equal(
-      after.costOverLimitRejections,
-      before.costOverLimitRejections + 1,
-      "costOverLimitRejections must advance exactly once"
+      after.budgetRejections,
+      before.budgetRejections + 1,
+      "budgetRejections must advance exactly once"
     );
   });
 

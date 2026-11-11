@@ -59,11 +59,17 @@ export const WINDOW_MILLIS = 60_000;
 const FALLBACK_CHARS_PER_TOKEN = 4;
 const MIN_TOKENS = 1;
 
-// Requested output, when the body does not say. The cap and the default are
+// Requested output, when the body does not say. The default is
 // estimator policy, not configuration: an operator sets a budget, not the
-// model's optimism about its own reply length.
+// model's optimism about its own reply length. The body's requested output
+// is reserved as-is: there is no silent 4096 cap, so a large max_tokens
+// reserves a large budget instead of being flattened down.
 const DEFAULT_REQUESTED_OUTPUT_TOKENS = 1024;
-const MAX_REQUESTED_OUTPUT_TOKENS = 4096;
+
+// Conservative per image/audio (multimodal) part: an unsupported modality
+// must not receive a near-zero input estimate, so each such part is charged
+// a fixed char count (~192 tokens at four chars per token).
+const MODALITY_FALLBACK_CHARS = 768;
 
 // Effective limit arithmetic: the margin is a percentage taken out of the
 // advertised budget, floored at one request or token so a limit that
@@ -84,12 +90,13 @@ export function estimateCost(json, buffer) {
   if (!parsed) return fallbackCostFromBuffer(buffer, model);
 
   // Input is summed per part; requested output is the one number the body can
-  // name. Anything beyond the cap is flattened down to it, so a body asking
-  // for an enormous completion cannot reserve a budget-busting cost.
+  // name. The requested amount is reserved as-is: there is no silent 4096
+  // cap, so a body asking for a large completion reserves a large budget
+  // instead of being flattened down.
   const requestedRaw = Number(parsed.maxTokens);
   const requested =
     Number.isFinite(requestedRaw) && requestedRaw > 0
-      ? Math.min(MAX_REQUESTED_OUTPUT_TOKENS, Math.floor(requestedRaw))
+      ? Math.floor(requestedRaw)
       : DEFAULT_REQUESTED_OUTPUT_TOKENS;
 
   const inputTokens = tokensFromChars(parsed.inputChars + parsed.toolChars);
@@ -185,19 +192,24 @@ function countTextChars(value) {
   }
   if (Array.isArray(value)) {
     let total = 0;
-    for (const part of value) {
-      if (typeof part === "string") total += part.length;
-      else if (part && typeof part === "object") {
-        if (typeof part.text === "string") total += part.text.length;
-        if (typeof part.content === "string") total += part.content.length;
-      }
-    }
+    for (const part of value) total += countTextChars(part);
     return total;
   }
   if (typeof value === "object") {
-    if (typeof value.text === "string") return value.text.length;
-    if (typeof value.content === "string") return value.content.length;
-    return Object.keys(value).join("").length;
+    // Multimodal parts (image/audio) are unsupported modalities: charge a
+    // conservative fixed amount so they are never estimated near zero.
+    if (
+      value.type &&
+      (value.type === "image" ||
+        value.type === "audio" ||
+        value.type === "image_url" ||
+        value.type === "audio_url")
+    ) {
+      return MODALITY_FALLBACK_CHARS;
+    }
+    let total = 0;
+    for (const key of Object.keys(value)) total += countTextChars(value[key]);
+    return total;
   }
   return 0;
 }
@@ -355,7 +367,7 @@ export function createBudget(rateLimit, limits, modelLimits) {
       close() {},
     };
     Object.defineProperties(disabled, {
-      costOverLimitRejections: { get: () => 0, enumerable: true },
+      budgetRejections: { get: () => 0, enumerable: true },
       trackedModels: { get: () => 0, enumerable: true },
       usageReconciled: { get: () => 0, enumerable: true },
       usageEstimateFallbacks: { get: () => 0, enumerable: true },
@@ -365,7 +377,7 @@ export function createBudget(rateLimit, limits, modelLimits) {
 
   let reconciledCount = 0;
   let fallbackCount = 0;
-  let costOverLimitRejectionsCount = 0;
+  let budgetRejectionsCount = 0;
   // Null prototype: model ID is operator-supplied text; "__proto__" must be an
   // ordinary entry, not swallowed by the prototype setter.
   const trackedModels = Object.create(null);
@@ -413,7 +425,7 @@ export function createBudget(rateLimit, limits, modelLimits) {
     if (typeof cost.model === "string") trackedModels[cost.model] = true;
     const global = globalWindow.check(cost);
     if (!global.admitted) {
-      costOverLimitRejectionsCount += 1;
+      budgetRejectionsCount += 1;
       return global;
     }
 
@@ -422,7 +434,7 @@ export function createBudget(rateLimit, limits, modelLimits) {
     if (modelWindow) {
       model = modelWindow.check(cost);
       if (!model.admitted) {
-        costOverLimitRejectionsCount += 1;
+        budgetRejectionsCount += 1;
         return {
           admitted: false,
           reason: modelReason(model.reason),
@@ -507,9 +519,9 @@ export function createBudget(rateLimit, limits, modelLimits) {
       return fallbackCount;
     },
   });
-  Object.defineProperty(budget, "costOverLimitRejections", {
+  Object.defineProperty(budget, "budgetRejections", {
     get() {
-      return costOverLimitRejectionsCount;
+      return budgetRejectionsCount;
     },
   });
   Object.defineProperty(budget, "trackedModels", {
