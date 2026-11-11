@@ -1934,6 +1934,72 @@ describe("operational limit config", () => {
   });
 });
 
+describe("upstream timeout config", () => {
+  const NAME_CONNECT = "UPSTREAM_CONNECT_TIMEOUT_SECONDS";
+  const NAME_IDLE = "UPSTREAM_IDLE_TIMEOUT_SECONDS";
+  const BASE_ENV = {
+    NVIDIA_BASE_URL: "https://example.com/v1",
+    NVIDIA_API_KEY: "k",
+    PROXY_AUTH_TOKEN: "t",
+  };
+
+  // Fatal cases inherit process.env, so a valid upstream base and both
+  // credentials are passed explicitly: without them the child would exit 1
+  // for an unrelated reason and the assertion would prove nothing.
+
+  test(`${NAME_CONNECT} with non-digits exits 1 and names the variable on stderr`, async () => {
+    const { code, stderr } = await runProxyOnce({
+      ...BASE_ENV,
+      [NAME_CONNECT]: "abc",
+    });
+    assert.equal(code, 1);
+    assert.match(stderr, new RegExp(NAME_CONNECT));
+  });
+
+  test(`${NAME_IDLE} with non-digits exits 1 and names the variable on stderr`, async () => {
+    const { code, stderr } = await runProxyOnce({
+      ...BASE_ENV,
+      [NAME_IDLE]: "xyz",
+    });
+    assert.equal(code, 1);
+    assert.match(stderr, new RegExp(NAME_IDLE));
+  });
+
+  test(`${NAME_CONNECT}=0 starts and serves /health`, async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { ...BASE_ENV, [NAME_CONNECT]: "0" },
+    });
+    const res = await proxiedFetch(proxy.port, "/health");
+    assert.equal(res.status, 200);
+  });
+
+  test(`${NAME_IDLE}=60 starts and serves /health`, async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { ...BASE_ENV, [NAME_IDLE]: "60" },
+    });
+    const res = await proxiedFetch(proxy.port, "/health");
+    assert.equal(res.status, 200);
+  });
+
+  test("both timeouts unset starts with defaults", async (t) => {
+    const { proxy } = await withProxy(t, { proxyEnv: { ...BASE_ENV } });
+    const res = await proxiedFetch(proxy.port, "/health");
+    assert.equal(res.status, 200);
+  });
+
+  test("whitespace-only timeouts fall back to defaults", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: {
+        ...BASE_ENV,
+        [NAME_CONNECT]: "   ",
+        [NAME_IDLE]: "  ",
+      },
+    });
+    const res = await proxiedFetch(proxy.port, "/health");
+    assert.equal(res.status, 200);
+  });
+});
+
 // The buffered-body ceiling and the per-model budget map, the last two
 // variables this story adds. Neither is acted on here: the assertions are
 // about startup — which configurations come up, which crash, and what stderr
