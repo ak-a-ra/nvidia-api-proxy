@@ -21,7 +21,7 @@ engines.node range wider than actual supported/tested runtime.
 
 ## 4. Preconditions
 
-- npm test passes (243 tests).
+- npm test passes (248 tests).
 - package.json engines.node exists.
 
 ## 5. Solution and main flow

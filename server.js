@@ -41,6 +41,15 @@ let completed = 0;
 let oversizedBodyRejections = 0;
 let activeClientDisconnects = 0;
 
+// Aggregate buffered-byte budget, enforced at body-read time and separate
+// from the per-request cap (config.limits.maxBufferedBodyBytes). A request
+// reserves up to its per-request ceiling before reading its body, so many
+// concurrent uploads cannot push aggregate buffered bytes past the bound.
+// The slot is released on response close or error.
+const AGGREGATE_BUFFERED_BODY_BYTES = config.limits.maxBufferedBodyBytes * 4;
+let bufferedBytes = 0;
+let aggregateBodyReservation = null;
+
 // Headers stripped when copying in either direction. Not all of these are
 // hop-by-hop: host is re-derived per upstream call and content-length is
 // re-evaluated (stripped during copying and selectively restored for
@@ -88,23 +97,40 @@ function authorized(req) {
 // of the stream so the keep-alive connection is reusable, and returns null. A
 // client that disconnects mid-body returns null too, without answering a
 // socket nobody is reading.
-//
+
 // The cap counts bytes as they arrive, not bytes after a decode: a compressed
 // body is measured by what the proxy actually read.
 async function readBodyWithCap(req, res, maxBytes) {
   const chunks = [];
   let seen = 0;
-  for await (const chunk of req) {
-    seen += chunk.length;
-    if (seen > maxBytes) {
-      oversizedBodyRejections++;
-      if (!res.destroyed && !res.writableEnded) {
-        sendJson(req, res, 413, { error: "Request too large" });
+  try {
+    for await (const chunk of req) {
+      seen += chunk.length;
+      if (seen > maxBytes) {
+        oversizedBodyRejections++;
+        if (!res.destroyed && !res.writableEnded) {
+          sendJson(req, res, 413, { error: "Request too large" });
+        }
+        req.resume(); // drain the remainder so the socket is reusable
+        return null;
       }
-      req.resume(); // drain the remainder so the socket is reusable
+      chunks.push(chunk);
+    }
+  } catch (error) {
+    // Client disconnected mid-body-read: the req stream errored. Return null
+    // so the caller releases the aggregate slot and drops the lifecycle
+    // listeners without answering a socket nobody is reading. Non-disconnect
+    // stream errors are re-thrown so they reach the outer handler catch and
+    // surface as 502 instead of being silently masked.
+    const message = String(error.message ?? "");
+    const isDisconnectOrAbort =
+      error.code === "ECONNRESET" ||
+      error.code === "ECONNREFUSED" ||
+      /disconnect|abort/i.test(message);
+    if (isDisconnectOrAbort) {
       return null;
     }
-    chunks.push(chunk);
+    throw error;
   }
   if (res.destroyed || res.writableEnded) return null;
   return Buffer.concat(chunks);
@@ -152,6 +178,34 @@ async function admitWithBudget(cost) {
   const outcome = budget.reserve(cost);
   if (outcome.admitted) return outcome;
   return { admitted: false, reason: outcome.reason, retryAfterSeconds: outcome.retryAfter };
+}
+
+// Aggregate body-read budget, enforced at body-read time and separate from
+// the per-request cap (config.limits.maxBufferedBodyBytes). A request
+// reserves up to its per-request ceiling before any byte is buffered, so
+// many concurrent uploads cannot push aggregate buffered bytes past the
+// bound. The reservation is released on response close or error.
+//
+// The ceiling is reserved up front (a synchronous increment before the first
+// await) so concurrent body reads cannot race past the bound between the
+// check and the read. AGGREGATE_BUFFERED_BODY_BYTES is 4x the per-request
+// ceiling, which also bounds the number of simultaneous body reads to four.
+function acquireAggregateBodySlot(maxBytes) {
+  if (bufferedBytes + maxBytes > AGGREGATE_BUFFERED_BODY_BYTES) return false;
+  bufferedBytes += maxBytes;
+  return true;
+}
+
+function releaseAggregateBodySlot(bytes) {
+  bufferedBytes -= bytes;
+  if (bufferedBytes < 0) bufferedBytes = 0;
+}
+
+function releaseAggregateBodyIfHeld() {
+  if (aggregateBodyReservation === null) return;
+  const held = aggregateBodyReservation;
+  aggregateBodyReservation = null;
+  releaseAggregateBodySlot(held);
 }
 
 // Opt-in per-request logging (PROXY_LOG_REQUESTS, parsed by config.js). One
@@ -300,16 +354,46 @@ const server = http.createServer(async (req, res) => {
     let forwardedBody = undefined;
     let budgetReservation = null;
     if (budget.enabled) {
-      const buffer = await readBodyWithCap(req, res, config.limits.maxBufferedBodyBytes);
+      const maxBytes = config.limits.maxBufferedBodyBytes;
+      // Reserve aggregate slot before any byte is buffered: many concurrent
+      // uploads cannot push aggregate buffered bytes past the bound.
+      if (!acquireAggregateBodySlot(maxBytes)) {
+        const payload = JSON.stringify({ error: "Request too large" });
+        if (!res.destroyed && !res.writableEnded) {
+          res.writeHead(503, {
+            "content-type": "application/json; charset=utf-8",
+            "content-length": Buffer.byteLength(payload),
+          });
+          res.end(payload);
+        }
+        res.removeListener("close", onDownstreamClose);
+        res.removeListener("close", releaseOnce);
+        return;
+      }
+      aggregateBodyReservation = maxBytes;
+      const buffer = await readBodyWithCap(req, res, maxBytes);
       // null already answered the client (413), or the client is gone: drop
       // the lifecycle listeners the same way the rejection arms below do, so
       // nothing is left listening on a response that is finished.
       if (buffer === null) {
+        releaseAggregateBodySlot(aggregateBodyReservation);
+        aggregateBodyReservation = null;
         res.removeListener("close", onDownstreamClose);
         res.removeListener("close", releaseOnce);
         return;
       }
       forwardedBody = buffer;
+      // Client may have disconnected while we were reading (empty body read,
+      // res already destroyed). Bail out before touching the dead response so
+      // the aggregate slot is released and no error is reported to a socket
+      // nobody is reading.
+      if (res.destroyed || res.writableEnded) {
+        releaseAggregateBodySlot(aggregateBodyReservation);
+        aggregateBodyReservation = null;
+        res.removeListener("close", onDownstreamClose);
+        res.removeListener("close", releaseOnce);
+        return;
+      }
     }
 
     // Budget gate. When rate limiting is off this whole block is skipped: the
@@ -324,6 +408,7 @@ const server = http.createServer(async (req, res) => {
       const cost = estimateCost(parseJsonBody(forwardedBody), forwardedBody);
       const outcome = await admitWithBudget(cost);
       if (!outcome.admitted) {
+        releaseAggregateBodyIfHeld();
         res.removeListener("close", onDownstreamClose);
         res.removeListener("close", releaseOnce);
         // Client vanished before the answer could matter, or the window closed
@@ -345,6 +430,7 @@ const server = http.createServer(async (req, res) => {
 
     ticket = await admission.acquire(ac.signal);
     if (!ticket.admitted) {
+      releaseAggregateBodyIfHeld();
       // Clean up the downstream-close listeners before any early return so a
       // rejected request cannot later abort a finished or unrelated stream.
       res.removeListener("close", onDownstreamClose);
@@ -373,6 +459,7 @@ const server = http.createServer(async (req, res) => {
       );
     }
     if (res.destroyed || res.writableEnded) {
+      releaseAggregateBodyIfHeld();
       releaseOnce();
       completed++;
       return;
@@ -470,6 +557,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(upstream.status, responseHeaders);
 
     if (!upstream.body) {
+      releaseAggregateBodyIfHeld();
       completed++;
       if (budgetReservation) {
         budgetReservation.reconcile(null);
@@ -534,6 +622,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     const onComplete = (error) => {
+      releaseAggregateBodyIfHeld();
       clearTimeout(idleTimer);
       completed++;
       if (sseObserver) {
@@ -601,6 +690,7 @@ const server = http.createServer(async (req, res) => {
       pipeline(src, res, onComplete);
     }
   } catch (error) {
+    releaseAggregateBodyIfHeld();
     if (error.message === "client disconnected") {
       // Client went away: nothing to report, no response to send.
       activeClientDisconnects++;
@@ -608,8 +698,14 @@ const server = http.createServer(async (req, res) => {
     }
     console.error(error);
     if (!res.headersSent && !res.destroyed) {
-      // Internal details (DNS names, URLs) must not leak to callers.
-      sendJson(req, res, 502, { error: "Bad gateway" });
+      // Internal details (DNS names, URLs) must not leak to callers. Guard
+      // sendJson against a socket that vanished while we were handling the
+      // error — writing to a dead socket would throw and crash the process.
+      try {
+        sendJson(req, res, 502, { error: "Bad gateway" });
+      } catch {
+        // Socket already gone; nothing to send.
+      }
     } else {
       res.destroy();
     }

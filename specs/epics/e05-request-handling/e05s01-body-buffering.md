@@ -22,7 +22,7 @@ No bound exists on aggregate buffered body bytes across concurrent requests. Mem
 
 ## 4. Preconditions
 
-- npm test passes (243 tests).
+- npm test passes (248 tests).
 - Rate-limit modules (config, budget, admission) are implemented and passing (e04 complete).
 
 ## 5. Solution and main flow

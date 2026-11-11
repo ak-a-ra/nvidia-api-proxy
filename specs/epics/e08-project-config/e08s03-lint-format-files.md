@@ -21,7 +21,7 @@ admission.js and observer.js skipped by lint/format scripts.
 
 ## 4. Preconditions
 
-- npm test passes (243 tests).
+- npm test passes (248 tests).
 - package.json scripts exist.
 
 ## 5. Solution and main flow

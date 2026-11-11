@@ -22,7 +22,7 @@ TPM preflight estimate systematically undercounts large outputs, nested tool sch
 
 ## 4. Preconditions
 
-- npm test passes (243 tests).
+- npm test passes (248 tests).
 - budget.js estimateCost implemented (e04s04/e04s05).
 
 ## 5. Solution and main flow

@@ -133,7 +133,7 @@ out_of_scope:
 notes:
   - e04 rate-limiting epic is complete (e04s01-e04s09 passing).
   - All 10 issues have no labels yet.
-  - Test count (243) must be synced into every living doc if a story changes
+  - Test count (248) must be synced into every living doc if a story changes
     the suite size.
   - Issues #24, #29, #33, #34 are P1 (direct user-facing behavior or security).
   - Issues #25, #26, #31, #32, #35 are P2 (documentation / hygiene).

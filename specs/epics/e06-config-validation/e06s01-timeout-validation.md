@@ -21,7 +21,7 @@ Invalid timeout values are silently accepted instead of failing fast at startup.
 
 ## 4. Preconditions
 
-- npm test passes (243 tests).
+- npm test passes (248 tests).
 - config.js parseConfig implemented (e04s01).
 
 ## 5. Solution and main flow

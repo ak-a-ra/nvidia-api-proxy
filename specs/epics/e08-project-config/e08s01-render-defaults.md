@@ -21,7 +21,7 @@ Fresh Render deployment does not imply rate limiting is active; operators may as
 
 ## 4. Preconditions
 
-- npm test passes (243 tests).
+- npm test passes (248 tests).
 - render.yaml and README exist.
 
 ## 5. Solution and main flow

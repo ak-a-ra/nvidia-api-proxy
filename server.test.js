@@ -1,4 +1,5 @@
 import http from "node:http";
+import { Readable } from "node:stream";
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -6473,5 +6474,208 @@ describe("e04s08 counter deltas", () => {
         after.trackedModels <= before.trackedModels + 1,
       "trackedModels rises at most one for a new model"
     );
+  });
+});
+
+describe("body buffering", () => {
+  const BODY_RATE_ON = {
+    PROXY_RPM: "1000",
+    PROXY_TPM: "1000000",
+    PROXY_SAFETY_MARGIN_PCT: "0",
+  };
+
+  const SMALL_BODY = {
+    ...BODY_RATE_ON,
+    PROXY_MAX_BUFFERED_BODY_BYTES: "256",
+  };
+
+  async function postBody(proxy, size, opts = {}) {
+    const body = JSON.stringify({
+      model: "m",
+      messages: [{ role: "user", content: "x".repeat(size) }],
+    });
+    return proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json", ...opts.headers },
+      body,
+      ...opts,
+    });
+  }
+
+  test("many simultaneous uploads stay within the aggregate buffered-byte bound", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: SMALL_BODY,
+      mode: "hold",
+    });
+    const inflight = [];
+    for (let i = 0; i < 8; i++) {
+      const p = postBody(proxy, 200);
+      p.catch(() => {});
+      inflight.push(p);
+    }
+    // At least one request reached upstream (some admitted, some may wait/reject).
+    const deadline = Date.now() + 10000;
+    while (receivedRequests.length < 1 && Date.now() < deadline) await settle(10);
+    assert.ok(receivedRequests.length >= 1, "at least one body-read response reached upstream");
+    endHeld(heldResponses);
+    const results = await Promise.allSettled(inflight);
+    const statuses = [];
+    for (const r of results) {
+      if (r.status === "fulfilled") statuses.push(r.value.status);
+    }
+    for (const s of statuses) {
+      assert.ok(s === 200 || s === 503, "unexpected status " + String(s) + ", expected 200 or 503");
+    }
+    assert.ok(statuses.includes(200), "at least one upload admitted");
+    for (const rec of receivedRequests) {
+      assert.ok(
+        rec.rawBody.length <= 256,
+        "upstream body " + rec.rawBody.length + " exceeds per-request cap"
+      );
+    }
+  });
+
+  test("slow uploads cannot grow memory without bound", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: SMALL_BODY,
+      mode: "hold",
+    });
+    const inflight = [];
+    for (let i = 0; i < 5; i++) {
+      const body = new Readable({ read() {} });
+      const chunks = ["a".repeat(50), "b".repeat(50), "c".repeat(50), "d".repeat(50)];
+      let idx = 0;
+      const iv = setInterval(() => {
+        if (idx < chunks.length) body.push(chunks[idx++]);
+        else {
+          clearInterval(iv);
+          body.push(null);
+        }
+      }, 20);
+      const p = proxiedFetch(proxy.port, "/v1/chat/completions", {
+        method: "POST",
+        headers: { authorization: "Bearer pt", "content-type": "application/json" },
+        body,
+        duplex: "half",
+      });
+      p.catch(() => {});
+      inflight.push(p);
+    }
+    const deadline2 = Date.now() + 15000;
+    while (receivedRequests.length < 1 && Date.now() < deadline2) await settle(10);
+    assert.ok(receivedRequests.length >= 1, "at least one slow upload reached upstream");
+    endHeld(heldResponses);
+    await Promise.allSettled(inflight);
+    for (const rec of receivedRequests) {
+      assert.ok(
+        rec.rawBody.length <= 256,
+        "body " + rec.rawBody.length + " exceeds per-request cap"
+      );
+    }
+  });
+
+  test("disconnect during upload releases the aggregate slot", async (t) => {
+    const { proxy, heldResponses } = await withProxy(t, {
+      proxyEnv: SMALL_BODY,
+      mode: "hold",
+    });
+
+    // Holder occupies one aggregate slot with a held upstream response.
+    const holder = postBody(proxy, 200);
+    holder.catch(() => {});
+    await waitForCount("holder admitted", () => heldResponses.length, 1, 10000);
+
+    // Victim streams its body slowly: no data pushed until after we abort,
+    // so the client disconnects mid-read and the proxy must release the slot.
+    const abort = new AbortController();
+    const victimBody = new Readable({ read() {} });
+    setTimeout(() => {
+      victimBody.push("z".repeat(200));
+      victimBody.push(null);
+    }, 500);
+    const victim = proxiedFetch(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+      body: victimBody,
+      duplex: "half",
+      signal: abort.signal,
+    });
+    victim.catch(() => {});
+    await settle(100);
+    abort.abort();
+    await victim.catch(() => {});
+    await settle(100);
+
+    // Recovery upload: slot was released, so it must be admitted (200).
+    // Do not read the body: the upstream holds the response (mode "hold").
+    const recovery = await postBody(proxy, 200);
+    assert.equal(recovery.status, 200, "recovery upload admitted after disconnect released slot");
+    endHeld(heldResponses);
+    await holder.catch(() => {});
+  });
+
+  test("aggregate-bound rejection answers 503 and never contacts upstream", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: SMALL_BODY,
+      mode: "hold",
+    });
+    const holders = [];
+    for (let i = 0; i < 4; i++) {
+      const b = new Readable({ read() {} });
+      const ch = ["w".repeat(256)];
+      let ci = 0;
+      const iv = setInterval(() => {
+        if (ci < ch.length) b.push(ch[ci++]);
+        else {
+          clearInterval(iv);
+          b.push(null);
+        }
+      }, 30);
+      const p = proxiedFetch(proxy.port, "/v1/chat/completions", {
+        method: "POST",
+        headers: { authorization: "Bearer pt", "content-type": "application/json" },
+        body: b,
+        duplex: "half",
+      });
+      p.catch(() => {});
+      holders.push(p);
+    }
+    await waitForCount("4 slots filled", () => heldResponses.length, 4, 15000);
+
+    const before = receivedRequests.length;
+    const overflow = await postBody(proxy, 200);
+    assert.equal(overflow.status, 503, "aggregate-full upload is refused with 503");
+    assert.equal(receivedRequests.length, before, "rejected upload never reached upstream");
+    assert.equal(overflow.headers.get("content-type"), "application/json; charset=utf-8");
+
+    endHeld(heldResponses);
+    await Promise.allSettled(holders);
+  });
+
+  test("body-read slot released on response close admits a queued upload", async (t) => {
+    const { proxy, heldResponses } = await withProxy(t, {
+      proxyEnv: SMALL_BODY,
+      mode: "hold",
+    });
+    // 4 concurrent uploads fill all 4 aggregate slots (4 x 256 = 1024 bound).
+    const holders = [];
+    for (let i = 0; i < 4; i++) {
+      const p = postBody(proxy, 200);
+      p.catch(() => {});
+      holders.push(p);
+    }
+    await waitForCount("4 slots filled", () => heldResponses.length, 4, 15000);
+
+    // Release one holder's upstream response: its body-read slot frees.
+    heldResponses.shift().end();
+    await settle(100);
+
+    // A new upload can now proceed: admitted (200), not rejected (503).
+    // Do not read the body: the upstream holds the response (mode "hold").
+    const res = await postBody(proxy, 200);
+    assert.equal(res.status, 200, "upload admitted after slot release");
+
+    endHeld(heldResponses);
+    await Promise.allSettled(holders);
   });
 });

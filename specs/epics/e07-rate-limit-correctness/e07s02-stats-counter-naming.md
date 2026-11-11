@@ -21,7 +21,7 @@ In budget.js, reserve(), costOverLimitRejectionsCount is incremented for every r
 
 ## 4. Preconditions
 
-- npm test passes (243 tests).
+- npm test passes (248 tests).
 - budget.js reserve and /stats implemented (e04s04, e04s06).
 
 ## 5. Solution and main flow

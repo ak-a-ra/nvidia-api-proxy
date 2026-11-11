@@ -1,6 +1,6 @@
 story_id: e05s01
 title: Bound request-body buffering before admission control
-status: todo
+status: complete
 bcps: 3
 tasks:
   - id: 1
@@ -11,7 +11,7 @@ tasks:
       and released.
     verify: "grep -n 'readBodyWithCap\|admission.acquire\|PROXY_MAX_BUFFERED_BODY_BYTES' server.js"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Investigation"]
@@ -22,7 +22,7 @@ tasks:
       response close/error. Reject excess uploads before accumulating full bodies.
     verify: "node --check server.js"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Implementation"]
@@ -32,7 +32,7 @@ tasks:
       disconnects during upload, recovery after a reader slot is released.
     verify: "node --test --test-name-pattern 'body buffering'"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Tests"]
@@ -42,7 +42,7 @@ tasks:
       changed.
     verify: "npm test && npm run format:check && npm run lint"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Regression"]
