@@ -214,6 +214,9 @@ function releaseAggregateBodyIfHeld() {
 // callback can precede the response it describes. Method, path, status, and
 // duration are the whole line by construction — no header, no body, no
 // credential, no upstream host ever reaches it.
+// The path is pathname only: the query string is redacted so a secret in a
+// query parameter never reaches stdout. Upstream forwarding keeps pathname
+// + search verbatim.
 function logRequestOnClose(req, res, startedAt, incoming) {
   res.on("close", () => {
     try {
@@ -221,7 +224,7 @@ function logRequestOnClose(req, res, startedAt, incoming) {
         JSON.stringify({
           ts: new Date().toISOString(),
           method: req.method,
-          path: `${incoming.pathname}${incoming.search}`,
+          path: incoming.pathname,
           // The last status written to the client. 0 means the response was
           // destroyed before any status reached it — a client disconnect, or a
           // mid-stream upstream abort. That is a fact about the socket, not a

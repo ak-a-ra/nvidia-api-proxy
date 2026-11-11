@@ -23,14 +23,16 @@ active_story: e05s02
 session_start: 2026-10-16T18:02:00Z
 seed_conventions_complete: 2026-09-23T08:15:00Z
 handoff:
-  next_skill: kickoff-branch
-  source: slice-tasks
+  next_skill: request-review
+  source: implementer-e05s02
   note: >-
-    Scope-work complete: SCOPE_LATEST.yaml covers all 10 issues #24-#35.
-    Slice-tasks complete: epic capsules e05-e08 created with story specs and
-    task YAMLs (14 tasks across 10 stories). execution-status.yaml updated
-    with all new stories as todo. e05s01 complete (PASS). Now: kickoff-branch
-    for e05s02 (issue #34 P1 query redaction), then develop-tdd implementer.
+    e05s02 complete (issue #34 P1 query redaction): server.js logRequestOnClose
+    logs incoming.pathname only (query string redacted), comment updated;
+    upstream forwarding unchanged (pathname + search verbatim); black-box HTTP
+    test added that query-string secret is not logged and closed field set
+    [method,ms,path,status,ts] kept; npm test green (249 pass, 0 fail);
+    npm run check clean (lint, typecheck, format:check); e05s02-tasks.yaml all
+    marked done; living docs synced 248→249. Ready for reviewer-e05s02.
     Order: e05 -> e06 -> e07 -> e08, P1 stories first within each epic.
 
 decisions:

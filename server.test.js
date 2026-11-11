@@ -2638,6 +2638,38 @@ describe("request logging", () => {
     }
   });
 
+  // A query-string secret is redacted from logs while upstream gets the full URL.
+  test("query-string secret is not logged, closed field set kept", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: LOG,
+      proxyOpts: { captureStdout: true },
+      body: JSON.stringify({ ok: true }),
+      headers: { "content-type": "application/json" },
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions?sk=secret123", {
+      method: "GET",
+      headers: { authorization: "Bearer pt", "content-type": "application/json" },
+    });
+    assert.equal(res.status, 200);
+    await res.text();
+    const [line] = await waitForLines(proxy, 1);
+    assert.equal(
+      line.path,
+      "/v1/chat/completions",
+      `expected pathname only: ${JSON.stringify(line)}`
+    );
+    assert.ok(!proxy.stdout().includes("secret123"), `stdout must not contain the query secret`);
+    assert.deepEqual(
+      Object.keys(line).sort(),
+      ["method", "ms", "path", "status", "ts"],
+      `field set stays closed`
+    );
+    assert.equal(line.method, "GET");
+    assert.equal(typeof line.status, "number");
+    assert.equal(typeof line.ms, "number");
+    assert.ok(!Number.isNaN(Date.parse(line.ts)), `ts is a timestamp`);
+  });
+
   // The line shape. Object.keys is asserted too: a line that grew a sixth
   // field would be a format change this story never agreed to, and the field
   // list is the cheapest place to catch one.
@@ -2664,7 +2696,7 @@ describe("request logging", () => {
       `the line carries method, path, status, duration and nothing else: ${JSON.stringify(line)}`
     );
     assert.equal(line.method, "POST");
-    assert.equal(line.path, "/v1/chat/completions?stream=true");
+    assert.equal(line.path, "/v1/chat/completions");
     assert.equal(line.status, 200);
     assert.equal(typeof line.ts, "string");
     assert.ok(!Number.isNaN(Date.parse(line.ts)), `ts is a timestamp: ${line.ts}`);
@@ -2831,14 +2863,13 @@ describe("request logging", () => {
     }
   });
 
-  // The disclosed half of that boundary. The closed field set keeps the proxy's
-  // own key, token, headers and bodies out; it does not scrub the one field a
-  // client controls. `path` is the incoming request target copied byte for byte,
-  // query string included, so a caller who puts a secret in a query parameter
-  // puts it in the operator's log — stated in README, tech-stack.md and ADR
-  // 0002. Pinned here so turning on redaction is a deliberate, visible change
-  // rather than a silent narrowing of what an operator can debug.
-  test("the query string is logged verbatim: a client-supplied query credential reaches the line", async (t) => {
+  // The redacted half of that boundary. The closed field set keeps the proxy's
+  // own key, token, headers and bodies out, and path is pathname only: the
+  // query string is redacted so a secret in a query parameter never reaches
+  // stdout. `path` is the incoming request target's pathname, query string
+  // dropped — stated in server.js and ADR 0002. Pinned here so undoing
+  // redaction is a deliberate, visible change rather than a silent leak.
+  test("the query string is redacted: a client-supplied query credential does not reach the line", async (t) => {
     const { proxy } = await withProxy(t, {
       proxyEnv: LOG,
       proxyOpts: { captureStdout: true },
@@ -2853,14 +2884,14 @@ describe("request logging", () => {
     const [line] = await waitForLines(proxy, 1);
     assert.equal(
       line.path,
-      target,
-      "the request target is echoed byte for byte, query string included"
+      "/v1/models",
+      `path is pathname only, query string dropped: ${JSON.stringify(line.path)}`
     );
     const stdout = proxy.stdout();
     for (const secret of ["sk-QUERY-KEY-ccc333", "QUERYTOKEN-ddd444"]) {
       assert.ok(
-        stdout.includes(secret),
-        `disclosed behavior: a client query credential is logged verbatim (${secret}): ${stdout}`
+        !stdout.includes(secret),
+        `redacted behavior: a client query credential is not logged (${secret}): ${stdout}`
       );
     }
     assert.deepEqual(

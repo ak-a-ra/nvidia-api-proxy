@@ -1,6 +1,6 @@
 story_id: e05s02
 title: Log pathname only, redact query string
-status: todo
+status: done
 bcps: 2
 tasks:
   - id: 1
@@ -9,7 +9,7 @@ tasks:
       search/query string and the comment claims no credentials logged.
     verify: "grep -n 'logRequestOnClose\\|path\\|query' server.js | head -40"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Investigation"]
@@ -19,7 +19,7 @@ tasks:
       Update the comment to accurately state logged fields.
     verify: "node --check server.js"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Implementation"]
@@ -29,7 +29,7 @@ tasks:
       that the log line keeps the closed field set.
     verify: "node --test --test-name-pattern 'query string\\|secret\\|log'"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Tests"]
@@ -38,7 +38,7 @@ tasks:
       Run full suite, lint, format:check.
     verify: "npm test && npm run lint && npm run format:check"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Regression"]
