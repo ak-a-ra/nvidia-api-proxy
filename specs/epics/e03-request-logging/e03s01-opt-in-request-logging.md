@@ -3,7 +3,7 @@
 * Story: `e03s01`
 * Epic: `e03` — Opt-in request logging
 * Issue: [#9](https://github.com/ak-a-ra/nvidia-api-proxy/issues/9)
-* Status: passing
+* Status: done
 * BCPs: 3
 * Type: feat | Context: infra
 
@@ -93,10 +93,10 @@ None. Counters are not part of this story; issue #21 owns aggregate stats.
 - Logging never alters a response status, body, or headers.
 - Logging never throws into the request path — a write failure is swallowed.
 - Log lines never contain credentials, bodies, or upstream hostnames. Scope this: the proxy's own
-  key and token, any header, and any body cannot reach the line, by construction. `path` is the
-  client's own request target copied verbatim, query string included and unredacted, so a secret a
-  caller puts in a query parameter does reach the line — logged verbatim by decision, not by
-  oversight.
+  key and token, any header, and any body cannot reach the line, by construction. `path` is
+  `incoming.pathname` — the query string is dropped, so a secret a caller puts in a query
+  parameter cannot reach the line. *Superseded since*: e05s02 (issue #34) reversed this story's
+  verbatim-path decision; see §13.
 - `/health` requests are logged only if the operator enabled logging; it is not special-cased
   out.
 
@@ -115,14 +115,15 @@ method, path, status, and duration. This is the same privacy boundary that keeps
 `/stats` aggregate-only.
 
 The boundary is about the proxy's own state, not the caller's request. `path` is the one field a
-client controls, and it is the incoming request target verbatim, query string included, with no
-redaction and no allowlist of credential-shaped parameter names. Query-string credentials are a
-documented convention on several OpenAI-compatible bases, so a caller may legitimately pass a
-secret that way and the proxy will log it. Logging `pathname` alone, or masking a guessed set of
-parameter names, was considered and rejected: the first silently narrows what an operator
-debugging a query-parameter problem can see, the second is incomplete by construction. The operator
-is told instead — `README.md`, `specs/tech-architecture/tech-stack.md`, and ADR 0002 all state the
-verbatim behavior in those words, and a test pins it so a future redaction is deliberate.
+client controls, and it is `incoming.pathname` only: the query string is dropped before the line is
+written, so a caller who passes a secret in a query parameter — a documented convention on several
+OpenAI-compatible bases — cannot leak it into the operator's stdout. Forwarding is unaffected; the
+upstream still receives the full target, query included. *Superseded since*: this story's original
+decision was the opposite — verbatim `path`, with `pathname`-only logging considered and rejected as
+narrowing what an operator debugging a query-parameter problem can see. e05s02 (issue #34) reversed
+it on the strength of the leak being the expected case rather than the exotic one. ADR 0002's
+2026-11-15 amendment records the reversal, and `the query string is redacted: a client-supplied
+query credential does not reach the line` pins the current behavior.
 
 ## 14. Observability
 
@@ -173,13 +174,15 @@ Scenario: A logging failure never breaks the request
 
 *Second clarification, added at whole-story review (2026-10-01).* Scenario 2's "the line contains
 no credential" is true of the proxy's configured `NVIDIA_API_KEY` and `PROXY_AUTH_TOKEN`, of any
-`authorization` header, and of any body — the closed field set is what guarantees that. It is not
-true of a secret the *client* puts in the request target: `path` is logged verbatim, query string
-included, so `?api_key=…` is logged. Logged deliberately, disclosed in `README.md`,
-`specs/tech-architecture/tech-stack.md` and ADR 0002, and pinned by `the query string is logged
-verbatim: a client-supplied query credential reaches the line`. The scenario text is left as
-written because it is an acceptance criterion; §11 and §13 above carry the scope. Same treatment as
-§9's corrected row above.
+`authorization` header, and of any body — the closed field set is what guarantees that. At review
+time it was *not* true of a secret the client put in the request target, because `path` was logged
+verbatim with the query string included, so `?api_key=…` was logged; that was disclosed in
+`README.md`, `specs/tech-architecture/tech-stack.md` and ADR 0002 and pinned by a test.
+*Superseded since*: e05s02 (issue #34) made `path` `incoming.pathname`, so the scenario is now true
+of the client's URL as well and the pinning test is `the query string is redacted: a
+client-supplied query credential does not reach the line`. The scenario text is left as written
+because it is an acceptance criterion; §11 and §13 above carry the scope. Same treatment as §9's
+corrected row above.
 
 ## 18. Out of scope
 

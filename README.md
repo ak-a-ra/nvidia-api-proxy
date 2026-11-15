@@ -6,7 +6,7 @@
 
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-3c873a?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](package.json)
-[![Tests](https://img.shields.io/badge/tests-264%20passing-blue?style=flat-square)](server.test.js)
+[![Tests](https://img.shields.io/badge/tests-265%20passing-blue?style=flat-square)](server.test.js)
 
 [Features](#features) • [How it works](#how-it-works) • [Quick start](#quick-start) • [Configuration](#configuration) • [Endpoints](#endpoints) • [Deploy](#deploy-to-render)
 
@@ -113,7 +113,7 @@ const client = new OpenAI({
 ```
 
 > [!TIP]
-> Run the test suite (264 tests, no deps needed):
+> Run the test suite (265 tests, no deps needed):
 > ```bash
 > npm test
 > ```
@@ -243,7 +243,7 @@ indistinguishable from today's build.
 | ------------- | ------------------------------------------------------------------------------- |
 | `ts` | ISO 8601 timestamp, taken when the line is written |
 | `method` | Request method |
-| `path` | Incoming path and query string, verbatim — exactly the string forwarded upstream |
+| `path` | Incoming request path only — the query string is dropped, not forwarded verbatim to the log |
 | `status` | Last status written to the client, or `0` if the response was destroyed before any status was written |
 | `ms` | Milliseconds from request arrival to the response closing |
 
@@ -252,11 +252,12 @@ Those five fields are the whole line. **A line never contains** request or respo
 the upstream host and port.
 
 That list is about the proxy's own state, not about the caller's request. `path` is the one
-client-controlled field, and it is copied byte for byte — query string included, with no redaction
-and no filtering of credential-shaped parameter names. A caller who puts a secret in a query
-parameter (`?api_key=…` is a common convention on OpenAI-compatible gateways, and `NVIDIA_BASE_URL`
-is yours to choose) puts that secret in the log. **With logging on, never pass a credential in a
-URL.** The proxy's own key and token are excluded; a caller's own URL is not.
+client-controlled field, and it is the request's pathname only: the query string is dropped before
+the line is written, so a credential a caller puts in a query parameter (`?api_key=…` is a common
+convention on OpenAI-compatible gateways) never reaches stdout. The upstream still receives the
+full target — path and query, byte for byte — because redaction applies to the log line, not to
+forwarding. This is pinned by a test that sends a query credential and asserts it is absent from
+the child's output, so restoring the query string would be a visible, deliberate change.
 
 A line is written on the response's `close` event, so a streamed response is logged when the stream
 completes and its client-visible bytes are unchanged. `/health` and the local rejections (`401`,

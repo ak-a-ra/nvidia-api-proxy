@@ -15,6 +15,11 @@
   rate-limiting limits is now read at request time. Decision §1.4, §1.6, and the Coverage section
   are amended. The failure mode does not change: the parsing rules and the fatal regime are
   untouched. See *Decision* §1.4, §1.6, and *Consequences*.
+* Amended: 2026-11-15 — e05s02 (issue #34) takes the redaction decision this ADR deferred: the
+  request log line's `path` is now `incoming.pathname`, query string dropped. The *Consequences*
+  caveat below is superseded and the Coverage test that pinned the verbatim query string is
+  replaced by one that pins its absence. Forwarding is untouched — the upstream still receives the
+  full target. See *Consequences* (request-log boundary) and *Compliance*.
 * Amended: 2026-10-01 — counts corrected against `config.js`: eight rate-limiting limits (the epic
   added nine `PROXY_*` variables, `PROXY_HOST` being the ninth and not a limit), ten variables on
   the fatal path. See *Context* and *Consequences*.
@@ -407,20 +412,25 @@ otherwise normalized — and case sensitivity is load-bearing: `Gpt` and `gpt` a
   literal in `logRequestOnClose` names `ts`, `method`, `path`, `status`, and `ms` and nothing else,
   so a header, a body, a credential, or the upstream host cannot reach the line even if a future
   edit forgets to exclude one. Its privacy boundary is reviewable as a five-item list.
-* **One caveat on that boundary, because a closed field set is not a redaction pass.** `path` is
-  the incoming request target copied byte for byte — query string included, with nothing masked and
-  no allowlist of credential-shaped parameter names. It is the only client-controlled field in the
-  line, so a caller that puts a secret in a query parameter puts it in the operator's stdout, and
-  query-string credentials are a documented convention on several OpenAI-compatible bases. The
-  exclusion list above is true about the *proxy's own* state (its key, its token, headers, bodies,
-  upstream host) and silent about the caller's URL; `README.md`, `tech-stack.md` § Request Logging,
-  and story §11/§13/§17 say so in those words. Rejected alternative: logging `incoming.pathname`
-  alone, or masking a guessed set of parameter names — the first silently narrows what an operator
-  debugging a query-parameter problem can see, the second is incomplete by construction, and both
-  break the story's §8 verbatim-path contract. Disclosing is the honest fix; redacting is a
-  different, deliberate design decision a future story can take with a migration note. The current
-  behavior is pinned by `the query string is logged verbatim: a client-supplied query credential
-  reaches the line`.
+* **The boundary is closed on both sides: the field set *and* the caller's query string.** `path`
+  is `incoming.pathname` — the query string is dropped before the line is written, so a caller that
+  puts a secret in a query parameter cannot put it in the operator's stdout. The exclusion list
+  above is about the *proxy's own* state (its key, its token, headers, bodies, upstream host); the
+  pathname-only rule is what covers the caller's URL. `README.md` and `tech-stack.md` § Request
+  Logging say so in those words, and the behavior is pinned by `the query string is redacted: a
+  client-supplied query credential does not reach the line`, which asserts both the pathname-only
+  `path` and the credential's absence from the child's stdout.
+
+  The amendment history matters here, because the earlier version of this ADR argued the opposite.
+  Verbatim logging was the original choice: it kept what an operator debugging a query-parameter
+  problem can see, and the alternative — masking a guessed set of credential-shaped parameter
+  names — is incomplete by construction and breaks the story's §8 verbatim-path contract. e05s02
+  (issue #34) reversed that on the strength of a simpler observation: query-string credentials are
+  a documented convention on OpenAI-compatible bases, so the leaked secret is the expected case and
+  not the exotic one, and an operator rarely needs the query string to debug what the proxy itself
+  did. Logging `incoming.pathname` was the rejected option here and is now the behavior. The
+  verbatim-path contract survives where it belongs — forwarding — because redaction applies to the
+  log line, not to the translated upstream URL.
 
 **Negative / neutral**
 
@@ -633,11 +643,12 @@ Pinned by tests in `server.test.js`. Every name below is quoted from the suite.
 * `no request log line contains the proxy token, the API key, an authorization value, a request
   body, or the upstream host:port` — the exclusion rule from the story, pinned against a child whose
   stdout the harness actually reads;
-* `the query string is logged verbatim: a client-supplied query credential reaches the line` — the
-  disclosed half of that boundary. The exclusion rule above is about the proxy's own state;
-  `path` is the client-controlled field and is copied byte for byte, so a credential a caller puts
-  in a query parameter is logged. Pinned deliberately, so redacting it later is a visible decision
-  rather than a silent change to what an operator can debug;
+* `the query string is redacted: a client-supplied query credential does not reach the line` —
+  the caller-side half of that boundary, and the 2026-11-15 amendment to this ADR. `path` is
+  `incoming.pathname` only, so a credential a caller puts in a query parameter never reaches
+  stdout; the test asserts the exact pathname, the credential's absence from the child's stdout,
+  and that the five-field set did not grow. Pinned deliberately, so restoring the query string is
+  a visible decision rather than a silent leak;
 * `an SSE response is byte-identical with logging on and off and is logged on completion` and
   `a streamed response is logged on close, not mid-stream, and its duration covers the whole stream`
   — the close-event decision and the no-response-change invariant, for streams;

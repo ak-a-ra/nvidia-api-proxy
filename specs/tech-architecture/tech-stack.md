@@ -118,7 +118,7 @@ Examples:
 
 - Opt-in via `PROXY_LOG_REQUESTS`, default off; unset or blank is off and the disabled path registers no listener and reads no clock
 - One JSON object per request on stdout, with `ts`, `method`, `path`, `status`, `ms` — no other field, so a header, body, credential, or upstream host cannot reach the line by construction
-- `path` is the incoming request target verbatim, query string included, and nothing is redacted from it — a client that puts a secret in a query parameter puts it in the line. The closed field set is what keeps the proxy's *own* key, token, headers and bodies out; it does not scrub the caller's URL
+- `path` is the incoming request's pathname only — the query string is dropped, so a client that puts a secret in a query parameter cannot put it in the line. Forwarding is unaffected: the upstream still receives the full target, query included. The closed field set is what keeps the proxy's *own* key, token, headers and bodies out
 - `status` is the last status written to the client, or `0` when the response was destroyed before any status reached it (`res.headersSent ? res.statusCode : 0`; `res.statusCode` defaults to 200 even when nothing was written, so recording it unconditionally would invent a 200)
 - Written on the response's `close` event, so a streamed response is logged at completion and its client-visible bytes are unchanged
 - Covers `/health` and every local rejection (401, 404, 503), not only proxied requests
@@ -169,7 +169,7 @@ SIGTERM handler:
 
 ## Testing
 
-- **Test Count**: 264 tests
+- **Test Count**: 265 tests
 - **Location**: `server.test.js`
 - **Runner**: `node --test` (integration tests, no coverage instrumentation/thresholds)
 - **Pattern**: Process-level integration tests with local HTTP stubs
