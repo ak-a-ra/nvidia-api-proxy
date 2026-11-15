@@ -16,7 +16,7 @@ This project is in the **Discover** phase of the bigpowers lifecycle. It has exi
 ## Project Overview
 
 Zero-dependency Node.js reverse proxy for NVIDIA NIM API with:
-- 264 tests in server.test.js
+- 265 tests in server.test.js
 - No external dependencies
 - ESM-only architecture
 - Node >= 20 requirement
