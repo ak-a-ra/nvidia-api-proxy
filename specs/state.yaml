@@ -7,7 +7,7 @@
 ```yaml
 vcs:
   kind: git
-  commit: 87392f2
+  commit: ef43ab2
   branch: main
   worktree: /data/data/com.termux/files/home/projects/nvidia-api-proxy
   landed:
@@ -41,7 +41,7 @@ handoff:
     the ledgers still said todo/failing, and named the never-existent
     scripts/check-test-count.mjs); five living docs corrected from the old
     verbatim-query-string logging claim to the shipped pathname-only rule.
-    Pending: commit.
+    Pending: push (main is 8 ahead of origin/main).
 
 decisions:
   - decision: Per-model window pairs are built at construction time, and the story's "lazily" sentence is corrected
