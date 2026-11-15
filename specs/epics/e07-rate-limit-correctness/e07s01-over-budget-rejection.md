@@ -3,7 +3,7 @@
 * Story: e07s01
 * Epic: e07 — Rate-limit correctness
 * Issue: [#29](https://github.com/ak-a-ra/nvidia-api-proxy/issues/29)
-* Status: todo
+* Status: done
 * BCPs: 3
 * Type: fix | Context: budget / TPM
 
@@ -22,7 +22,7 @@ A request whose cost exceeds the whole TPM gets 429 forever with Retry-After: 1 
 
 ## 4. Preconditions
 
-- npm test passes (248 tests).
+- npm test passes (265 tests).
 - budget.js createWindow and retryAfterSeconds implemented (e04s04).
 
 ## 5. Solution and main flow

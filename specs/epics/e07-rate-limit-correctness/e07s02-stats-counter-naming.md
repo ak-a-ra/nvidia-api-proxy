@@ -3,7 +3,7 @@
 * Story: e07s02
 * Epic: e07 — Rate-limit correctness
 * Issue: [#32](https://github.com/ak-a-ra/nvidia-api-proxy/issues/32)
-* Status: todo
+* Status: done
 * BCPs: 2
 * Type: fix | Context: budget / /stats
 
@@ -21,7 +21,7 @@ In budget.js, reserve(), costOverLimitRejectionsCount is incremented for every r
 
 ## 4. Preconditions
 
-- npm test passes (248 tests).
+- npm test passes (265 tests).
 - budget.js reserve and /stats implemented (e04s04, e04s06).
 
 ## 5. Solution and main flow

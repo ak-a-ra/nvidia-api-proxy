@@ -1,6 +1,6 @@
 story_id: e06s02
 title: PORT validation min 1 to match comment
-status: todo
+status: done
 bcps: 2
 tasks:
   - id: 1
@@ -8,7 +8,7 @@ tasks:
       Decide intent: min 1 to match comment, or keep 0 and update comment/README.
     verify: "grep -n 'PORT\\|min\\|max' config.js | head -20"
     risk: P2
-    status: todo
+    status: done
     allure:
       severity: normal
       categories: ["Investigation"]
@@ -17,7 +17,7 @@ tasks:
       Apply the decision in parseConfig PORT validation.
     verify: "node --check config.js"
     risk: P2
-    status: todo
+    status: done
     allure:
       severity: normal
       categories: ["Implementation"]
@@ -26,7 +26,7 @@ tasks:
       Add tests: PORT=0, 1, 65535, 65536, invalid.
     verify: "node --test --test-name-pattern 'PORT'"
     risk: P2
-    status: todo
+    status: done
     allure:
       severity: normal
       categories: ["Tests"]
@@ -35,7 +35,7 @@ tasks:
       Run full suite, lint, format:check.
     verify: "npm test && npm run lint && npm run format:check"
     risk: P2
-    status: todo
+    status: done
     allure:
       severity: normal
       categories: ["Regression"]

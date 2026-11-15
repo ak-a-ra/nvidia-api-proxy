@@ -3,7 +3,7 @@
 * Story: e06s01
 * Epic: e06 — Config validation
 * Issue: [#33](https://github.com/ak-a-ra/nvidia-api-proxy/issues/33)
-* Status: todo
+* Status: done
 * BCPs: 3
 * Type: fix | Context: config / timeout
 
@@ -21,7 +21,7 @@ Invalid timeout values are silently accepted instead of failing fast at startup.
 
 ## 4. Preconditions
 
-- npm test passes (248 tests).
+- npm test passes (265 tests).
 - config.js parseConfig implemented (e04s01).
 
 ## 5. Solution and main flow

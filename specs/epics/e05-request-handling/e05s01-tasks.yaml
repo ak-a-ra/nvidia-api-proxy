@@ -1,6 +1,6 @@
 story_id: e05s01
 title: Bound request-body buffering before admission control
-status: complete
+status: done
 bcps: 3
 tasks:
   - id: 1

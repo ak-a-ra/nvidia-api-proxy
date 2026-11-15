@@ -3,7 +3,7 @@
 * Story: e05s01
 * Epic: e05 — Request handling
 * Issue: [#24](https://github.com/ak-a-ra/nvidia-api-proxy/issues/24)
-* Status: todo
+* Status: done
 * BCPs: 3
 * Type: feat | Context: rate-limit / request-handling
 
@@ -22,7 +22,7 @@ No bound exists on aggregate buffered body bytes across concurrent requests. Mem
 
 ## 4. Preconditions
 
-- npm test passes (248 tests).
+- npm test passes (265 tests).
 - Rate-limit modules (config, budget, admission) are implemented and passing (e04 complete).
 
 ## 5. Solution and main flow

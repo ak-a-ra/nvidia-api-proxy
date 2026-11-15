@@ -3,7 +3,7 @@
 * Story: e07s03
 * Epic: e07 — Rate-limit correctness
 * Issue: [#27](https://github.com/ak-a-ra/nvidia-api-proxy/issues/27)
-* Status: todo
+* Status: done
 * BCPs: 3
 * Type: feat | Context: budget / token-estimation
 
@@ -22,7 +22,7 @@ TPM preflight estimate systematically undercounts large outputs, nested tool sch
 
 ## 4. Preconditions
 
-- npm test passes (248 tests).
+- npm test passes (265 tests).
 - budget.js estimateCost implemented (e04s04/e04s05).
 
 ## 5. Solution and main flow

@@ -20,7 +20,7 @@ The log line's `path` field is `${incoming.pathname}${incoming.search}`, so any 
 
 ## 4. Preconditions
 
-- npm test passes (249 tests).
+- npm test passes (265 tests).
 - logRequestOnClose exists and logs closed field set ts/method/path/status/ms.
 
 ## 5. Solution and main flow

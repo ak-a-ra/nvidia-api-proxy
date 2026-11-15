@@ -1,6 +1,6 @@
 story_id: e07s01
 title: Non-retryable 413/400 for request cost exceeding whole TPM
-status: todo
+status: done
 bcps: 3
 tasks:
   - id: 1
@@ -9,7 +9,7 @@ tasks:
       behavior when cost.totalTokens > tpmLimit with an empty window.
     verify: "grep -n 'createWindow\\|retryAfterSeconds\\|tpmLimit\\|totalTokens' budget.js"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Investigation"]
@@ -19,7 +19,7 @@ tasks:
       or 400 instead of 429 with Retry-After: 1.
     verify: "node --check budget.js"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Implementation"]
@@ -28,7 +28,7 @@ tasks:
       Add a test that an over-TPM request returns 413/400, not 429 forever.
     verify: "node --test --test-name-pattern 'over.?budget\\|TPM\\|413\\|400'"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Tests"]
@@ -37,7 +37,7 @@ tasks:
       Run full suite, lint, format:check.
     verify: "npm test && npm run lint && npm run format:check"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Regression"]

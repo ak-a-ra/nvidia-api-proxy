@@ -3,7 +3,7 @@
 * Story: e06s02
 * Epic: e06 — Config validation
 * Issue: [#35](https://github.com/ak-a-ra/nvidia-api-proxy/issues/35)
-* Status: todo
+* Status: done
 * BCPs: 2
 * Type: fix | Context: config / PORT
 
@@ -21,7 +21,7 @@ PORT=0 accepted though comment says 1-65535; deploy could bind unexpected port.
 
 ## 4. Preconditions
 
-- npm test passes (248 tests).
+- npm test passes (265 tests).
 - config.js parseConfig PORT validation exists.
 
 ## 5. Solution and main flow

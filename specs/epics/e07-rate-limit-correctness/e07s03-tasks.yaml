@@ -1,6 +1,6 @@
 story_id: e07s03
 title: Conservative token estimation for large outputs and nested inputs
-status: todo
+status: done
 bcps: 3
 tasks:
   - id: 1
@@ -9,7 +9,7 @@ tasks:
       budget.js. Confirm output cap and shallow-text behavior.
     verify: "grep -n 'MAX_REQUESTED_OUTPUT_TOKENS\\|countTextChars\\|estimateCost' budget.js"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Investigation"]
@@ -20,7 +20,7 @@ tasks:
       multimodal/unsupported payloads.
     verify: "node --check budget.js"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Implementation"]
@@ -30,7 +30,7 @@ tasks:
       max_tokens above 4096.
     verify: "node --test --test-name-pattern 'estimate\\|token\\|nested\\|multimodal'"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Tests"]
@@ -39,7 +39,7 @@ tasks:
       Run full suite, lint, format:check.
     verify: "npm test && npm run lint && npm run format:check"
     risk: P1
-    status: todo
+    status: done
     allure:
       severity: high
       categories: ["Regression"]

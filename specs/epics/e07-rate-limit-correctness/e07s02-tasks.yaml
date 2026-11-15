@@ -1,6 +1,6 @@
 story_id: e07s02
 title: Rename/split costOverLimitRejectionsCount by reason
-status: todo
+status: done
 bcps: 2
 tasks:
   - id: 1
@@ -9,7 +9,7 @@ tasks:
       /stats. Confirm which rejections increment it.
     verify: "grep -n 'costOverLimitRejections\\|rejections' budget.js server.js"
     risk: P2
-    status: todo
+    status: done
     allure:
       severity: normal
       categories: ["Investigation"]
@@ -19,7 +19,7 @@ tasks:
       (rpm, tpm, model_rpm, model_tpm).
     verify: "node --check budget.js"
     risk: P2
-    status: todo
+    status: done
     allure:
       severity: normal
       categories: ["Implementation"]
@@ -28,7 +28,7 @@ tasks:
       Update README /stats contract and tests.
     verify: "node --test --test-name-pattern 'stats\\|rejection\\|budgetRejections'"
     risk: P2
-    status: todo
+    status: done
     allure:
       severity: normal
       categories: ["Tests"]
@@ -37,7 +37,7 @@ tasks:
       Run full suite, lint, format:check.
     verify: "npm test && npm run lint && npm run format:check"
     risk: P2
-    status: todo
+    status: done
     allure:
       severity: normal
       categories: ["Regression"]

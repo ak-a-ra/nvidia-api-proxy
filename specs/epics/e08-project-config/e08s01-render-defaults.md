@@ -3,7 +3,7 @@
 * Story: e08s01
 * Epic: e08 — Project configuration
 * Issue: [#25](https://github.com/ak-a-ra/nvidia-api-proxy/issues/25)
-* Status: todo
+* Status: done
 * BCPs: 2
 * Type: docs | Context: render.yaml / README
 
@@ -21,7 +21,7 @@ Fresh Render deployment does not imply rate limiting is active; operators may as
 
 ## 4. Preconditions
 
-- npm test passes (248 tests).
+- npm test passes (265 tests).
 - render.yaml and README exist.
 
 ## 5. Solution and main flow
