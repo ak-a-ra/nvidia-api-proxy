@@ -19,5 +19,5 @@ Zero-dependency Node.js reverse proxy for NVIDIA NIM API with:
 - 264 tests in server.test.js
 - No external dependencies
 - ESM-only architecture
-- Node >= 18.14 requirement
+- Node >= 20 requirement
 - SIGTERM graceful shutdown support

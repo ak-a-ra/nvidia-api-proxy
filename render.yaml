@@ -8,7 +8,7 @@ services:
     healthCheckPath: /health
     envVars:
       # Pinned so the deployed runtime matches a CI-tested leg instead of
-      # whatever Render defaults to (engines.node is ">=18.14" and Node 18 is
+      # whatever Render defaults to (engines.node is ">=20" and Node 18 is
       # not in the CI matrix).
       - key: NODE_VERSION
         value: "24"

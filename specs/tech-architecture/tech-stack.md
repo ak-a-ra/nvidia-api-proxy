@@ -3,7 +3,7 @@
 ## Stack
 
 - **Language**: JavaScript (ESM)
-- **Runtime**: Node.js >= 18.14
+- **Runtime**: Node.js >= 20
 - **Package Manager**: npm
 - **Test Runner**: Node built-in `node --test`
 - **Dependencies**: 0 (zero dependencies)

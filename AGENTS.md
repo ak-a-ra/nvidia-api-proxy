@@ -82,7 +82,7 @@ Example — destructive op:
 
 ## Part 2 — Repository knowledge
 
-Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `server.js` (~587 lines), configuration parsing in `config.js` (~352 lines), admission state in `admission.js` (~211 lines), rate-budget windows and cost estimation in `budget.js` (~495 lines), SSE and JSON observers plus shared `usageTotalFromUsage` in `observer.js` (~211 lines); tests in `server.test.js` (~5556 lines). Runtime is dependency-free; lint/typecheck/format are dev-only (`devDependencies`) and are configured — see `eslint.config.js`, `tsconfig.json`, `.prettierrc.json`.
+Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `server.js` (~736 lines), configuration parsing in `config.js` (~387 lines), admission state in `admission.js` (~243 lines), rate-budget windows and cost estimation in `budget.js` (~543 lines), SSE and JSON observers plus shared `usageTotalFromUsage` in `observer.js` (~211 lines); tests in `server.test.js` (~6911 lines). Runtime is dependency-free; lint/typecheck/format are dev-only (`devDependencies`) and are configured — see `eslint.config.js`, `tsconfig.json`, `.prettierrc.json`.
 
 ### Commands
 
@@ -112,9 +112,9 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `s
 - Stub upstream modes: `sse`, `stall`, `slowfinish`, `silent`, `activelong`, `midabort`, `abortable`
 - Test count synced in **every** living doc that states one (currently 264) — grep, never trust this list or its line numbers: `grep -rnE 'tests(-| )?[0-9]{2,4}|[0-9]{2,4}[ -]?tests?|\(currently [0-9]+\)' --include='*.md' --include='*.yaml' .`
   The `\(currently [0-9]+\)` alternative exists because this bullet states a count that the first two alternatives do not match. Sweep for the stale number afterwards too — `grep -rnE '\b(85|99|141)\b' --include='*.md' --include='*.yaml' .` — since a site can state the count in a form the pattern above misses.
-  Sites as of 2026-11-02: `README.md:9` badge `tests-248%20passing`, `README.md:116` tip, this bullet (count + `npm test` bullet), `CONVENTIONS.md:17`, `specs/README.md:19`, `specs/tech-architecture/tech-stack.md:172`, `specs/tech-architecture/TEST_PLAN_LATEST.md:44,294,351`, `specs/product/VISION_LATEST.yaml:20`, `specs/state.yaml` handoff note, `specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md:345`. `plans/*.md` hold historical per-plan numbers — not living docs.
+  Sites: `README.md:9` badge `tests-264%20passing`, `README.md:116` tip, this bullet (count + `npm test` bullet), `CONVENTIONS.md:17`, `specs/README.md:19`, `specs/tech-architecture/tech-stack.md:172`, `specs/tech-architecture/TEST_PLAN_LATEST.md:44,294,351`, `specs/product/VISION_LATEST.yaml:20`, `specs/state.yaml` handoff note. `plans/*.md` and `specs/epics/archive/**` hold dated per-plan or frozen historical numbers — not living docs.
   `docs/research/config-invariant-guard-tests.md` is a dated historical note — do **not** update it.
-  The sweep skips four more dated or append-only categories: `specs/epics/*/briefs/` and `LOG.md` (dated records of what a task reported at the time), `specs/epics/*/*-tasks.yaml` (task ledgers are append-only records; `e01s01-tasks.yaml` even carries a deliberately wrong count as a CI fixture), and `specs/verifications/` (dated evidence of what a past slice measured). A story spec is not one of them — it states a current count and stays in scope.
+  The sweep skips four more dated or append-only categories: `specs/epics/*/briefs/` and `LOG.md` (dated records of what a task reported at the time), `specs/epics/*/*-tasks.yaml` (task ledgers are append-only records; `e01s01-tasks.yaml` even carries a deliberately wrong count as a CI fixture), `specs/epics/archive/**` (frozen at archive time; the e04 spec deliberately states 237), and `specs/verifications/` (dated evidence of what a past slice measured). A live story spec states a current count and stays in scope.
 
 ### Proxy invariants (tests assert these)
 
@@ -123,7 +123,7 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `s
 - `STRIPPED_HEADERS` intentionally includes non-hop-by-hop headers (`host`, `content-length`). `content-length` stripped during header copying, selectively restored for pass-through responses and HEAD so clients get correct length; see comment above `STRIPPED_HEADERS` and restoration block in proxy handler
 - `RESPONSE_STRIPPED_HEADERS` adds `content-encoding` — fetch auto-decompresses upstream response bodies, forwarding that header would misrepresent returned bytes. Client request bodies not decompressed; their `content-encoding` must pass through untouched
 - `config.js` `parseConfig`: `NVIDIA_BASE_URL` problems fatal at startup (exit 1). Missing `NVIDIA_API_KEY`/`PROXY_AUTH_TOKEN` → runtime 503, not crash. `unconfigured` flag uses `?.trim()` — whitespace-only counts as missing
-- `config.js` `readSeconds` env parsing: null/empty/whitespace → fallback; non-finite or negative → fallback; `0` disables timeout. Only the two timeout variables use this leniency; newer operational variables parse strictly — see `specs/epics/e04-rate-limiting/e04s01-config-owner-and-bind-host.md`
+- `config.js` `readSeconds` env parsing: null/empty/whitespace → fallback; non-finite or negative → fallback; `0` disables timeout. Only the two timeout variables use this leniency; newer operational variables parse strictly — see `specs/epics/archive/e04-rate-limiting/e04s01-config-owner-and-bind-host.md`
 - `PROXY_LOG_REQUESTS` gates per-request stdout logging (`if (config.logRequests) logRequestOnClose(...))`, registered above every branch). The line is the closed set `ts`/`method`/`path`/`status`/`ms` — never a header, body, the proxy's key or token, or the upstream host — but `path` is the client's own request target verbatim, query string included and unredacted, so a secret in a query parameter is logged. That is disclosed, not a defect; changing it is a deliberate decision, not a cleanup — see `docs/adr/0002-config-operational-fail-fast.md` and the `request logging` tests
 - Auth: SHA-256 digest + `timingSafeEqual` — never compare raw bytes (length-mismatch throw + timing leak)
 - Path mapping: incoming `/v1/*` path + query forwarded verbatim onto base origin; base's own `/v1` suffix ignored. Bare `/v1` or `/v1/` → 404. See server.test.js "path mapping" tests
@@ -138,7 +138,6 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `s
 - `render.yaml` = deploy config (free plan, health check `/health`) and pins `NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1`
 - Timeout defaults: `UPSTREAM_CONNECT_TIMEOUT_SECONDS` 30, `UPSTREAM_IDLE_TIMEOUT_SECONDS` 120 (reset per chunk, so active SSE streams never cut)
 - Known limitations are tracked as GitHub issues on `ak-a-ra/nvidia-api-proxy`. Run `gh issue list` before treating current behavior as intentional or final. Do not record issue numbers or open-issue counts in this file; they go stale.
-- Epic work will add env vars and change configuration failure modes. When landing any slice, extend the startup-config table in `specs/tech-architecture/tech-stack.md` and record the fail-fast-vs-degrade decision in `docs/adr/`.
 - When a change adds an env var or changes a configuration failure mode, extend the startup-config table in `specs/tech-architecture/tech-stack.md` and record the fail-fast-vs-degrade decision in `docs/adr/`.
 - Node ≥ 20 required (`engines`; CI tests 20, 22 and 24); dev machine runs Node 24.
   
@@ -148,7 +147,7 @@ Zero-dependency Node.js (ESM) reverse proxy for NVIDIA NIM API. HTTP logic in `s
 
 ### Orchestrator role (always uses subagents)
 
-The primary agent acts as orchestrator for any implementation work: it never edits source code, writes tests, or commits directly in its own context. Instead it dispatches a fresh implementer subagent per task via `spawn_subagent`, then dispatches a separate reviewer subagent to verify each task's spec compliance and code quality. The orchestrator's job is coordination only: crafting task briefs, dispatching implementers, reading reports, dispatching reviewers, tracking a ledger, and adjudicating findings at the cap.
+The primary agent acts as orchestrator for any implementation work: it never edits source code, writes tests, or commits directly in its own context. Instead it dispatches a fresh implementer subagent per task with the Agent tool, then a separate reviewer subagent to verify each task's spec compliance and code quality. The orchestrator's job is coordination only: crafting task briefs, dispatching implementers, reading reports, dispatching reviewers, tracking a ledger, and adjudicating findings at the cap.
 
 When a user request is implementable (a feature, a fix, a refactor, a plan execution), the orchestrator:
 

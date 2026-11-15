@@ -58,7 +58,8 @@ original order, then 01.
   `grep -rnE 'tests(-| )?[0-9]{2}|[0-9]{2}[ -]tests?' --include='*.md' --include='*.yaml' .`
   Read the current count from `node --test` output; do not hardcode the numbers above. (The old
   examples — badge `tests-30%20passing`, tip "(30 tests, no deps needed)" — are stale, not current
-  facts: the suite is at 34. A dated historical note,
+  facts; the suite count moves, so derive it from `npm test` output rather than from a number
+  written here. A dated historical note,
   `docs/research/config-invariant-guard-tests.md`, is exempt: never update it.)
 - **Verification gates.** From the repo root:
   - full suite: `npm test` (Node built-in runner, no install step needed);

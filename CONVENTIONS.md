@@ -7,7 +7,7 @@ Zero-dependency Node.js reverse proxy for NVIDIA NIM API. Client apps call the p
 ## Stack
 
 - Language: JavaScript (ESM)
-- Runtime: Node.js >= 18.14
+- Runtime: Node.js >= 20
 - Package manager: npm
 - Test runner: Node built-in `node --test`
 
@@ -24,18 +24,18 @@ exist in `server.js`.
 
 - **Timeout** — implemented: `UPSTREAM_CONNECT_TIMEOUT_SECONDS` (30), `UPSTREAM_IDLE_TIMEOUT_SECONDS` (120)
 - **Graceful degradation** — implemented: missing key/token yields 503, not a crash
-- Rate limit — the admission half (`PROXY_MAX_CONCURRENT_REQUESTS`, `PROXY_MAX_QUEUE_SIZE`, `PROXY_QUEUE_TIMEOUT_SECONDS`) is enforced through `admission.js`; the global budget half (`PROXY_RPM`, `PROXY_TPM`, `PROXY_SAFETY_MARGIN_PCT`, `PROXY_MAX_BUFFERED_BODY_BYTES`) is enforced through `budget.js` — issue #17 is done. `PROXY_MODEL_LIMITS_JSON` is enforced atomically with the global budget through `budget.js` — issue #18 is done. SSE usage reconciliation (`observer.js`) is implemented — issue #19 is done; non-streaming reconciliation is implemented — issue #20 is done; issue #22 remains
+- Rate limit — the admission half (`PROXY_MAX_CONCURRENT_REQUESTS`, `PROXY_MAX_QUEUE_SIZE`, `PROXY_QUEUE_TIMEOUT_SECONDS`) is enforced through `admission.js`; the global budget half (`PROXY_RPM`, `PROXY_TPM`, `PROXY_SAFETY_MARGIN_PCT`, `PROXY_MAX_BUFFERED_BODY_BYTES`) is enforced through `budget.js`. `PROXY_MODEL_LIMITS_JSON` is enforced atomically with the global budget through `budget.js`. SSE usage reconciliation (`observer.js`) and non-streaming reconciliation are both implemented
 - Retry — not implemented. Deliberately rejected: replaying a non-idempotent request is unsafe
 - Circuit breaker — not implemented
 
 ## Architecture
 
-- `server.js` — HTTP handling: server lifecycle, auth, path mapping, upstream fetch and streaming, timeouts, shutdown, and the rate-limit gate that calls `budget.js` (~587 lines)
-- `config.js` — Configuration: parsing and validation for every environment variable (~352 lines)
+- `server.js` — HTTP handling: server lifecycle, auth, path mapping, upstream fetch and streaming, timeouts, shutdown, and the rate-limit gate that calls `budget.js` (~736 lines)
+- `config.js` — Configuration: parsing and validation for every environment variable (~387 lines)
 - `admission.js` — Admission control: the active count, the FIFO wait queue, and per-ticket settled state behind `createAdmission`, `acquire`, and `release`. A reader of `config.limits` at request time; `server.js` calls it and re-exports none of it
 - `budget.js` — Rate budgets: the rolling 60-second RPM and TPM windows, the Safety margin effective limits, the cost estimator, and the byte cap's caller. The other reader of `config.limits` and of `config.rateLimit` at request time; reads no environment and carries no default
 - `observer.js` — SSE and JSON observers: bounded parsing of usage from copied streams, with detach on overflow, malformed input, or non-JSON; shared `usageTotalFromUsage` (211 lines)
-- `server.test.js` — Test suite (~5556 lines)
+- `server.test.js` — Test suite (~6911 lines)
 - Modules split by concern; `config.js` imports nothing from `server.js`, so configuration can be read without starting a listener
 
 ## Naming Conventions
@@ -71,7 +71,7 @@ exist in `server.js`.
 - Tests assert server invariants
 - Each test gets isolated upstream stub
 - Env vars read at import time - tests spawn child processes
-- No lint/typecheck/formatter config
+- Lint, typecheck and format are dev-only tooling: ESLint 9 flat config, `tsc -p tsconfig.json` (`checkJs`, `strict: false`), Prettier 3 (`printWidth: 100`). All run under `npm run check`.
 
 **Existing tests are the invariant contract, not untouchable files.** The intent of the old
 "never modify test files" rule was to stop an implementer from rewriting a failing assertion until

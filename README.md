@@ -4,7 +4,7 @@
 
 *Put your NVIDIA API key behind a token you control*
 
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.14-3c873a?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-3c873a?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](package.json)
 [![Tests](https://img.shields.io/badge/tests-264%20passing-blue?style=flat-square)](server.test.js)
 
@@ -49,7 +49,7 @@ flowchart LR
 - 🚦 **Concurrency ceiling** — `PROXY_MAX_CONCURRENT_REQUESTS` bounds simultaneous upstream work; excess requests wait in one bounded FIFO queue, and a full queue or an expired wait gets an explicit `429` with `Retry-After` instead of piling onto the upstream
 - 🚀 **Deploy ready** — Render config included, graceful SIGTERM shutdown for zero-downtime deploys
 - ✂️ **Client disconnect cancels upstream** — if a client aborts or disconnects mid-request, the upstream fetch is cancelled too, so abandoned calls don't hold sockets or quota
-- 📦 **Zero dependencies** — Node.js built-ins only (Node >= 18.14)
+- 📦 **Zero dependencies** — Node.js built-ins only (Node >= 20)
 
 ## How it works
 
