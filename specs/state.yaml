@@ -7,9 +7,9 @@
 ```yaml
 vcs:
   kind: git
-  commit: 2587308
+  commit: 87392f2
   branch: main
-  worktree: /data/data/com.termux/files/home/workspace/nvidia-api-proxy
+  worktree: /data/data/com.termux/files/home/projects/nvidia-api-proxy
   landed:
     story: e04s09
     commit: 2587308
@@ -32,8 +32,16 @@ handoff:
     e07s01 over-budget rejection (#29 P1), e07s02 stats counter rename (#32 P2),
     e07s03 token estimation (#27 P1), e08s01 Render defaults (#25 P2),
     e08s02 Node engine >=20 (#26 P2), e08s03 lint/format files (#31 P2).
-    Count 264. package.json engines.node >=20; lint/format scripts
-    include admission.js observer.js. Pending: final review/merge + commit.
+    Count 265. package.json engines.node >=20; lint/format scripts
+    include admission.js observer.js. All thirteen story ledgers, six epic
+    manifests and execution-status.yaml now read done; specs and code agree.
+    Also repaired this session: .github/workflows/ci.yml restored (29a5897
+    had deleted it, leaving only probe-node20-disconnect registered);
+    e01s01/e02s01 ledgers and manifests marked done (the work had landed but
+    the ledgers still said todo/failing, and named the never-existent
+    scripts/check-test-count.mjs); five living docs corrected from the old
+    verbatim-query-string logging claim to the shipped pathname-only rule.
+    Pending: commit.
 
 decisions:
   - decision: Per-model window pairs are built at construction time, and the story's "lazily" sentence is corrected

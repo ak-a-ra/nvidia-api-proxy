@@ -69,9 +69,55 @@ epics:
       reflects size, not importance. Internally the slices are a strict linear
       blocked-by chain, so this epic cannot be parallelized:
       14 -> 15 -> 16 -> 17 -> 18 -> 19 -> 20 -> 21 -> 22.
-      #14 and #15 are complete (e04s01, e04s02), and #16 is planned as e04s03;
-      #17-#22 are intentionally left todo with no story capsule until their blocker
-      lands, so the release plan does not imply work that cannot start.
+      All nine slices are complete (e04s01-e04s09, issues #14-#22) and the
+      capsule is archived to epics/archive/e04-rate-limiting.
+
+  - id: e05
+    title: Request handling
+    wsjf: 4.5
+    capsule_dir: epics/e05-request-handling
+    child_issues: [24, 34]
+    note: >-
+      Two independent fixes against the request path, neither blocked by the
+      other: e05s01 bounds the request body before admission control (issue
+      #24) and e05s02 logs the pathname only so a secret in a query string
+      never reaches stdout (issue #34).
+
+  - id: e06
+    title: Config validation
+    wsjf: 4.0
+    capsule_dir: epics/e06-config-validation
+    child_issues: [33, 35]
+    note: >-
+      Two parsing corrections in config.js: e06s01 moves the upstream timeout
+      variables into parseConfig so an invalid value fails at startup instead
+      of silently falling back (issue #33), and e06s02 lowers the PORT floor
+      check to match its own documented range (issue #35).
+
+  - id: e07
+    title: Rate-limit correctness
+    wsjf: 4.2
+    capsule_dir: epics/e07-rate-limit-correctness
+    child_issues: [29, 32, 27]
+    note: >-
+      Three defects in the rate-budget layer, ordered here by blast radius
+      rather than by issue number: e07s01 answers 413 instead of a permanent
+      429 when one request's cost exceeds the whole TPM on its own (issue #29),
+      e07s02 renames the rejection counter so it can be split by reason
+      (issue #32), and e07s03 removes the silent 4096 output-token cap from
+      cost estimation (issue #27).
+
+  - id: e08
+    title: Project configuration
+    wsjf: 3.5
+    capsule_dir: epics/e08-project-config
+    child_issues: [25, 26, 31]
+    note: >-
+      Deploy and tooling hygiene, no runtime behavior: e08s01 pins
+      traffic-protection defaults in the Render blueprint (issue #25), e08s02
+      aligns the Node engine requirement with the runtime CI actually tests
+      (issue #26), and e08s03 extends lint and format coverage to admission.js
+      and observer.js (issue #31).
 
 bugs:
   total: 0
