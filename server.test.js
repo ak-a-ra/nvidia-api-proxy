@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import net from "node:net";
 import zlib from "node:zlib";
 import { createBudget, estimateCost } from "./budget.js";
 import { createAdmission } from "./admission.js";
@@ -305,16 +306,16 @@ function childEnv(overrides = {}) {
 // assert on the proxy's log output should not pay for a pipe. Every assertion
 // about a request log line needs it: without it "no secret in the log" would
 // be a claim about a stream nobody can read.
-function startProxyServer(baseURL, key, proxyToken, extraEnv = {}, options = {}) {
+async function startProxyServer(baseURL, key, proxyToken, extraEnv = {}, options = {}) {
+  const { captureStdout = false, logThrows = false } = options;
+  const env = childEnv(extraEnv);
+  env.PORT = await ephemeralProxyPort();
   return new Promise((resolve, reject) => {
-    const { captureStdout = false, logThrows = false } = options;
-    const env = childEnv(extraEnv);
     // Loose != null: passing undefined would collide with caller-side
     // destructuring defaults, so null is the "leave unset" sentinel.
     if (baseURL != null) env.NVIDIA_BASE_URL = baseURL;
     if (key != null) env.NVIDIA_API_KEY = key;
     if (proxyToken != null) env.PROXY_AUTH_TOKEN = proxyToken;
-    env.PORT = ephemeralProxyPort();
 
     const init = `
       import server from ${JSON.stringify(SERVER_PATH)};
@@ -350,18 +351,23 @@ function startProxyServer(baseURL, key, proxyToken, extraEnv = {}, options = {})
       ["--input-type=module", "-e", logThrows ? initLogThrows : init],
       {
         env,
-        stdio: ["ignore", captureStdout ? "pipe" : "ignore", "ignore", "ipc"],
+        stdio: ["ignore", captureStdout ? "pipe" : "ignore", "pipe", "ipc"],
       }
     );
 
     const chunks = [];
     if (child.stdout) child.stdout.on("data", (d) => chunks.push(d));
+    // stderr is the only evidence for a child that dies before listening, so
+    // it is always captured and always quoted: a bare "proxy exited 1" names no
+    // cause and cannot be told apart from a port collision or a config refusal.
+    let stderr = "";
+    if (child.stderr) child.stderr.on("data", (d) => (stderr += d));
 
     const timer = setTimeout(() => reject(new Error("proxy did not start")), 3000);
     timer.unref();
 
     child.on("message", (msg) => {
-      if (msg.error) reject(new Error(msg.error));
+      if (msg.error) reject(new Error(stderr.trim() || msg.error));
       else
         resolve({
           child,
@@ -372,7 +378,7 @@ function startProxyServer(baseURL, key, proxyToken, extraEnv = {}, options = {})
     });
     child.on("error", reject);
     child.on("exit", (code) => {
-      if (code !== 0) reject(new Error(`proxy exited ${code}`));
+      if (code !== 0) reject(new Error(stderr.trim() || `proxy exited ${code}`));
     });
   });
 }
@@ -450,12 +456,21 @@ async function proxiedFetch(port, path, opts = {}) {
   );
 }
 
-// Ephemeral port allocator: random high port to avoid EADDRINUSE from
-// zombie proxy children that exited but haven't released the port yet.
-// Starts at 49152 (IANA ephemeral range) so low ports stay free.
-let nextProxyPort = 49152;
+// Ephemeral port allocator. A monotonic counter was not enough: it walked
+// 49152++ straight into the kernel's ephemeral range, where an outgoing socket
+// (or a zombie proxy child that exited but has not released its listener yet)
+// could already own the number, and the child died with EADDRINUSE. Binding a
+// throwaway socket to port 0 asks the kernel for a port it knows is free, so
+// the number handed to the child is not one the kernel just gave away.
 function ephemeralProxyPort() {
-  return String(nextProxyPort++);
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.on("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(String(port)));
+    });
+  });
 }
 
 // Bounded sleep, shared by the admission blocks.
@@ -489,16 +504,15 @@ function endHeld(heldResponses) {
 
 // Run server.js once as a bare child (no IPC) and collect how it exits —
 // for asserting startup validation failures.
-function runProxyOnce(envOverrides) {
+async function runProxyOnce(envOverrides) {
+  const freePort = await ephemeralProxyPort();
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
       ["--input-type=module", "-e", `import server from ${JSON.stringify(SERVER_PATH)};`],
       {
         env: childEnv(
-          envOverrides.PORT != null
-            ? envOverrides
-            : { ...envOverrides, PORT: String(ephemeralProxyPort()) }
+          envOverrides.PORT != null ? envOverrides : { ...envOverrides, PORT: freePort }
         ),
         stdio: ["ignore", "ignore", "pipe", "ignore"],
       }
@@ -1608,8 +1622,10 @@ describe("rate budget config", () => {
       },
       body: JSON.stringify({ model: "nemotron" }),
     });
-    assert.equal(res.status, 429, "an over-budget request is rejected, not proxied");
-    assert.deepEqual(await res.json(), { error: "Too many requests" });
+    // The default requested output (1024) alone exceeds an effective TPM of 1,
+    // so the cost cannot fit any window: non-retryable 413, not 429.
+    assert.equal(res.status, 413, "an unservable request is rejected, not proxied");
+    assert.deepEqual(await res.json(), { error: "Request too large" });
     assert.equal(receivedRequests.length, 0, "the rejected request never reached the upstream");
   });
 
@@ -4761,27 +4777,51 @@ describe("e04s04 global RPM/TPM budgets", () => {
       body: "{}",
     });
     const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
-    assert.equal(res.status, 429, "a one-request budget is exhausted by the first request");
-    assert.ok(Number(res.headers.get("retry-after")) > 0, "positive Retry-After");
+    // The limit floors at 1 rather than 0, so the gate is live and refuses the
+    // first request instead of passing it. Its cost exceeds that 1 on its own,
+    // so the refusal is the non-retryable 413.
+    assert.equal(res.status, 413, "the floored limit is live and refuses the first request");
+    assert.equal(res.headers.get("retry-after"), null, "no Retry-After for an unservable cost");
   });
 
-  test("an over-budget body gets 429 with a generic body and never reaches upstream", async (t) => {
+  test("a body whose cost exceeds the whole TPM gets 413, no Retry-After", async (t) => {
     const { proxy, receivedRequests } = await withProxy(t, {
       proxyEnv: RATE_ON,
       body: "{}",
     });
-    // max_tokens 4096 caps the estimate, so a single body over a 1000-token
-    // effective TPM (margin default 5: floor(100000*0.95)=95000) needs a body
-    // big enough to exceed it. 9 MiB of content estimates well past it.
+    // No 4096 output cap, so a body that exceeds the effective TPM (margin
+    // default 5: floor(100000*0.95)=95000) has an empty window and still
+    // cannot fit: waiting never admits it, so the answer is 413, not 429.
     const big = JSON.stringify({
       model: "m",
       messages: [{ role: "user", content: "z".repeat(1024 * 1024) }],
     });
     const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts(big));
-    assert.equal(res.status, 429);
-    assert.deepEqual(await res.json(), { error: "Too many requests" });
-    assert.ok(Number(res.headers.get("retry-after")) > 0, "positive Retry-After");
+    assert.equal(res.status, 413, "a cost exceeding the whole window is non-retryable");
+    assert.equal(res.headers.get("retry-after"), null, "no Retry-After on a non-retryable answer");
     assert.equal(receivedRequests.length, 0, "the over-budget body never reached the upstream");
+  });
+
+  test("a window-full rejection whose cost fits the window stays 429 with Retry-After", async (t) => {
+    const { proxy } = await withProxy(t, {
+      proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1000", PROXY_SAFETY_MARGIN_PCT: "0" },
+      body: "{}",
+    });
+    // Each body estimates ~600 tokens (500 input chars/4 + 100 requested
+    // output), which fits a 1000-token window on its own, so the second one is
+    // retryable: 429 with a positive Retry-After, the same answer as before.
+    const body = JSON.stringify({
+      model: "m",
+      max_tokens: 100,
+      messages: [{ role: "user", content: "z".repeat(2000) }],
+    });
+    const first = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts(body));
+    assert.equal(first.status, 200, "first body fits the window");
+    await first.text();
+    const second = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts(body));
+    assert.equal(second.status, 429, "a cost that fits the window waits, it is not too large");
+    assert.ok(Number(second.headers.get("retry-after")) > 0, "positive Retry-After");
+    await second.text();
   });
 
   test("RPM is counted once per admitted request inside the window", async (t) => {
@@ -4925,7 +4965,7 @@ describe("e04s04 global RPM/TPM budgets", () => {
   test("over budget is answered immediately, never waits, and leaves the proxy usable", async (t) => {
     const { proxy, receivedRequests } = await withProxy(t, {
       // A one-token effective TPM: the requested-output default alone (1024)
-      // clears it, so every request is over budget and none may wait.
+      // clears it, so the request cannot fit any window and none may wait.
       proxyEnv: { PROXY_RPM: "60", PROXY_TPM: "1", PROXY_SAFETY_MARGIN_PCT: "0" },
       body: "{}",
     });
@@ -4935,14 +4975,12 @@ describe("e04s04 global RPM/TPM budgets", () => {
     // inside a generous bound proves the 429 was immediate rather than parked
     // behind a timer, because even a very slow machine satisfies this one.
     assert.ok(Date.now() - started < 5000, "the rejection is immediate, not a wait");
-    assert.equal(res.status, 429);
-    assert.deepEqual(await res.json(), { error: "Too many requests" });
-    // Empty window: nothing is live, so the window is the whole minute and the
-    // oldest reservation has no age to report. Retry-After of 1 is the honest
-    // "try again shortly" for a budget whose only exhaustion is the request
-    // in hand, and it is the value budget.js derives when there is nothing
-    // older to age out.
-    assert.equal(Number(res.headers.get("retry-after")), 1, "Retry-After is the window's own age");
+    assert.equal(res.status, 413, "a cost that exceeds the whole window is non-retryable");
+    assert.deepEqual(await res.json(), { error: "Request too large" });
+    // Nothing to wait for: the cost exceeds the limit itself, so the window's
+    // own age is not a promise the proxy can keep. No Retry-After at all,
+    // rather than a Retry-After: 1 that would be retried forever.
+    assert.equal(res.headers.get("retry-after"), null, "no Retry-After on an unservable cost");
     assert.equal(receivedRequests.length, 0, "no over-budget request reached the upstream");
     // Proxy usable: the local route still answers.
     const health = await proxiedFetch(proxy.port, "/health");
@@ -6501,7 +6539,7 @@ describe("e04s08 counter deltas", () => {
       headers: { authorization: "Bearer pt", "content-type": "application/json" },
       body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
     });
-    assert.equal(res.status, 429, "over-budget request is refused with 429");
+    assert.equal(res.status, 413, "unservable request is refused with 413");
     assert.equal(receivedRequests.length, 0, "over-budget request never reached upstream");
     const after = await readStats(proxy);
     assert.equal(

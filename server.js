@@ -175,7 +175,14 @@ function parseJsonBody(buffer) {
 async function admitWithBudget(cost) {
   const outcome = budget.reserve(cost);
   if (outcome.admitted) return outcome;
-  return { admitted: false, reason: outcome.reason, retryAfterSeconds: outcome.retryAfter };
+  // retryable: false means the cost exceeds the whole TPM window on its own, so
+  // no wait can admit it. Undefined keeps today's answer (429 + Retry-After).
+  return {
+    admitted: false,
+    reason: outcome.reason,
+    retryAfterSeconds: outcome.retryAfter,
+    retryable: outcome.retryable,
+  };
 }
 
 // Aggregate body-read budget, enforced at body-read time and separate from
@@ -417,6 +424,12 @@ const server = http.createServer(async (req, res) => {
         // waiter is not an overload report.
         if (ac.signal.aborted || res.destroyed || res.writableEnded) {
           return;
+        }
+        // Non-retryable: the request's own cost exceeds the whole TPM window,
+        // so Retry-After would promise a wait that never admits it. 413 with
+        // no Retry-After. Retryable (window merely full) keeps 429 unchanged.
+        if (outcome.retryable === false) {
+          return sendJson(req, res, 413, { error: "Request too large" });
         }
         return sendJson(
           req,

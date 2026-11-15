@@ -292,6 +292,10 @@ function createWindow(rpmLimit, tpmLimit) {
         admitted: false,
         reason: "tpm",
         retryAfter: retryAfterSeconds(oldestTokenEvent(tokenEvents), now),
+        // A cost that exceeds the whole limit on its own cannot fit this
+        // window now or later: waiting is not a fix, so it is not retryable.
+        // A cost that would fit a quiet window but not this one is.
+        retryable: cost.totalTokens <= tpmLimit,
       };
     }
 
