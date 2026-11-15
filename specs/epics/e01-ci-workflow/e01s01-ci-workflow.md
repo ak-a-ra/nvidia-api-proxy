@@ -3,7 +3,7 @@
 * Story: `e01s01`
 * Epic: `e01` — CI workflow
 * Issue: [#12](https://github.com/ak-a-ra/nvidia-api-proxy/issues/12)
-* Status: todo
+* Status: done
 * BCPs: 3
 * Type: chore | Context: infra
 
@@ -34,22 +34,31 @@ at deploy time, or not at all.
 
 ## 5. Solution and main flow
 
-Add `.github/workflows/ci.yml` that runs `npm test` on Node 18, 20, and 24 for every push
-and pull request. Node 18 is the `engines` floor; 24 is the dev machine version. A third
-axis runs only on the default branch: re-derive the test count from the suite output and
-fail if any living document disagrees.
+Add `.github/workflows/ci.yml` that runs `npm test` on every push and pull request. A second
+job runs lint, typecheck and format. The test count is enforced by the inline sweep
+`AGENTS.md` documents, not by a separate script.
+
+*Superseded since*: the shipped workflow tests Node 20, 22 and 24, not 18/20/24 — e08s02 raised
+`engines.node` from `>=18` to `>=20`, which removed the floor this story's 18 leg existed to
+guard. `specs/epics/e08-project-config/e08s02-node-engine.md` holds that decision.
+
+*Superseded since*: the third axis "runs only on the default branch and re-derives the test
+count" was never built as described and is not needed. `scripts/check-test-count.mjs`, which
+tasks 1, 2, 4 and 6 named, has never existed in this repository; the count gate that shipped is
+the inline grep sweep from `AGENTS.md` — the same replacement e04s01 task 12 and e03s01 task 7
+already made. The `quality` job also carries `scripts/check-state-yaml.py`, which negative-tests
+the ledger reader.
 
 ## 6. Constraints and alternative flows
 
 - **Zero dependencies is a hard constraint** — the workflow must not add an install step or
-  a package manager action beyond `actions/checkout` and `actions/setup-node`.
-- **Node 18.14 is the floor** per `package.json` engines. Testing 18 catches accidental use
-  of newer APIs.
+  a package manager action beyond `actions/checkout` and `actions/setup-node` on the test job.
+- **Node ≥ 20 is the floor** per `package.json` engines (e08s02). The matrix is 20, 22 and 24.
 - **Test count sync is the project's own rule**, restated in `AGENTS.md`, `CONVENTIONS.md`,
   and `plans/README.md`. CI is the only place that can enforce it mechanically rather than
   by grep discipline.
-- Alternative considered: run on 20 and 24 only. Rejected — the 18 matrix leg is the whole
-  point of declaring a floor.
+- Alternative considered: run on 20 and 24 only. Rejected — a middle leg catches breakage that
+  a two-point range lets through.
 - Alternative considered: add a linter. Rejected — out of scope, and the project has
   explicitly declined a lint config.
 
@@ -137,8 +146,23 @@ Scenario: Historical documents are exempt
 ## 18. Out of scope
 
 - Making the check a required status check (repository settings).
-- Any linting, formatting, or type checking.
-- Any package manager action beyond `checkout` and `setup-node`.
+- Any linting, formatting, or type checking. *Superseded since*: `1c7ab4e` added them as
+  dev-only tooling in a separate `quality` job, so they are in scope now — the reason this
+  story excluded them was that the project had declined a lint config, which stopped being
+  true when `eslint.config.js` landed.
+- Any package manager action beyond `checkout` and `setup-node`. *Superseded since*: the
+  `quality` job runs `npm ci`, because lint/typecheck/format are dev-only dependencies. The
+  zero-install promise survives where it was made: `npm test` still needs no install, and the
+  `test` job installs nothing.
+
+*Scenario clarification, added 2026-11-15.* The first scenario's "Node 18, 20, and 24" is left
+as written because it is an acceptance criterion; e08s02 raised `engines.node` to `>=20`, so the
+shipped matrix is 20, 22 and 24 and §6 carries the current floor. The third scenario's
+"count-sync job" is the inline sweep inside `quality`, not a separate job, and it does name the
+offending document and line — `grep -rn` prints `file:line:`. The fourth scenario's exemption
+list has since grown: `LOG.md`, `specs/epics/*/briefs/`, `specs/epics/*/*-tasks.yaml`,
+`specs/epics/archive/**`, and `specs/verifications/**` are exempt too, all for the same reason —
+they are dated or append-only records of what a task reported at the time, not live claims.
 - Changing the test suite itself.
 
 ## 19. Verification

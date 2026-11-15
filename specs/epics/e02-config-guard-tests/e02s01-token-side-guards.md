@@ -3,7 +3,7 @@
 * Story: `e02s01`
 * Epic: `e02` — Config guard tests, token side
 * Issue: [#10](https://github.com/ak-a-ra/nvidia-api-proxy/issues/10)
-* Status: todo
+* Status: done
 * BCPs: 2
 * Type: test | Context: domain
 
@@ -105,7 +105,7 @@ code path (#13 user story 150: "I want issue #10 to land first if scheduling per
 - Risk: test names must not duplicate existing ones. Check the current suite first; the
   key-side tests already exist, the token-side equivalents do not.
 - This story adds tests, so the count changes. Sync every living doc that states the count
-  using `scripts/check-test-count.mjs` from e01, or the `AGENTS.md` grep until e01 lands.
+  using the inline sweep `AGENTS.md` documents (e01s01 never added a script for it).
 
 ## 17. Acceptance criteria (Gherkin)
 
@@ -145,7 +145,7 @@ Scenario: The existing suite still passes
 
 ## 19. Verification
 
-`npm test`, then `node scripts/check-test-count.mjs` (or the `AGENTS.md` grep) once the count
+`npm test`, then the inline count sweep `AGENTS.md` documents once the count
 moves. See `e02s01-tasks.yaml`.
 
 ## 20. References and traceability
