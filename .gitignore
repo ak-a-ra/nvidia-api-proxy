@@ -7,3 +7,6 @@ node_modules/
 .agents/
 cline_mcp_settings.json
 perf-bench.js
+# leftover output from a backgrounded test run
+.npmtest.log
+.npmtest.pid
