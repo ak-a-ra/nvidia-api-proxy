@@ -350,6 +350,16 @@ function modelReason(reason) {
   return reason;
 }
 
+// A rejection that can never be admitted, whatever it waits for, carries no
+// delay: there is nothing to wait for. The window still reports the retry
+// delay its history implies, so this drops it rather than rewriting the
+// window, and the request path reads `retryable === false` with no
+// `retryAfter` to send.
+function withoutRetryAfter(rejection) {
+  if (rejection.retryable !== false) return rejection;
+  return { ...rejection, retryAfter: null };
+}
+
 // The factory. rateLimit is config.js's object or null; limits supplies the
 // margin; modelLimits is config.js's per-model map or null. A null rate limit
 // builds a disabled gate: reserve() fails open, close() does nothing, and
@@ -430,7 +440,7 @@ export function createBudget(rateLimit, limits, modelLimits) {
     const global = globalWindow.check(cost);
     if (!global.admitted) {
       budgetRejectionsCount += 1;
-      return global;
+      return withoutRetryAfter(global);
     }
 
     const modelWindow = modelWindowFor(cost);
@@ -439,11 +449,12 @@ export function createBudget(rateLimit, limits, modelLimits) {
       model = modelWindow.check(cost);
       if (!model.admitted) {
         budgetRejectionsCount += 1;
-        return {
+        return withoutRetryAfter({
           admitted: false,
           reason: modelReason(model.reason),
           retryAfter: model.retryAfter,
-        };
+          retryable: model.retryable,
+        });
       }
     }
 

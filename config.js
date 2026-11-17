@@ -294,10 +294,6 @@ function boundText(text) {
   return text.length > 60 ? `${text.slice(0, 60)}…` : text;
 }
 
-// Upstream timeout windows (seconds). CONNECT bounds the pre-response phase:
-// how long the upstream may take to deliver response headers. IDLE bounds the
-// streaming phase: how long the pass-through may go without receiving a byte
-
 // A key as it may be printed. JSON.stringify escapes the C0 range but leaves
 // DEL raw, so escape that too: the message names the key so the operator can
 // find it in the document, and never carries a byte that could garble a

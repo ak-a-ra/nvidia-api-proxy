@@ -43,10 +43,12 @@ let activeClientDisconnects = 0;
 // from the per-request cap (config.limits.maxBufferedBodyBytes). A request
 // reserves up to its per-request ceiling before reading its body, so many
 // concurrent uploads cannot push aggregate buffered bytes past the bound.
-// The slot is released on response close or error.
+// The slot is released on response close or error. Each request owns its own
+// reservation in a local variable: one shared variable let an overlapping
+// request overwrite another's reservation, so the overwritten bytes were never
+// given back and the pool drained to a permanent refusal.
 const AGGREGATE_BUFFERED_BODY_BYTES = config.limits.maxBufferedBodyBytes * 4;
 let bufferedBytes = 0;
-let aggregateBodyReservation = null;
 
 // Headers stripped when copying in either direction. Not all of these are
 // hop-by-hop: host is re-derived per upstream call and content-length is
@@ -206,13 +208,6 @@ function releaseAggregateBodySlot(bytes) {
   if (bufferedBytes < 0) bufferedBytes = 0;
 }
 
-function releaseAggregateBodyIfHeld() {
-  if (aggregateBodyReservation === null) return;
-  const held = aggregateBodyReservation;
-  aggregateBodyReservation = null;
-  releaseAggregateBodySlot(held);
-}
-
 // Opt-in per-request logging (PROXY_LOG_REQUESTS, parsed by config.js). One
 // JSON line per request, on `close` and never earlier: a streamed response has
 // no duration until its last byte, and a line written from the pipeline
@@ -260,6 +255,21 @@ function upstreamUrl(incoming) {
 }
 
 const server = http.createServer(async (req, res) => {
+  // This request's aggregate body-slot reservation, in request scope. null
+  // means "not held" — either the pool refused it or it was already released.
+  // releaseBodySlot is the single release path: every arm calls it, and calling
+  // it twice releases nothing, so no arm can give the bytes back twice and no
+  // arm can forget to. Declared outside the try so the catch block can reach
+  // it: a throw between the reservation and the pipeline leaves the slot held.
+  /** @type {number | null} */
+  let aggregateBodyReservation = null;
+  const releaseBodySlot = () => {
+    if (aggregateBodyReservation === null) return;
+    const held = aggregateBodyReservation;
+    aggregateBodyReservation = null;
+    releaseAggregateBodySlot(held);
+  };
+
   try {
     const incoming = new URL(req.url || "/", "http://localhost");
 
@@ -366,11 +376,12 @@ const server = http.createServer(async (req, res) => {
       // Reserve aggregate slot before any byte is buffered: many concurrent
       // uploads cannot push aggregate buffered bytes past the bound.
       if (!acquireAggregateBodySlot(maxBytes)) {
-        const payload = JSON.stringify({ error: "Request too large" });
+        const payload = JSON.stringify({ error: "Service unavailable" });
         if (!res.destroyed && !res.writableEnded) {
           res.writeHead(503, {
             "content-type": "application/json; charset=utf-8",
             "content-length": Buffer.byteLength(payload),
+            "retry-after": "1",
           });
           res.end(payload);
         }
@@ -384,8 +395,7 @@ const server = http.createServer(async (req, res) => {
       // the lifecycle listeners the same way the rejection arms below do, so
       // nothing is left listening on a response that is finished.
       if (buffer === null) {
-        releaseAggregateBodySlot(aggregateBodyReservation);
-        aggregateBodyReservation = null;
+        releaseBodySlot();
         res.removeListener("close", onDownstreamClose);
         res.removeListener("close", releaseOnce);
         return;
@@ -396,8 +406,7 @@ const server = http.createServer(async (req, res) => {
       // the aggregate slot is released and no error is reported to a socket
       // nobody is reading.
       if (res.destroyed || res.writableEnded) {
-        releaseAggregateBodySlot(aggregateBodyReservation);
-        aggregateBodyReservation = null;
+        releaseBodySlot();
         res.removeListener("close", onDownstreamClose);
         res.removeListener("close", releaseOnce);
         return;
@@ -416,7 +425,7 @@ const server = http.createServer(async (req, res) => {
       const cost = estimateCost(parseJsonBody(forwardedBody), forwardedBody);
       const outcome = await admitWithBudget(cost);
       if (!outcome.admitted) {
-        releaseAggregateBodyIfHeld();
+        releaseBodySlot();
         res.removeListener("close", onDownstreamClose);
         res.removeListener("close", releaseOnce);
         // Client vanished before the answer could matter, or the window closed
@@ -444,7 +453,7 @@ const server = http.createServer(async (req, res) => {
 
     ticket = await admission.acquire(ac.signal);
     if (!ticket.admitted) {
-      releaseAggregateBodyIfHeld();
+      releaseBodySlot();
       // Clean up the downstream-close listeners before any early return so a
       // rejected request cannot later abort a finished or unrelated stream.
       res.removeListener("close", onDownstreamClose);
@@ -473,7 +482,7 @@ const server = http.createServer(async (req, res) => {
       );
     }
     if (res.destroyed || res.writableEnded) {
-      releaseAggregateBodyIfHeld();
+      releaseBodySlot();
       releaseOnce();
       completed++;
       return;
@@ -571,7 +580,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(upstream.status, responseHeaders);
 
     if (!upstream.body) {
-      releaseAggregateBodyIfHeld();
+      releaseBodySlot();
       completed++;
       if (budgetReservation) {
         budgetReservation.reconcile(null);
@@ -636,7 +645,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     const onComplete = (error) => {
-      releaseAggregateBodyIfHeld();
+      releaseBodySlot();
       clearTimeout(idleTimer);
       completed++;
       if (sseObserver) {
@@ -704,7 +713,7 @@ const server = http.createServer(async (req, res) => {
       pipeline(src, res, onComplete);
     }
   } catch (error) {
-    releaseAggregateBodyIfHeld();
+    releaseBodySlot();
     if (error.message === "client disconnected") {
       // Client went away: nothing to report, no response to send.
       activeClientDisconnects++;

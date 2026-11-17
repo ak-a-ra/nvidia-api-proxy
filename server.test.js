@@ -5053,6 +5053,25 @@ describe("e04s04 global RPM/TPM budgets", () => {
       "the bytes are forwarded verbatim"
     );
   });
+
+  test("a model cost larger than the model's whole TPM is not retryable", async (t) => {
+    const { proxy, receivedRequests } = await withProxy(t, {
+      proxyEnv: {
+        ...RATE_ON,
+        // The model's own token budget is 100, far below the request default
+        // output (1024) plus its input: the cost never fits that model's
+        // window, so waiting cannot admit it. The global budget is generous,
+        // so the model window is the one that decides.
+        PROXY_MODEL_LIMITS_JSON: JSON.stringify({ nemotron: { tpm: 100 } }),
+      },
+      body: "{}",
+    });
+    const res = await proxiedFetch(proxy.port, "/v1/chat/completions", chatOpts());
+    assert.equal(res.status, 413, "a cost exceeding the model's window is non-retryable");
+    assert.deepEqual(await res.json(), { error: "Request too large" });
+    assert.equal(res.headers.get("retry-after"), null, "no Retry-After on an unservable cost");
+    assert.equal(receivedRequests.length, 0, "the rejected request never reached the upstream");
+  });
 });
 
 // The estimator is the only place that knows which model a request names, so
@@ -5325,15 +5344,17 @@ describe("e04s05 per-model budgets", () => {
   });
 
   test("model TPM limit enforced", () => {
+    // A cost above the model's own limit cannot fit that window now or later,
+    // so the rejection is marked non-retryable and carries no delay: there is
+    // nothing for the caller to wait for.
     const modelMap = Object.assign(Object.create(null), { nemotron: { tpm: 100 } });
     const budget = createBudget({ rpm: 60, tpm: 100000 }, { safetyMarginPct: 0 }, modelMap);
     const cost = { requestCharge: 1, totalTokens: 200, model: "nemotron" };
     const result = budget.reserve(cost);
     assert.equal(result.admitted, false, "the request exceeds the model's token budget");
     assert.equal(result.reason, "model_tpm", "the rejection names the model's own constraint");
-    assert.equal(typeof result.retryAfter, "number", "the retry delay is a number");
-    assert.equal(Number.isInteger(result.retryAfter), true, "the retry delay is a whole number");
-    assert.ok(result.retryAfter > 0, "the retry delay is positive");
+    assert.equal(result.retryable, false, "a cost larger than the whole window is not retryable");
+    assert.equal(result.retryAfter, null, "an unservable cost carries no retry delay");
   });
 
   test("atomic reservation", () => {
@@ -5405,9 +5426,8 @@ describe("e04s05 per-model budgets", () => {
     const rejected = budget.reserve(cost);
     assert.equal(rejected.admitted, false, "the request exceeds the model's token budget");
     assert.equal(rejected.reason, "model_tpm", "the rejection names the model's own constraint");
-    assert.equal(typeof rejected.retryAfter, "number", "the retry delay is a number");
-    assert.equal(Number.isInteger(rejected.retryAfter), true, "the retry delay is a whole number");
-    assert.ok(rejected.retryAfter > 0, "the retry delay is positive");
+    assert.equal(rejected.retryable, false, "the cost exceeds the model's window on its own");
+    assert.equal(rejected.retryAfter, null, "an unservable cost carries no retry delay");
     const other = budget.reserve({ requestCharge: 1, totalTokens: 200, model: "llama" });
     assert.equal(other.admitted, true, "the global token window still has its whole budget");
   });
@@ -6913,6 +6933,8 @@ describe("body buffering", () => {
     const before = receivedRequests.length;
     const overflow = await postBody(proxy, 200);
     assert.equal(overflow.status, 503, "aggregate-full upload is refused with 503");
+    assert.deepEqual(await overflow.json(), { error: "Service unavailable" });
+    assert.equal(overflow.headers.get("retry-after"), "1", "a full pool asks the caller to retry");
     assert.equal(receivedRequests.length, before, "rejected upload never reached upstream");
     assert.equal(overflow.headers.get("content-type"), "application/json; charset=utf-8");
 
@@ -6945,5 +6967,55 @@ describe("body buffering", () => {
 
     endHeld(heldResponses);
     await Promise.allSettled(holders);
+  });
+
+  // Regression: the aggregate reservation used to be one module-level variable
+  // shared by every request, so overlapping uploads overwrote each other's
+  // reservation and the loser's bytes were never given back. One burst of four
+  // exhausted the pool until restart. Every burst below therefore has to get
+  // all four uploads through: a leak in the first round leaves the pool short
+  // for every round after it, so the second and third bursts are what fail on
+  // the shared-variable code.
+  test("overlapping uploads return their aggregate slots, burst after burst", async (t) => {
+    const { proxy, receivedRequests, heldResponses } = await withProxy(t, {
+      proxyEnv: SMALL_BODY,
+      mode: "hold",
+    });
+
+    // Four overlapping uploads fill all four slots (4 x 256 = the 1024 bound),
+    // which is the overlap that used to overwrite the shared reservation.
+    async function burst(label) {
+      const holders = [];
+      for (let i = 0; i < 4; i++) {
+        const p = postBody(proxy, 200);
+        p.catch(() => {});
+        holders.push(p);
+      }
+      // Reaching four held upstream responses means four slots were granted
+      // at the same time: an upload refused by the drained pool answers 503
+      // and never reaches the upstream, so this wait times out instead.
+      await waitForCount(`${label} gets all four uploads through`, () => heldResponses.length, 4);
+      endHeld(heldResponses);
+      const responses = await Promise.all(holders);
+      for (const r of responses) await r.text();
+      assert.deepEqual(
+        responses.map((r) => r.status),
+        [200, 200, 200, 200],
+        `${label} returns 200 for every overlapping upload`
+      );
+      // Let the now-finished responses run their release path before the next
+      // burst asks for the same four slots.
+      await settle(100);
+    }
+
+    await burst("round 1");
+    assert.equal(receivedRequests.length, 4, "every round-1 upload reached the upstream");
+    await burst("round 2");
+    await burst("round 3");
+    assert.equal(
+      receivedRequests.length,
+      12,
+      "every later round's upload reached the upstream, so their slots were returned"
+    );
   });
 });
