@@ -22,7 +22,7 @@ A request whose cost exceeds the whole TPM gets 429 forever with Retry-After: 1 
 
 ## 4. Preconditions
 
-- npm test passes (265 tests).
+- npm test passes (267 tests).
 - budget.js createWindow and retryAfterSeconds implemented (e04s04).
 
 ## 5. Solution and main flow

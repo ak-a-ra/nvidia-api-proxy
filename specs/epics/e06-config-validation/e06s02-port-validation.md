@@ -21,7 +21,7 @@ PORT=0 accepted though comment says 1-65535; deploy could bind unexpected port.
 
 ## 4. Preconditions
 
-- npm test passes (265 tests).
+- npm test passes (267 tests).
 - config.js parseConfig PORT validation exists.
 
 ## 5. Solution and main flow

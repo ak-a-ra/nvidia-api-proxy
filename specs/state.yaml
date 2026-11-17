@@ -7,8 +7,8 @@
 ```yaml
 vcs:
   kind: git
-  commit: ef43ab2
-  branch: main
+  commit: b0b000e04b8e76c9b0e398867ee8c86cb04a1b7c
+  branch: fix/body-slot-budget-413
   worktree: /data/data/com.termux/files/home/projects/nvidia-api-proxy
   landed:
     story: e04s09
@@ -32,7 +32,7 @@ handoff:
     e07s01 over-budget rejection (#29 P1), e07s02 stats counter rename (#32 P2),
     e07s03 token estimation (#27 P1), e08s01 Render defaults (#25 P2),
     e08s02 Node engine >=20 (#26 P2), e08s03 lint/format files (#31 P2).
-    Count 265. package.json engines.node >=20; lint/format scripts
+    Count 267. package.json engines.node >=20; lint/format scripts
     include admission.js observer.js. All thirteen story ledgers, six epic
     manifests and execution-status.yaml now read done; specs and code agree.
     Also repaired this session: .github/workflows/ci.yml restored (29a5897
@@ -41,7 +41,7 @@ handoff:
     the ledgers still said todo/failing, and named the never-existent
     scripts/check-test-count.mjs); five living docs corrected from the old
     verbatim-query-string logging claim to the shipped pathname-only rule.
-    Pending: push (main is 8 ahead of origin/main).
+    Pending: push (main is 10 ahead of origin/main; HEAD is b0b000e on fix/body-slot-budget-413).
 
 decisions:
   - decision: Per-model window pairs are built at construction time, and the story's "lazily" sentence is corrected
